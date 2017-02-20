@@ -1,5 +1,9 @@
 
-![Bolt](/assets/bolt.jpg?raw=true)
+<!-- ![Bolt](/assets/bolt.jpg?raw=true =489x177) -->
+
+<p align="center">
+  <img src="https://github.com/dblalock/bolt/blob/master/assets/bolt.jpg?raw=true" alt="Bolt" style="width=489px;height:177px;"/>
+</p>
 
 Bolt is an algorithm for compressing vectors of real-valued data and running mathematical operations directly on the compressed representations.
 
@@ -26,7 +30,7 @@ out = np.dot(X, Q.T)
 # faster way: use Bolt approximate dot products
 out2 = encoder.dot(X, Q.T)
 
-# even faster way: give Bolt and X that's already compressed
+# even faster way: give Bolt an X that's already compressed
 X_compressed = encoder.transform(X)
 out3 = encoder.dot(X_compressed, Q.T)
 
@@ -37,11 +41,15 @@ print(X_compressed.nbytes)  # 1e6 * 32B = 32 MB
 # nearly identical dot products (modulo offset/scaling)
 from scipy.stats.stats import pearsonr
 print("correlation between true and Bolt dot products: " {}".format(
-    pearsonr(out, out3))  # >.95
+    pearsonr(out, out3))  # >.9, despite random data being worst case
 
 # recover offset/scaling if needed
 out3 = encoder.rescale_output(out3)
 ```
+
+## How does it work?
+
+Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the Bolt paper (to be uploaded soon...).
 
 ## Benchmarks
 
