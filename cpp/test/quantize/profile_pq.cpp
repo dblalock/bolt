@@ -19,19 +19,19 @@
     #include "debug_utils.hpp"
 #endif
 
-// #define PROFILE_ENCODE
+#define PROFILE_ENCODE
 #define PROFILE_SCAN
 #define PROFILE_QUERY
 #define PROFILE_NONFLOATS
 
-static constexpr int kNreps = 1;
+static constexpr int kNreps = 3;
 // static constexpr int kNreps = 1;
 static constexpr int kNtrials = 5;
 
-static constexpr int M = 32; // number of bytes per compressed vect
-static constexpr int64_t nrows_enc = 10*1000; // number of rows to encode
-static constexpr int64_t nrows_lut = 10*1000; // number of luts to create
-static constexpr int64_t nrows_scan = 1000*1000;
+static constexpr int M = 8; // number of bytes per compressed vect
+static constexpr int64_t nrows_enc = 2*1000; // number of rows to encode
+static constexpr int64_t nrows_lut = 2*1000; // number of luts to create
+static constexpr int64_t nrows_scan = 100*1000;
 static constexpr int64_t nrows_query = 100*1000;
 static constexpr int nqueries = 100;
 
@@ -41,10 +41,10 @@ static constexpr int ncodebooks = M * (8 / bits_per_codebook);
 static constexpr int ncentroids = (1 << bits_per_codebook);
 static constexpr int ncentroids_total = ncentroids * ncodebooks;
 static constexpr int lut_data_sz = ncentroids * ncodebooks;
-static constexpr int subvect_len = 1024 / ncodebooks; // ncols * subvect_len = number of features
+// static constexpr int subvect_len = 1024 / ncodebooks; // ncols * subvect_len = number of features
 //static constexpr int subvect_len = 512 / ncodebooks; // ncols * subvect_len = number of features
 //static constexpr int subvect_len = 256 / ncodebooks; // ncols * subvect_len = number of features
-// static constexpr int subvect_len = 128 / ncodebooks; // ncols * subvect_len = number of features
+static constexpr int subvect_len = 128 / ncodebooks; // ncols * subvect_len = number of features
 //static constexpr int subvect_len = 64 / ncodebooks; // ncols * subvect_len = number of features
 static constexpr int ncols = ncodebooks * subvect_len;
 

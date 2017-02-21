@@ -257,6 +257,7 @@ void _run_bolt_matmul(const RowMatrix<float>& X, const RowMatrix<float>& Q,
 
 template<int M>
 void _profile_bolt_matmul(int nrows, int ncols, int nqueries) {
+    static constexpr int ncodebooks = 2 * M;
 
     // create random data
     RowMatrix<float> X(nrows, ncols);
@@ -298,26 +299,26 @@ void _profile_bolt_matmul(int nrows, int ncols, int nqueries) {
         (_run_bolt_matmul<M, true>(X, Q, centroids, codes, offsets, scaleby, luts, out)) );
 }
 
-TEST_CASE("bolt matmul speed", "[matmul][profile]") {
+TEST_CASE("bolt square matmul speed", "[square][matmul][profile]") {
 
     // uncomment to profile square matrix multiplies
-//    std::vector<int> sizes {64, 128, 256};
-//    std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096, 8192};
-//    std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096};
-//    std::vector<int> sizes {8192};
-//    for (auto sz : sizes) {
-//        _profile_bolt_matmul<8>(sz, sz, sz);
-//        _profile_bolt_matmul<16>(sz, sz, sz);
-//        _profile_bolt_matmul<32>(sz, sz, sz);
-//    }
-
+    std::vector<int> sizes {64, 128, 256};
+    // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096, 8192};
+    // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096};
+    for (auto sz : sizes) {
+       _profile_bolt_matmul<8>(sz, sz, sz);
+       _profile_bolt_matmul<16>(sz, sz, sz);
+       _profile_bolt_matmul<32>(sz, sz, sz);
+    }
+}
+TEST_CASE("bolt tall matmul speed", "[tall][matmul][profile]") {
     // profile tall skinny matmuls; basically like answering mips queries
     static constexpr int nrows = 100 * 1000;
     static constexpr int ncols = 256;
-    std::vector<int> nums_queries {1, 16, 32, 64, 128, 256, 512, 1024, 2048};
-//    std::vector<int> nums_queries {1, 16, 32, 64};//, 128, 256};
-//    std::vector<int> nums_queries {128, 256, 512, 1024};
-//    std::vector<int> nums_queries {2048};
+    // std::vector<int> nums_queries {1, 16, 32, 64, 128, 256, 512, 1024, 2048};
+    // std::vector<int> nums_queries {128, 256, 512, 1024};
+    std::vector<int> nums_queries {1, 16, 32, 64, 128};
+    // std::vector<int> nums_queries {2048};
     for (auto nqueries : nums_queries) {
         _profile_bolt_matmul<8>(nrows, ncols, nqueries);
         _profile_bolt_matmul<16>(nrows, ncols, nqueries);
@@ -357,28 +358,29 @@ void _profile_matmul(int nrows, int ncols, int nqueries) {
 
 
 // TODO move this to own file; it's something we'd like to profile in general
-TEST_CASE("matmul speed", "[matmul][profile]") {
+TEST_CASE("square matmul speed", "[square][matmul][profile]") {
 
-   // square matrix
-   // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096};
-   // std::vector<int> sizes {64, 128, 256, 512, 1024};
-   // std::vector<int> sizes {2048, 4096};
-   std::vector<int> sizes {64, 128, 256};
-   // std::vector<int> sizes {8192};
-   for (auto sz : sizes) {
-       _profile_matmul(sz, sz, sz);
-   }
+    // square matrix
+    // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096};
+    // std::vector<int> sizes {64, 128, 256, 512, 1024};
+    // std::vector<int> sizes {2048, 4096};
+    std::vector<int> sizes {64, 128, 256};
+    // std::vector<int> sizes {8192};
+    for (auto sz : sizes) {
+        _profile_matmul(sz, sz, sz);
+    }
+}
+TEST_CASE("tall matmul speed", "[tall][matmul][profile]") {
+    // tall skinnny matrix
+    static constexpr int nrows = 100 * 1000;
+    static constexpr int ncols = 256;
+    // static constexpr int nqueries = 128;
+    //    std::vector<int> nums_queries {1, 16, 32, 64};//, 128, 256};
+    // std::vector<int> nums_queries {128, 256, 512, 1024};
+    std::vector<int> nums_queries {1, 16, 32, 64, 128};
+    // std::vector<int> nums_queries {2048};
 
-   // tall skinnny matrix
-   static constexpr int nrows = 100 * 1000;
-   static constexpr int ncols = 256;
-   // static constexpr int nqueries = 128;
-//    std::vector<int> nums_queries {1, 16, 32, 64};//, 128, 256};
-   std::vector<int> nums_queries {1, 16, 32, 64, 128, 256, 512};
-   // std::vector<int> nums_queries {128, 256, 512, 1024};
-   // std::vector<int> nums_queries {2048};
-
-   for (auto nqueries : nums_queries) {
+    for (auto nqueries : nums_queries) {
        _profile_matmul(nrows, ncols, nqueries);
-   }
+    }
 }
