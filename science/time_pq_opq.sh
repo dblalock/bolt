@@ -1,2 +1,2 @@
-cd ../cpp
-bazel run :main -- '[pq]'
+#!/bin/bash
+cd ../cpp && bazel run :main -- '[pq]'

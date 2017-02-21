@@ -24,7 +24,7 @@
 #define PROFILE_QUERY
 #define PROFILE_NONFLOATS
 
-static constexpr int kNreps = 3;
+static constexpr int kNreps = 10;
 // static constexpr int kNreps = 1;
 static constexpr int kNtrials = 5;
 

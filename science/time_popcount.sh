@@ -1,2 +1,2 @@
-cd ../cpp
-bazel run :main -- '[popcount]'
+#!/bin/bash
+cd ../cpp && bazel run :main -- '[popcount]'

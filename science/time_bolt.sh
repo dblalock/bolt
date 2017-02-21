@@ -1,2 +1,2 @@
-cd ../cpp
-bazel run :main -- '[bolt]'
+#!/bin/bash
+cd ../cpp && bazel run :main -- '[bolt]'
