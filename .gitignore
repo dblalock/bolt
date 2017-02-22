@@ -111,3 +111,7 @@ docs/
 output/
 
 notes.txt
+
+joblib/
+figs/
+_results/

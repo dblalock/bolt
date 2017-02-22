@@ -324,7 +324,7 @@ def eval_encoder(dataset, encoder, dist_func_true=None, dist_func_enc=None,
     if true_nn is not None:
         print "eval encoder(): got true_nn with shape: ", true_nn.shape
 
-    # queries = queries[:200]  # TODO rm for tables; fine for plots
+    queries = queries[:1000]  # TODO rm for tables; fine for plots
     print "queries.shape", queries.shape
 
     need_true_dists = eval_dists or plot or true_nn is None
@@ -562,7 +562,8 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
                 detailed_dicts += detailed_stats
 
     # ------------------------------------------------ PQ
-    for codebook_bits in [4, 8]:
+    # for codebook_bits in [4, 8]:
+    for codebook_bits in [8]:
         for nbytes in nbytes_list:
             nsubvects = nbytes * (8 / codebook_bits)
             encoder = PQEncoder(dataset, nsubvects=nsubvects,
@@ -622,7 +623,7 @@ def experiment(eval_dists=False, dotprods=False):
     which_datasets = [datasets.Sift1M, datasets.LabelMe,
                       datasets.Convnet1M, datasets.Mnist]
 
-    save_dir = '../results/acc_dotprods/' if dotprods else '../results/acc_l2_3'
+    save_dir = '../results/acc_dotprods/' if dotprods else '../results/acc_l2'
 
     for which_dataset in which_datasets:
         _dicts, _details = _experiment_one_dataset(

@@ -242,7 +242,7 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True):
         #          'Matmul 64', 'Matmul 256', 'Matmul 1024']
 
         if with_matmuls:
-            ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ', 'PairQ',
+            ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ',
                     'Matmul 1', 'Matmul 256', 'Matmul 1024']
         else:
             ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ']
@@ -802,18 +802,13 @@ def main():
     # plt.show()
 
     # popcount_fig()
-    # encoding_fig(data_enc=True)
-    # encoding_fig(data_enc=False)
     # encoding_fig()
-    # query_speed_fig(fname='query_speed_with_matmuls')
+    query_speed_fig(fname='query_speed_with_matmuls')
     # matmul_fig()
-    # recall_r_fig()
     # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall')
-    # recall_r_fig(suptitle='Nearest Neighbor Recall, Dot Product', fname='mips_recall')
-    # distortion_fig(fake_data=True, fname='l2_distortion_')
-    distortion_fig(fake_data=False, fname='l2_distortion')
-    distortion_fig(fake_data=False, fname='dotprod_distortion',
-                   suptitle='Quality of Approximate Dot Products', l2=False)
+    # distortion_fig(fake_data=False, fname='l2_distortion')
+    # distortion_fig(fake_data=False, fname='dotprod_distortion',
+    #                suptitle='Quality of Approximate Dot Products', l2=False)
     # kmeans_fig()
 
 

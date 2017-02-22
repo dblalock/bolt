@@ -25,11 +25,10 @@ static constexpr int kNreps = 10;
 // static constexpr int kNreps = 1;
 static constexpr int kNtrials = 5;
 
-//static constexpr int RotationSz = 8;
-static constexpr int RotationSz = 16;
-static constexpr int M = 8; // number of bytes per compressed vect
-static constexpr int64_t nrows_enc = 10*1000; // number of rows to encode
-static constexpr int64_t nrows_lut = 10*1000; // number of luts to create
+static constexpr int ncols = 128;               // length of vectors
+static constexpr int M = 8;                     // # bytes per compressed vect
+static constexpr int64_t nrows_enc = 10*1000;   // number of rows to encode
+static constexpr int64_t nrows_lut = 10*1000;   // number of luts to create
 static constexpr int64_t nblocks_scan = 1000*1000 / 32;
 static constexpr int64_t nblocks_query = 100*1000 / 32;
 static constexpr int nqueries = 100;
@@ -39,13 +38,10 @@ static constexpr int ncodebooks = M * (8 / bits_per_codebook);
 static constexpr int ncentroids = (1 << bits_per_codebook);
 static constexpr int ncentroids_total = ncentroids * ncodebooks;
 static constexpr int lut_data_sz = ncentroids * ncodebooks;
-static constexpr int subvect_len = 1024 / ncodebooks; // ncols * subvect_len = number of features
-// static constexpr int subvect_len = 512 / ncodebooks; // ncols * subvect_len = number of features
-// static constexpr int subvect_len = 256 / ncodebooks; // ncols * subvect_len = number of features
-// static constexpr int subvect_len = 128 / ncodebooks; // ncols * subvect_len = number of features
-// static constexpr int subvect_len = 64 / ncodebooks; // ncols * subvect_len = number of features
-static constexpr int ncols = ncodebooks * subvect_len;
+static constexpr int subvect_len = ncols / ncodebooks;
 
+static_assert(ncols % ncodebooks == 0,
+    "ncols must be a multiple of ncodebooks!");
 
 TEST_CASE("print bolt params", "[bolt][mcq][profile]") {
     printf("------------------------ bolt\n");
@@ -64,32 +60,18 @@ TEST_CASE("print bolt params", "[bolt][mcq][profile]") {
 }
 
 TEST_CASE("bolt encoding speed", "[bolt][mcq][profile]") {
-   static constexpr int nrows = nrows_enc;
+    static constexpr int nrows = nrows_enc;
 
+    ColMatrix<float> centroids(ncentroids, ncols);
+    centroids.setRandom();
+    RowMatrix<float> X(nrows, ncols);
+    X.setRandom();
+    RowMatrix<uint8_t> encoding_out(nrows, M);
 
-   ColMatrix<float> centroids(ncentroids, ncols);
-   centroids.setRandom();
-   RowMatrix<float> X(nrows, ncols);
-   X.setRandom();
-   RowMatrix<uint8_t> encoding_out(nrows, M);
-
-   // PROFILE_DIST_COMPUTATION("bolt encode", 5, encoding_out.data(), nrows,
-   //     bolt_encode<M>(X.data(), nrows, ncols, centroids.data(),
-   //                    encoding_out.data()));
-
-   REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt encode", kNtrials,
-       encoding_out.data(), nrows,
-       bolt_encode<M>(X.data(), nrows, ncols, centroids.data(),
-                      encoding_out.data()));
-
-//    int nrotations = ncols / RotationSz;
-//    RowMatrix<float> rotations(RotationSz * nrotations, RotationSz);
-//    rotations.setRandom();
-//    auto msg = string_with_format("boltR %d encode", RotationSz);
-//    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-//        encoding_out.data(), nrows,
-//        (boltR_encode<M, RotationSz>(X.data(), nrows, ncols, centroids.data(),
-//            rotations.data(), encoding_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt encode", kNtrials,
+    encoding_out.data(), nrows,
+        bolt_encode<M>(X.data(), nrows, ncols, centroids.data(),
+                       encoding_out.data()));
 }
 
 
@@ -104,27 +86,11 @@ TEST_CASE("bolt lut encoding speed", "[bolt][mcq][profile]") {
    RowVector<float> offsets(ncols);
    offsets.setRandom();
    float scaleby = 3; // arbitrary number
-   //    int scaleby = 3; // arbitrary number
 
-   // PROFILE_DIST_COMPUTATION_LOOP("bolt direct encode lut", 5, lut_out.data(),
-   //     lut_data_sz, nrows,
-   //     bolt_lut<M>(Q.row(i).data(), ncols, centroids.data(), lut_out.data()));
-//    REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt direct encode lut", kNtrials,
-//        lut_out.data(), lut_data_sz, nrows,
-//        bolt_lut<M>(Q.row(i).data(), ncols, centroids.data(), lut_out.data()));
    REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt encode lut", kNtrials,
       lut_out.data(), lut_data_sz, nrows,
       bolt_lut<M>(Q.row(i).data(), ncols, centroids.data(),
                   offsets.data(), scaleby, lut_out.data()));
-//    // slow...
-//    int nrotations = ncols / RotationSz;
-//    RowMatrix<float> rotations(RotationSz * nrotations, RotationSz);
-//    rotations.setRandom();
-//    auto msg = string_with_format("boltR %d encode lut", RotationSz);
-//    REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, msg, kNtrials,
-//        lut_out.data(), lut_data_sz, nrows,
-//        (boltR_lut<M, Reductions::DistL2, RotationSz>(Q.row(i).data(), ncols,
-//            centroids.data(), rotations.data(), offsets.data(), lut_out.data())) );
 }
 
 TEST_CASE("bolt scan speed", "[bolt][mcq][profile]") {
@@ -145,13 +111,6 @@ TEST_CASE("bolt scan speed", "[bolt][mcq][profile]") {
    RowVector<uint8_t> dists_u8(nrows);
    RowVector<uint16_t> dists_u16(nrows);
    RowVector<uint16_t> dists_u16_safe(nrows);
-
-   // PROFILE_DIST_COMPUTATION("bolt scan uint8", 5, dists_u8.data(), nrows,
-   //     bolt_scan<M>(codes.data(), luts.data(), dists_u8.data(), nblocks));
-   // PROFILE_DIST_COMPUTATION("bolt scan uint16", 5, dists_u16.data(), nrows,
-   //     bolt_scan<M>(codes.data(), luts.data(), dists_u16.data(), nblocks));
-   // PROFILE_DIST_COMPUTATION("bolt scan uint16 safe", 5, dists_u16_safe.data(), nrows,
-   //     bolt_scan<M>(codes.data(), luts.data(), dists_u16_safe.data(), nblocks));
 
    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint8", kNtrials,
        dists_u8.data(), nrows,
@@ -196,10 +155,6 @@ TEST_CASE("bolt query (lut + scan) speed", "[bolt][mcq][profile]") {
 
     SECTION("uint8_t") {
         RowVector<uint8_t> dists(nrows);
-        // PROFILE_DIST_COMPUTATION_LOOP("bolt query u8", 5,
-        //     dists.data(), nrows, nqueries,
-        //     _run_query<M>(codes.data(), nblocks, Q.row(i).data(), ncols,
-        //         centroids.data(), luts.data(), dists.data()) );
         REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt query u8", kNtrials,
             dists.data(), nrows, nqueries,
             _run_query<M>(codes.data(), nblocks, Q.row(i).data(), ncols,
@@ -207,10 +162,6 @@ TEST_CASE("bolt query (lut + scan) speed", "[bolt][mcq][profile]") {
     }
     SECTION("uint16_t") {
         RowVector<uint16_t> dists(nrows);
-        // PROFILE_DIST_COMPUTATION_LOOP("bolt query u16", 5,
-        //     dists.data(), nrows, nqueries,
-        //     _run_query<M>(codes.data(), nblocks, Q.row(i).data(), ncols,
-        //         centroids.data(), luts.data(), dists.data()) );
         REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt query u16", kNtrials,
             dists.data(), nrows, nqueries,
             _run_query<M>(codes.data(), nblocks, Q.row(i).data(), ncols,
@@ -218,10 +169,6 @@ TEST_CASE("bolt query (lut + scan) speed", "[bolt][mcq][profile]") {
     }
     SECTION("uint16_t safe") {
         RowVector<uint16_t> dists(nrows);
-        // PROFILE_DIST_COMPUTATION_LOOP("bolt query u16 safe", 5,
-        //     dists.data(), nrows, nqueries,
-        //     (_run_query<M, true>(codes.data(), nblocks, Q.row(i).data(), ncols,
-        //         centroids.data(), luts.data(), dists.data()) ));
         REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt query u16 safe", kNtrials,
             dists.data(), nrows, nqueries,
             (_run_query<M, true>(codes.data(), nblocks, Q.row(i).data(), ncols,
@@ -248,7 +195,6 @@ void _run_bolt_matmul(const RowMatrix<float>& X, const RowMatrix<float>& Q,
 
     for (int i = 0; i < nqueries; i++) {
         const float* q = Q.row(i).data();
-//        bolt_lut<M>(q, (int)ncols, centroids.data(), lut_out.data());
         bolt_lut<M>(q, (int)ncols, centroids.data(), offsets.data(),
                     scaleby, lut_out.data());
         bolt_scan<M, true>(codes.data(), lut_out.data(), out.row(i).data(), nblocks);
@@ -332,28 +278,26 @@ void _run_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
 }
 
 void _profile_matmul(int nrows, int ncols, int nqueries) {
+    // using MatrixT = ColMatrix<float>;
+    using MatrixT = RowMatrix<float>; // faster for small batches, else slower
 
-   // using MatrixT = ColMatrix<float>;
-  using MatrixT = RowMatrix<float>; // faster for small batches, else slower
+    // create random data
+    MatrixT X(nrows, ncols);
+    X.setRandom();
 
-   // create random data
-   // RowMatrix<float> X(nrows, ncols);
-   MatrixT X(nrows, ncols);
-   X.setRandom();
+    // create random queries
+    // RowMatrix<float> Q(ncols, nqueries);
+    MatrixT Q(ncols, nqueries);
+    Q.setRandom();
 
-   // create random queries
-   // RowMatrix<float> Q(ncols, nqueries);
-   MatrixT Q(ncols, nqueries);
-   Q.setRandom();
+    // create output matrix to avoid malloc
+    MatrixT out(nrows, nqueries);
 
-   // create output matrix to avoid malloc
-   MatrixT out(nrows, nqueries);
-
-   // time it
-   std::string msg = string_with_format("matmul %d", nqueries);
-   REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-       out.data(), nrows * nqueries,
-       _run_matmul(X, Q, out));
+    // time it
+    std::string msg = string_with_format("matmul %d", nqueries);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), nrows * nqueries,
+        _run_matmul(X, Q, out));
 }
 
 

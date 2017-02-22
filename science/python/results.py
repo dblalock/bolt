@@ -279,7 +279,6 @@ def query_speed_results():
         algo = 'Matmul {}'.format(sz)
         for nbytes in nbytes_list:
             thruputs = _extract_thruput(s)
-            print "thruputs:", thruputs
             out_dicts += [{'algo': algo, 'nbytes': nbytes, 'y': t} for t in thruputs]
 
     return pd.DataFrame.from_records(out_dicts)
