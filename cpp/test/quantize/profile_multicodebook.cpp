@@ -2,11 +2,13 @@
 #ifdef BLAZE
     #include "test/external/catch.hpp"
     #include "src/quantize/multi_codebook.hpp"
+    #include "src/utils/bit_ops.hpp"
     #include "src/utils/memory.hpp"
     #include "src/utils/timing_utils.hpp"
     #include "test/testing_utils/testing_utils.hpp"
 #else
     #include "catch.hpp"
+    #include "bit_ops.hpp"
     #include "multi_codebook.hpp"
     #include "memory.hpp"
     #include "timing_utils.hpp"
@@ -23,41 +25,12 @@
 // #define PROFILE_float_raw
 
 static constexpr int kNreps = 10;
-// static constexpr int kNreps = 1;
 static constexpr int kNtrials = 5;
 
 static constexpr int M = 8;
 // static constexpr int M = 16;
 // static constexpr int M = 32;
 
-// ------------------------ popcount function
-
-template<class T, int N>
-struct _popcount;
-
-template<class T>
-struct _popcount<T, 1> {
-    static int8_t count(T x) { return __builtin_popcount((uint8_t)x); }
-};
-template<class T>
-struct _popcount<T, 2> {
-    static int8_t count(T x) { return __builtin_popcount((uint16_t)x); }
-};
-template<class T>
-struct _popcount<T, 4> {
-    // static int8_t count(T x) { std::cout << "popcount 4B\n"; return __builtin_popcountl((uint32_t)x); }
-    static int8_t count(T x) { return __builtin_popcountl((uint32_t)x); }
-};
-template<class T>
-struct _popcount<T, 8> {
-    // static int8_t count(T x) { std::cout << "popcount 8B\n"; return __builtin_popcountll((uint64_t)x); }
-    static int8_t count(T x) { return __builtin_popcountll((uint64_t)x); }
-};
-
-template<class T>
-int8_t popcount(T x) {
-    return _popcount<T, sizeof(T)>::count(x);
-}
 
 // TODO split this into smaller functions and also call from other test file
 TEST_CASE("popcnt_timing", "[mcq][profile][popcount]") {

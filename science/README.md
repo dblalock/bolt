@@ -39,13 +39,16 @@ To reproduce the timing experiments using these scripts:
 
 2. Since we want to be certain that the compiler unrolls all the relevant loops / inlines code equally for all algorithms, the number of bytes used in encodings and lengths of vectors are constants at the top of the corresponding files. To assess all the combinations of encoding / vector lengths used in the paper, you will have to modify these constants and rerun the tests multiple times. Ideally, this would be automated, but I haven't coded it yet; pull requests welcome.
 
-<!-- TODO finish this table and we're good -->
-
-<!--
 | Test          |   File        | Constants and Experimental Values
 |:----------    |:----------    |:----------
 | time_bolt.sh  | cpp/test/quantize/profile_bolt.cpp | M = {8,16,32}, ncols={64, 128, 256, 512, 1024}
- -->
+| time_pq_opq.sh  | cpp/test/quantize/profile_pq.cpp | M = {8,16,32}, ncols={64, 128, 256, 512, 1024}
+| time_popcount.sh  | cpp/test/quantize/profile_multicodebook.cpp | M = {8,16,32}
+| time_matmul_square.sh  | cpp/test/quantize/profile_bolt.cpp | sizes = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
+| time_matmul_tall.sh  | cpp/test/quantize/profile_bolt.cpp | sizes = [1, 16, 32, 64, 128, 256, 512, 1024, 2048]
+
+The matmul `sizes` only need to be modified once since the code iterates over all provided sizes; the tests are just set to run a subset of the sizes at the moment so that one can validate that it runs without waiting for minutes.
+
 
 ## Reproduce Accuracy Results
 
@@ -81,17 +84,15 @@ To compute the recall@R:
 $ bash recall_at_r.sh
 ```
 
-<!-- Note that the correlations for squared Euclidean distances appear worse than for dot products because we're using the *squared* Euclidean distance. -->
-
-
 ## Compare to Our Results
 
 All raw results are in the `results/` directory. `summary.csv` files store aggregate metrics, and `all_results.csv` files store metrics for individual queries. The latter is mostly present so that we can plot confidence intervals.
 
 
-## Final Notes
+## Notes
+
+At present, Bolt has only been tested with Clang on OS X. The timing / throughput results in the paper are based on compiling with Xcode.
 
 Feel free to contact us with any and all questions.
-
 
 <!-- Also, because this code is a cleaned-up version of what we originally ran, there is a small but nonzero chance we've subtly broken something or diminished the performance. Please don't hesitate to contact us if you believe this is the case. -->

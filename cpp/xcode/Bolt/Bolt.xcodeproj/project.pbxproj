@@ -371,7 +371,6 @@
 		72DE64671E5F74BB009B5E61 /* test_bolt.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = test_bolt.cpp; sourceTree = "<group>"; };
 		72DE64681E5F74BB009B5E61 /* test_bolt.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = test_bolt.hpp; sourceTree = "<group>"; };
 		72DE64691E5F74BB009B5E61 /* test_multicodebook.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = test_multicodebook.cpp; sourceTree = "<group>"; };
-		72DE646B1E5F74BB009B5E61 /* testing_utils.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = testing_utils.cpp; sourceTree = "<group>"; };
 		72DE646C1E5F74BB009B5E61 /* testing_utils.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = testing_utils.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -1133,7 +1132,6 @@
 		72DE646A1E5F74BB009B5E61 /* testing_utils */ = {
 			isa = PBXGroup;
 			children = (
-				72DE646B1E5F74BB009B5E61 /* testing_utils.cpp */,
 				72DE646C1E5F74BB009B5E61 /* testing_utils.hpp */,
 			);
 			path = testing_utils;

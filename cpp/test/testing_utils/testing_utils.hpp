@@ -21,10 +21,6 @@
     #include "timing_utils.hpp" // for profiling
 #endif
 
-// TODO rm these functions
-///used for comparisons ignoring slight floating point errors
-short int approxEq(double a, double b);
-double rnd(double a);
 
 template<class DistT>
 double prevent_optimizing_away_dists(DistT* dists, int64_t N,
@@ -61,19 +57,6 @@ static inline void print_dist_stats(const std::string& name, int64_t N,
     }
 }
 
-template<class dist_t>
-static inline void print_dist_stats(const std::string& name,
-    const dist_t* dists, int64_t N, double t_ms)
-{
-    if (dists != nullptr) {
-        // prevent_optimizing_away_dists(dists, N);
-        // if (N < 100) {
-        //     auto printable_ar = ar::add(dists, N, 0);
-        //     ar::print(printable_ar.get(), N);
-        // }
-    }
-    print_dist_stats(name, N, t_ms);
-}
 
 #define PROFILE_DIST_COMPUTATION(NAME, NTRIALS, DISTS_PTR, NUM_DISTS, EXPR)  \
     do {                                                                \

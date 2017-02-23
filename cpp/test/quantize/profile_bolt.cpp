@@ -43,16 +43,13 @@ static constexpr int subvect_len = ncols / ncodebooks;
 static_assert(ncols % ncodebooks == 0,
     "ncols must be a multiple of ncodebooks!");
 
-// TEST_CASE("print bolt params", "[pq][mcq][profile]") {  // TODO rm
 TEST_CASE("print bolt params", "[bolt][mcq][profile]") {
     printf("------------------------ bolt\n");
     printf("---- bolt profiling parameters\n");
     printf("bolt M: %d\n", M);
     printf("bolt nrows_enc: %g\n", (double)nrows_enc);
     printf("bolt nrows_lut: %g\n", (double)nrows_lut);
-    // printf("nblocks_scan: %g\n", (double)nblocks_scan);
     printf("bolt nrows_scan: %g\n", (double)nblocks_scan * 32);
-    // printf("nblocks_query: %g\n", (double)nblocks_query);
     printf("bolt nrows_query: %g\n", (double)nblocks_query * 32);
     printf("bolt subvect_len: %d\n", subvect_len);
     printf("bolt ncols: %d\n", ncols);
@@ -251,7 +248,6 @@ TEST_CASE("bolt square matmul speed", "[square][matmul][profile]") {
     // uncomment to profile square matrix multiplies
     std::vector<int> sizes {64, 128, 256};
     // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096, 8192};
-    // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096};
     for (auto sz : sizes) {
        _profile_bolt_matmul<8>(sz, sz, sz);
        _profile_bolt_matmul<16>(sz, sz, sz);
@@ -262,10 +258,8 @@ TEST_CASE("bolt tall matmul speed", "[tall][matmul][profile]") {
     // profile tall skinny matmuls; basically like answering mips queries
     static constexpr int nrows = 100 * 1000;
     static constexpr int ncols = 256;
+    std::vector<int> nums_queries {1, 16, 32, 64};
     // std::vector<int> nums_queries {1, 16, 32, 64, 128, 256, 512, 1024, 2048};
-    // std::vector<int> nums_queries {128, 256, 512, 1024};
-    std::vector<int> nums_queries {1, 16, 32, 64, 128};
-    // std::vector<int> nums_queries {2048};
     for (auto nqueries : nums_queries) {
         _profile_bolt_matmul<8>(nrows, ncols, nqueries);
         _profile_bolt_matmul<16>(nrows, ncols, nqueries);
@@ -304,13 +298,9 @@ void _profile_matmul(int nrows, int ncols, int nqueries) {
 
 // TODO move this to own file; it's something we'd like to profile in general
 TEST_CASE("square matmul speed", "[square][matmul][profile]") {
-
     // square matrix
-    // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096};
-    // std::vector<int> sizes {64, 128, 256, 512, 1024};
-    // std::vector<int> sizes {2048, 4096};
     std::vector<int> sizes {64, 128, 256};
-    // std::vector<int> sizes {8192};
+    // std::vector<int> sizes {64, 128, 256, 512, 1024, 2048, 4096, 8192};
     for (auto sz : sizes) {
         _profile_matmul(sz, sz, sz);
     }
@@ -319,12 +309,8 @@ TEST_CASE("tall matmul speed", "[tall][matmul][profile]") {
     // tall skinnny matrix
     static constexpr int nrows = 100 * 1000;
     static constexpr int ncols = 256;
-    // static constexpr int nqueries = 128;
-    //    std::vector<int> nums_queries {1, 16, 32, 64};//, 128, 256};
-    // std::vector<int> nums_queries {128, 256, 512, 1024};
-    std::vector<int> nums_queries {1, 16, 32, 64, 128};
-    // std::vector<int> nums_queries {2048};
-
+    std::vector<int> nums_queries {1, 16, 32, 64};
+    // std::vector<int> nums_queries {1, 16, 32, 64, 128, 256, 512, 1024, 2048};
     for (auto nqueries : nums_queries) {
        _profile_matmul(nrows, ncols, nqueries);
     }

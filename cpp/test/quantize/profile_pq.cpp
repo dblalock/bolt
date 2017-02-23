@@ -22,7 +22,7 @@
 #define PROFILE_ENCODE
 #define PROFILE_SCAN
 #define PROFILE_QUERY
-#define PROFILE_NONFLOATS
+// #define PROFILE_NONFLOATS
 
 static constexpr int kNreps = 10;
 // static constexpr int kNreps = 1;
@@ -48,10 +48,6 @@ static_assert(ncols % ncodebooks == 0,
     "ncols must be a multiple of ncodebooks!");
 
 
-// TEST_CASE("tmp", "[bolt]") {
-//     printf(">>>>>> running bolt test case from pq file!!!\n");
-// }
-
 TEST_CASE("print pq params", "[pq][mcq][profile]") {
     printf("mcq_D=%d_M=%d\n", ncols, M);  // tmp hack so it suggests the right filename
 
@@ -71,8 +67,6 @@ TEST_CASE("print pq params", "[pq][mcq][profile]") {
 #ifdef PROFILE_ENCODE
 TEST_CASE("pq encoding speed", "[pq][mcq][profile]") {
     static constexpr int nrows = nrows_enc;
-    // static constexpr int nrows = 5; // always works
-    // static constexpr int nrows = 100;
 
     ColMatrix<float> centroids(ncentroids, ncols);
     centroids.setRandom();
@@ -84,29 +78,9 @@ TEST_CASE("pq encoding speed", "[pq][mcq][profile]") {
     REQUIRE(X.data() != nullptr);
     REQUIRE(X.row(nrows-1).data() != nullptr);
 
-    // std::cout << "X: " << X << "\n";
-
     if (!X.data()) { std::cout << "X data null!" << std::endl; }
     if (!centroids.data()) { std::cout << "centroids data null!" << std::endl; }
     if (!codes_out.data()) { std::cout << "codes data null!" << std::endl; }
-
-    // printf("nrows, ncols = %d, %d\n", nrows, ncols);
-    // std::cout << std::endl; // flush stdout
-
-    // // std::cout << std::endl;
-    // pq_encode_8b<M>(X.data(), nrows, ncols, centroids.data(),
-    //         codes_out.data());
-    // prevent_optimizing_away_dists(codes_out.data(), codes_out.size(), true);
-
-    // std::cout << "codes:\n";
-    // for (int i = 0; i < codes_out.size(); i++) {
-    //     std::cout << " " << (int)codes_out.data()[i];
-    // }
-    // std::cout << std::endl;
-
-    // PROFILE_DIST_COMPUTATION
-
-    // PROFILE_DIST
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "pq encode", kNtrials,
         codes_out.data(), nrows,

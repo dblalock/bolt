@@ -26,22 +26,6 @@
 #endif
 
 
-// template<int NBytes>
-// void debug_pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
-//                   const float* centroids, uint8_t* out)
-// {
-//     static constexpr int lut_sz = 256;
-//     static constexpr int packet_width = 8; // objs per simd register
-//     static constexpr int nstripes = lut_sz / packet_width;
-//     static constexpr int ncodebooks = NBytes;
-//     static_assert(NBytes > 0, "Code length <= 0 is not valid");
-//     const int subvect_len = static_cast<int>(ncols / ncodebooks);
-//     const int trailing_subvect_len = ncols % ncodebooks;
-//     assert(trailing_subvect_len == 0); // TODO remove this constraint
-
-//     __m256 accumulators[nstripes];
-// }
-
 template<int NBytes>
 void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
                   const float* centroids, uint8_t* out)
@@ -55,22 +39,13 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
     const int trailing_subvect_len = ncols % ncodebooks;
     assert(trailing_subvect_len == 0); // TODO remove this constraint
 
-    __m256 accumulators[nstripes];
-    // volatile __m256 accumulators[nstripes]; // TODO rm
-
-    // std::cout << "encoding X..." << std::endl;
-    // std::cout << std::endl;
-
-// #define TMP
+    // for unclear reasons, clang -03 segfaults if this isn't volatile
+    volatile __m256 accumulators[nstripes];
 
     for (int64_t n = 0; n < nrows; n++) { // for each row of X
         auto x_ptr = X + n * ncols;
-
-        // std::cout << "encoding row " << n << std::endl;
-
         auto centroids_ptr = centroids;
         for (int m = 0; m < NBytes; m++) { // for each codebook
-// #ifndef TMP // works
             for (int i = 0; i < nstripes; i++) {
                 accumulators[i] = _mm256_setzero_ps();
             }
@@ -87,7 +62,6 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
                 }
                 x_ptr++;
             }
-// #ifndef TMP // also works, even with volatile accumulators
 
             // find argmin dist among all centroids
             // we do this by finding the minimum values in all groups of 16,
@@ -127,10 +101,6 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
             }
             uint8_t best_s = msb_idx_u32(indicators);
 
-            // volatile uint8_t best_s = msb_idx_u32(indicators); // TODO rm
-
-// #ifndef TMP
-
             // ------------------------ now find min idx within best group
             auto dists_int32_low = _mm256_cvtps_epi32(accumulators[best_s]);
             auto dists_int32_high = _mm256_cvtps_epi32(accumulators[best_s+1]);
@@ -146,13 +116,6 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
 
             // offset min_idx based on which group of 16 it was in
             min_idx += 16 * best_s;
-// #else
-//             // uint8_t min_idx = n + m;
-//             // std::cout << "indicators, best_s: " << indicators << "," << (int)best_s << "\n";
-//             uint8_t min_idx = (n + m) * (best_s < 240 ? 1 : 0);
-// #endif
-            // TODO rm
-            // std::cout << "min idx: " << (int)min_idx << std::endl;
 
             out[m] = min_idx;
         } // m
