@@ -12,12 +12,11 @@
 #include <memory>
 #include <vector>
 
-// #include "src/eigen/Dense"
 #ifdef BLAZE
-    #include "src/external/eigen/Dense"
+    #include "src/external/eigen/Core"
     #include "src/utils/eigen_utils.hpp"
 #else
-    #include "Dense"
+    #include "Core"
     #include "eigen_utils.hpp"
 #endif
 

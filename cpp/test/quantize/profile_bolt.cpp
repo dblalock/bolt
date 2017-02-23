@@ -43,6 +43,7 @@ static constexpr int subvect_len = ncols / ncodebooks;
 static_assert(ncols % ncodebooks == 0,
     "ncols must be a multiple of ncodebooks!");
 
+// TEST_CASE("print bolt params", "[pq][mcq][profile]") {  // TODO rm
 TEST_CASE("print bolt params", "[bolt][mcq][profile]") {
     printf("------------------------ bolt\n");
     printf("---- bolt profiling parameters\n");

@@ -39,6 +39,8 @@ To reproduce the timing experiments using these scripts:
 
 2. Since we want to be certain that the compiler unrolls all the relevant loops / inlines code equally for all algorithms, the number of bytes used in encodings and lengths of vectors are constants at the top of the corresponding files. To assess all the combinations of encoding / vector lengths used in the paper, you will have to modify these constants and rerun the tests multiple times. Ideally, this would be automated, but I haven't coded it yet; pull requests welcome.
 
+<!-- TODO finish this table and we're good -->
+
 <!--
 | Test          |   File        | Constants and Experimental Values
 |:----------    |:----------    |:----------

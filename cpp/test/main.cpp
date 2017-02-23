@@ -9,7 +9,8 @@
 #include <stdio.h>
 
 // unit tests magic
-#define CATCH_CONFIG_RUNNER
+ #define CATCH_CONFIG_RUNNER
+
 
 #ifdef BLAZE
     #include "test/external/catch.hpp"
@@ -18,5 +19,5 @@
 #endif
 
 int main(int argc, char *const argv[]) {
-	return Catch::Session().run(argc, argv);
+    return Catch::Session().run(argc, argv);
 }

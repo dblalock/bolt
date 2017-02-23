@@ -48,6 +48,10 @@ static_assert(ncols % ncodebooks == 0,
     "ncols must be a multiple of ncodebooks!");
 
 
+// TEST_CASE("tmp", "[bolt]") {
+//     printf(">>>>>> running bolt test case from pq file!!!\n");
+// }
+
 TEST_CASE("print pq params", "[pq][mcq][profile]") {
     printf("mcq_D=%d_M=%d\n", ncols, M);  // tmp hack so it suggests the right filename
 
@@ -67,15 +71,42 @@ TEST_CASE("print pq params", "[pq][mcq][profile]") {
 #ifdef PROFILE_ENCODE
 TEST_CASE("pq encoding speed", "[pq][mcq][profile]") {
     static constexpr int nrows = nrows_enc;
+    // static constexpr int nrows = 5; // always works
+    // static constexpr int nrows = 100;
 
     ColMatrix<float> centroids(ncentroids, ncols);
     centroids.setRandom();
     RowMatrix<float> X(nrows, ncols);
     X.setRandom();
-    ColMatrix<uint8_t> codes_out(nrows, M);
+    RowMatrix<uint8_t> codes_out(nrows, ncodebooks);
+    codes_out.setRandom();
 
     REQUIRE(X.data() != nullptr);
     REQUIRE(X.row(nrows-1).data() != nullptr);
+
+    // std::cout << "X: " << X << "\n";
+
+    if (!X.data()) { std::cout << "X data null!" << std::endl; }
+    if (!centroids.data()) { std::cout << "centroids data null!" << std::endl; }
+    if (!codes_out.data()) { std::cout << "codes data null!" << std::endl; }
+
+    // printf("nrows, ncols = %d, %d\n", nrows, ncols);
+    // std::cout << std::endl; // flush stdout
+
+    // // std::cout << std::endl;
+    // pq_encode_8b<M>(X.data(), nrows, ncols, centroids.data(),
+    //         codes_out.data());
+    // prevent_optimizing_away_dists(codes_out.data(), codes_out.size(), true);
+
+    // std::cout << "codes:\n";
+    // for (int i = 0; i < codes_out.size(); i++) {
+    //     std::cout << " " << (int)codes_out.data()[i];
+    // }
+    // std::cout << std::endl;
+
+    // PROFILE_DIST_COMPUTATION
+
+    // PROFILE_DIST
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "pq encode", kNtrials,
         codes_out.data(), nrows,
@@ -131,9 +162,8 @@ TEST_CASE("pq lut encoding speed", "[pq][mcq][profile]") {
     REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "opq encode lut float dist", kNtrials,
         lut_out_f.data(), lut_data_sz, nrows,
         opq_lut_8b<M>(Q.row(i), centroids.data(), R, q_tmp, lut_out_f.data()));
-
 }
-#endif
+#endif // PROFILE_ENCODE
 
 #ifdef PROFILE_SCAN
 TEST_CASE("pq scan speed", "[pq][mcq][profile]") {
@@ -157,11 +187,12 @@ TEST_CASE("pq scan speed", "[pq][mcq][profile]") {
     luts_f = luts_f.array() / (2 * M); // make max lut value small
 
     // create arrays in which to store the distances
-    RowVector<uint8_t> dists_u8(nrows);
-    RowVector<uint16_t> dists_u16(nrows);
     RowVector<float> dists_f(nrows);
 
 #ifdef PROFILE_NONFLOATS
+    RowVector<uint8_t> dists_u8(nrows);
+    RowVector<uint16_t> dists_u16(nrows);
+
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "pq scan uint8", kNtrials,
         dists_u8.data(), nrows,
         pq_scan_8b<M>(codes.data(), luts_u8.data(), dists_u8.data(), nrows));

@@ -7,25 +7,29 @@
 
 Bolt is an algorithm for compressing vectors of real-valued data and running mathematical operations directly on the compressed representations.
 
-If you have a large, real-valued dataset and can tolerate lossy compression, Bolt might be able to save you 100x space and 100x compute time.
+If you have a large collection of vectors and can tolerate lossy compression, Bolt can probably save you 10-200x space. And if what you want to do with these vectors is compute dot products and/or Euclidean distances to other vectors, Bolt can probably save you 10-200x compute time.
 
 NOTE: this project page is currenlty under construction but will soon include all the code, documentation, and results to reproduce Bolt's KDD paper.
 
 
-## Example
+## Example: Matrix-Matrix and Matrix-Vector multiplies
 
 ```python
 import bolt
 import numpy as np
 
 X = np.random.randn(1e6, 256)  # dataset
-Q = np.random.randn(1e3, 256)  # queries; need dot products to rows in X
+Q = np.random.randn(1e3, 256)  # queries; need dot products with rows in X
 
 # train a Bolt encoder on this distribution
 encoder = bolt.Encoder().fit(X)
 
 # obvious way to get dot products
 out = np.dot(X, Q.T)
+
+# obvious way to get dot products if we (hypothetically) got queries one at a time
+for i, q in enumerate(Q):
+    out[i] = np.dot(X, q)
 
 # faster way: use Bolt approximate dot products
 out2 = encoder.dot(X, Q.T)
