@@ -1,9 +1,7 @@
 
-<!-- ![Bolt](/assets/bolt.jpg?raw=true =489x177) -->
-
 <p align="center">
-  <img src="https://github.com/dblalock/bolt/blob/master/assets/bolt.jpg?raw=true" alt="Bolt" style="width=489px;height:177px;"/>
-  <!-- <img src="https://github.com/dblalock/bolt/blob/master/assets/bolt.jpg?raw=true" alt="Bolt" style="width=245px;height:88px;"/> -->
+  <img src="https://github.com/dblalock/bolt/blob/master/assets/bolt.jpg?raw=true" alt="Bolt" width="611px" height="221px"/>
+  <!-- <img src="https://github.com/dblalock/bolt/blob/master/assets/bolt.jpg?raw=true" alt="Bolt" width="685px" height="248px"/> -->
 </p>
 
 Bolt is an algorithm for compressing vectors of real-valued data and running mathematical operations directly on the compressed representations.
