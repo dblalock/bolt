@@ -8,7 +8,7 @@ Bolt is an algorithm for compressing vectors of real-valued data and running mat
 
 If you have a large collection of vectors and can tolerate lossy compression, Bolt can probably save you 10-200x space. If what you want to do with these vectors is compute dot products and/or Euclidean distances to other vectors, Bolt can probably save you 10-200x compute time as well.
 
-Bolt also has ![theoretical guarantees](https://github.com/dblalock/bolt/blob/master/assets/bolt-theory.pdf?raw=true) bounding the errors in its approximations.
+Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/master/assets/bolt-theory.pdf?raw=true) bounding the errors in its approximations.
 
 NOTE: All the code, documentation, and results associated with Bolt's KDD paper can be found in the `experiments/` directory. See the README therein for details.
 
