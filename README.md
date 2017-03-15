@@ -10,7 +10,7 @@ If you have a large collection of vectors and can tolerate lossy compression, Bo
 
 Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/master/assets/bolt-theory.pdf?raw=true) bounding the errors in its approximations.
 
-NOTE: All the code, documentation, and results associated with Bolt's KDD paper can be found in the `experiments/` directory. See the README therein for details.
+NOTE: All the code, documentation, and results associated with Bolt's KDD paper can be found in the `experiments/` directory. See the README therein for details. A cleaned-up version of the paper is available [here](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true).
 
 NOTE 2: This page is currently under construction, as is the Python API described below.
 
