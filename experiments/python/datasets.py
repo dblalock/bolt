@@ -131,7 +131,7 @@ def _load_complete_dataset(which_dataset, num_queries=10):
         assert num_queries > 1
         X_train, Q = extract_random_rows(X_train, how_many=num_queries)
     try:
-        true_nn = np.load(which_dataset.TRUTH)
+        true_nn = np.load(which_dataset.TRUTH).astype(np.int)
     except AttributeError:
         true_nn = None
 
@@ -154,17 +154,28 @@ def _insert_zeros(X, nzeros):
     for i in range(nzeros):
         in_start = step * i
         in_end = in_start + step
-        out_start = in_start + i + 1
+        # out_start = in_start + i + 1
+        out_start = (step + 1) * i
         out_end = out_start + step
         X_new[:, out_start:out_end] = X[:, in_start:in_end]
 
+    # out_start = out_end
+    # out_end += step
+
+    out_end += 1  # account for the last 0
     remaining_len = D - in_end
     out_remaining_len = D_new - out_end
+    # print "step", step
+    # print "in_start, in_end", in_start, in_end
+    # print "out_start, out_end", out_start, out_end
+    # print "D, D_new", D, D_new
+    # print "remaining_len, out_remaining_len", remaining_len, out_remaining_len
     assert remaining_len == out_remaining_len
 
     assert remaining_len >= 0
     if remaining_len:
-        X_new[:, out_end:out_end+remaining_len] = X[:, in_end:D]
+        # X_new[:, out_end:out_end+remaining_len] = X[:, in_end:D]
+        X_new[:, out_end:] = X[:, in_end:]
 
     assert np.array_equal(X[:, 0], X_new[:, 0])
     assert np.array_equal(X[:, -1], X_new[:, -1])

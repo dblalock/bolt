@@ -615,15 +615,15 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
 def experiment(eval_dists=False, dotprods=False):
 
     # which_datasets = [datasets.Mnist]
-    # which_datasets = [datasets.Sift1M]
-    # which_datasets = [datasets.Convnet1M]
-    # which_datasets = [datasets.LabelMe]
-    # which_datasets = [datasets.Convnet1M, datasets.Mnist]
-    # which_datasets = [datasets.LabelMe, datasets.Sift1M,
-    which_datasets = [datasets.Sift1M, datasets.LabelMe,
-                      datasets.Convnet1M, datasets.Mnist]
+    # which_datasets = [datasets.Sift1M, datasets.LabelMe,
+    #                   datasets.Convnet1M, datasets.Mnist]
+    which_datasets = [datasets.Glove]
+    # which_datasets = [datasets.Deep1M, datasets.Gist]
 
-    save_dir = '../results/acc_dotprods/' if dotprods else '../results/acc_l2'
+    if eval_dists:
+        save_dir = '../results/acc_dotprods/' if dotprods else '../results/acc_l2'
+    else:
+        save_dir = '../results/recall_at_r/'
 
     for which_dataset in which_datasets:
         _dicts, _details = _experiment_one_dataset(
