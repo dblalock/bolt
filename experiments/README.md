@@ -17,11 +17,17 @@ To run the experiments, you will first need to obtain the following tools / libr
 - [Seaborn](https://github.com/mwaskom/seaborn) - for plotting, if you want to reproduce our figures
 
 ### Datasets:
-- [Sift1M](http://corpus-texmex.irisa.fr) - 1 million Sift descriptors. This page also hosts the Sift10M, Sift100M, Sift1B, and Gist1M datasets (not used in the paper)
+- [Sift1M](http://corpus-texmex.irisa.fr) - 1 million SIFT descriptors. This page also hosts the Sift10M, Sift100M, Sift1B, and Gist1M datasets (not used in the paper)
 - [Convnet1M](https://github.com/una-dinosauria/stacked-quantizers) - 1 million convnet image descriptors
 - [MNIST](http://yann.lecun.com/exdb/mnist/) - 60,000 images of handwritten digits; perhaps the most widely used dataset in machine learning
 - [LabelMe](http://www.cs.toronto.edu/~norouzi/research/mlh/) - 22,000 GIST desciptors of images
 
+Additional datasets not used in the paper:
+- [Glove](https://github.com/erikbern/ann-benchmarks) - 1 million word embeddings generated using [Glove](https://nlp.stanford.edu/projects/glove/)
+- [Gist](http://corpus-texmex.irisa.fr) - 1 million GIST descriptors. Available from the same source as Sift1M.
+- [Deep1M](http://sites.skoltech.ru/compvision/projects/aqtq/) - PCA projections of deep descriptors for 1 million images
+
+Note that, in order to avoid the temptation to cherry pick, we did not run experiments on these until after deciding to use only the first four datasets.
 
 ## Reproduce Timing / Throughput results
 
@@ -39,7 +45,7 @@ To reproduce the timing experiments using these scripts:
     $ bash time_bolt.sh
     ```
 
-2. Since we want to be certain that the compiler unrolls all the relevant loops / inlines code equally for all algorithms, the number of bytes used in encodings and lengths of vectors are constants at the tops of the corresponding files. To assess all the combinations of encoding / vector lengths used in the paper, you will have to modify these constants and rerun the tests multiple times. Ideally, this would be automated, but it isn't; pull requests welcome.
+2. Since we want to be certain that the compiler unrolls all the relevant loops / inlines code equally for all algorithms, the number of bytes used in encodings and lengths of vectors are constants at the tops of the corresponding files. To assess all the combinations of encoding / vector lengths used in the paper, you will have to modify these constants and rerun the tests multiple times. Ideally, this would be automated or handled via template parameters, but it isn't; pull requests welcome.
 
 | Test          |   File        | Constants and Experimental Values
 |:----------    |:----------    |:----------

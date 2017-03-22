@@ -12,7 +12,7 @@ Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/mas
 
 NOTE: All the code, documentation, and results associated with Bolt's KDD paper can be found in the `experiments/` directory. See the README therein for details. A cleaned-up version of the paper is available [here](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true).
 
-NOTE 2: This page is currently under construction, as is the Python API described below.
+NOTE 2: The Python API described below is currently under construction and, realistically, won't get done until after the NIPS deadline in mid-May.
 
 
 ## Example: Matrix-Vector multiplies
@@ -56,7 +56,7 @@ out3 = encoder.rescale_output(out_bolt)
 
 ## How does it work?
 
-Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the Bolt paper (to be uploaded soon...).
+Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the [Bolt paper](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true).
 
 ## Benchmarks
 
