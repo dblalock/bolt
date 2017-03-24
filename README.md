@@ -35,7 +35,7 @@ encoder = bolt.Encoder().fit(X)  # train a Bolt encoder on this distribution
 X_compressed = encoder.transform(X)  # compress the dataset
 
 def query_received_bolt(q):
-    return encoder.dot(X_compressed, Q.T)
+    return encoder.dot(X_compressed, q)
 
 # massive space savings
 print(X.nbytes)  # 1e6 * 256 * 8B = 2.048 GB
