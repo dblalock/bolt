@@ -3,7 +3,7 @@ This page describes how to reproduce the experimental results reported in Bolt's
 
 ## Install Dependencies
 
-To run the experiments, you will first need to obtain the following tools / libraries, and datasets.
+To run the experiments, you will first need to obtain the following tools / libraries and datasets.
 
 ### C++ Code
 
@@ -27,7 +27,7 @@ Additional datasets not used in the paper:
 - [Gist](http://corpus-texmex.irisa.fr) - 1 million GIST descriptors. Available from the same source as Sift1M.
 - [Deep1M](http://sites.skoltech.ru/compvision/projects/aqtq/) - PCA projections of deep descriptors for 1 million images
 
-Note that, in order to avoid the temptation to cherry pick, we did not run experiments on these until after deciding to use only the first four datasets.
+Note that, in order to avoid the temptation to cherry pick, we did not run experiments on these until after deciding to use only the first four datasets in the paper.
 
 ## Reproduce Timing / Throughput results
 
