@@ -7,9 +7,11 @@ import pandas as pd
 import seaborn as sb
 
 import results
+from files import ensure_dir_exists
 
 
 SAVE_DIR = os.path.expanduser('~/Desktop/bolt/figs/')
+ensure_dir_exists(SAVE_DIR)
 
 
 def save_fig(name):
@@ -444,8 +446,8 @@ def matmul_fig(fake_data=False, fname='matmul'):
     #     ax.set_xlabel('', labelpad=-10)
 
     # axes[0].set_xlabel('Matrix Side Length, L', labelpad=-1)
-    axes[0].set_xlabel('Matrix Side Length, L')
-    axes[1].set_xlabel('Matrix Side Length, L')
+    axes[0].set_xlabel('Matrix Side Length')
+    axes[1].set_xlabel('Matrix Side Length')
 
     # ------------------------ show / save plot
 
@@ -803,8 +805,8 @@ def main():
 
     # popcount_fig()
     # encoding_fig()
-    query_speed_fig(fname='query_speed_with_matmuls')
-    # matmul_fig()
+    # query_speed_fig(fname='query_speed_with_matmuls')
+    matmul_fig()
     # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall')
     # distortion_fig(fake_data=False, fname='l2_distortion')
     # distortion_fig(fake_data=False, fname='dotprod_distortion',
