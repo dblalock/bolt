@@ -348,7 +348,7 @@ def matmul_fig(fake_data=False, fname='matmul'):
         bolt32_times = bolt_times / .5e9
 
         dicts = []
-        ALGOS = ['Bolt 8B', 'Bolt 16B', 'Bolt 32B', 'Floats']
+        ALGOS = ['Bolt 8B', 'Bolt 16B', 'Bolt 32B', 'Floats (BLAS)']
         algo_times = [bolt8_times, bolt16_times, bolt32_times, matmul_times]
         for all_times, algo in zip(algo_times, ALGOS):
             for sz, times_for_sz in zip(SIZES, all_times):
@@ -376,7 +376,10 @@ def matmul_fig(fake_data=False, fname='matmul'):
             non_encode_algos = ['Bolt 8B', 'Bolt 16B', 'Bolt 32B']
             # rm_idxs = (df['algo'] == 'Bolt 32B') * (df['enc'] == 1)
             rm_idxs = (df['algo'].isin(non_encode_algos)) * (df['enc'] == 1)
-            return df.loc[~rm_idxs]
+            df = df.loc[~rm_idxs]
+
+            df['algo'].loc[df['algo'] == 'Floats'] = 'Floats (BLAS)'
+            return df
 
         df = results.matmul_results(which='square')
         df = clean_df(df)
@@ -385,7 +388,7 @@ def matmul_fig(fake_data=False, fname='matmul'):
             'Bolt 8B': pal[0], 'Bolt 8B + Encode': pal[0],
             # 'Bolt 16B': pal[2], 'Bolt 16B + Encode': pal[2],
             'Bolt 32B': pal[1], 'Bolt 32B + Encode': pal[1],
-            'Floats': 'k'
+            'Floats (BLAS)': 'k'
         }
         df_no_enc = df.loc[df['enc'] != 1]
         sb.tsplot(time='size', value='y', condition='algo', unit='trial',
