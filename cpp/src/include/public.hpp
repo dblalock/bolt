@@ -28,43 +28,11 @@ using Eigen::VectorXf;
 using Eigen::MatrixXi;
 
 typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-	Eigen::RowMajor> RowMatrixXd;
+    Eigen::RowMajor> RowMatrixXd;
 typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic,
-	Eigen::RowMajor> RowMatrixXf;
-// typedef Eigen::Matrix<long long, Eigen::Dynamic, Eigen::Dynamic,
-// 	Eigen::RowMajor> MatrixXi;
+    Eigen::RowMajor> RowMatrixXf;
+typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> ColMatrixXf;
 
-namespace nn {
-	using idx_t = int64_t;
-	using dist_t = float;
-	namespace {
-		static constexpr dist_t kMaxDist = std::numeric_limits<dist_t>::max();
-	}
-}
-
-// ------------------------------------------------ Neighbor
-typedef struct Neighbor {
-	typedef nn::idx_t idx_t;
-	typedef nn::dist_t dist_t;
-
-	idx_t idx;
-	dist_t dist;
-
-	Neighbor() = default;
-	Neighbor(const Neighbor& rhs) = default;
-	// Neighbor(float d, idx_t i):  idx(i), dist(static_cast<dist_t>(d)) {}
-	Neighbor(idx_t i, int d):  idx(i), dist(static_cast<dist_t>(d)) {
-		if (dist <= 0) { dist = nn::kMaxDist; }
-	}
-	Neighbor(idx_t i, float d):  idx(i), dist(static_cast<dist_t>(d)) {
-		if (dist <= 0) { dist = nn::kMaxDist; }
-	}
-	// Neighbor(double d, idx_t i): idx(i), dist(static_cast<dist_t>(d)) {}
-	Neighbor(idx_t i, double d): idx(i), dist(static_cast<dist_t>(d)) {
-		if (dist <= 0) { dist = nn::kMaxDist; }
-	}
-
-} Neighbor;
 
 // ================================================================
 // Classes
@@ -76,33 +44,51 @@ typedef struct Neighbor {
 // core Bolt logic
 class BoltEncoder {
 public:
-    BoltEncoder(int nbytes);
+    BoltEncoder(int nbytes, float scaleby=1.0);
     ~BoltEncoder() = default;
 
-    // bool set_nbytes(int nbytes);
+    // TODO since we aren't using this class from the python directly after
+    // all, should do RAII instead of requiring set_* to be called before use
     bool set_centroids(const float* X, int m, int n);
     bool set_centroids(const float* X, long m, long n);
     bool set_data(const float* X, int m, int n);
     bool set_data(const float* X, long m, long n);
+    void set_offsets(const float* v, int len);
+    void set_scale(float a);
 
-    vector<uint16_t> dists_l2(const float* q, int len);
-    vector<uint16_t> dot_prods(const float* q, int len);
+    RowVector<uint16_t> dists_sq(const float* q, int len);
+    RowVector<uint16_t> dot_prods(const float* q, int len);
+    // vector<uint16_t> dists_sq(const float* q, int len);
+    // vector<uint16_t> dot_prods(const float* q, int len);
 
     vector<int64_t> knn_l2(const float* q, int len, int k);
     vector<int64_t> knn_mips(const float* q, int len, int k);
 
+    // for testing
     bool set_codes(const RowMatrix<uint8_t>& codes);
     bool set_codes(const uint8_t* codes, int m, int n);
-
-    // for testing
-    ColMatrix<float> centroids() { return _centroids; }
+    // ColMatrixXf centroids() { return _centroids; }
+    RowMatrixXf centroids() { return _centroids; }
     RowMatrix<uint8_t> codes() { return _codes; } // might have end padding
-    ColMatrix<uint8_t> lut(RowVector<float> q);
+
+//    template<int Reduction> ColMatrix<uint8_t> lut(const float* q, int len);
+    void lut_l2(const float* q, int len);
+    void lut_dot(const float* q, int len);
+    void lut_l2(const RowVector<float>& q);
+    void lut_dot(const RowVector<float>& q);
+
+    ColMatrix<uint8_t> get_lut();
+    RowVector<float> get_offsets();
+    float get_scale();
 
 private:
-	ColMatrix<float> _centroids;
+    // ColMatrix<float> _centroids;
+	RowMatrix<float> _centroids;
 	RowMatrix<uint8_t> _codes;
-	int64_t _ncodes;
+    RowVector<float> _offsets;
+    ColMatrix<uint8_t> _lut;
+    int64_t _ncodes;
+    float _scaleby;
 	int _nbytes;
 };
 

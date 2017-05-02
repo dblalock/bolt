@@ -47,6 +47,11 @@ using Eigen::Dynamic;
 using Eigen::RowMajor;
 using Eigen::MatrixXi;
 
+template<class T>
+using Eigen::Matrix<T, Dynamic, Dynamic> = ColMatrix<T>;
+template<class T>
+using Eigen::Matrix<T, Dynamic, Dynamic, RowMajor> = RowMatrix<T>;
+
 // XXX these have to match typedefs in code exactly
 // TODO just include a shared header with these in it?
 typedef Matrix<double, Dynamic, Dynamic> ColMatrixXd;
@@ -79,6 +84,14 @@ typedef Array<double, Dynamic, Dynamic, RowMajor> RowArrayXXd;
 %eigen_typemaps(RowArrayXXd);
 %eigen_typemaps(ArrayXd);  // 1d array
 %eigen_typemaps(ArrayXXd); // 2d array
+
+
+%eigen_typemaps(RowVector<uint16_t>);
+%eigen_typemaps(RowVector<float>);
+%eigen_typemaps(RowMatrix<float>);
+%eigen_typemaps(ColMatrix<float>);
+%eigen_typemaps(RowMatrix<uint8_t>);
+%eigen_typemaps(ColMatrix<uint8_t>);
 
 // ================================================================
 // raw c array typemaps

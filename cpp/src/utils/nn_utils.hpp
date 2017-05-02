@@ -40,6 +40,37 @@ static const int16_t kInvalidIdx = -1;
 
 namespace nn {
 
+using idx_t = int64_t;
+using dist_t = float;
+namespace {
+    static constexpr dist_t kMaxDist = std::numeric_limits<dist_t>::max();
+}
+
+// ------------------------------------------------ Neighbor
+typedef struct Neighbor {
+    typedef nn::idx_t idx_t;
+    typedef nn::dist_t dist_t;
+
+    idx_t idx;
+    dist_t dist;
+
+    Neighbor() = default;
+    Neighbor(const Neighbor& rhs) = default;
+    // Neighbor(float d, idx_t i):  idx(i), dist(static_cast<dist_t>(d)) {}
+    Neighbor(idx_t i, int d):  idx(i), dist(static_cast<dist_t>(d)) {
+        if (dist <= 0) { dist = nn::kMaxDist; }
+    }
+    Neighbor(idx_t i, float d):  idx(i), dist(static_cast<dist_t>(d)) {
+        if (dist <= 0) { dist = nn::kMaxDist; }
+    }
+    // Neighbor(double d, idx_t i): idx(i), dist(static_cast<dist_t>(d)) {}
+    Neighbor(idx_t i, double d): idx(i), dist(static_cast<dist_t>(d)) {
+        if (dist <= 0) { dist = nn::kMaxDist; }
+    }
+
+} Neighbor;
+
+
 // ------------------------------------------------ neighbor munging
 
 template<template<class...> class Container>

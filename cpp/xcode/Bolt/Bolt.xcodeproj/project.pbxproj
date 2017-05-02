@@ -13,6 +13,7 @@
 		72DE64701E5F74F3009B5E61 /* profile_pq.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64661E5F74BB009B5E61 /* profile_pq.cpp */; };
 		72DE64711E5F74F3009B5E61 /* test_bolt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64671E5F74BB009B5E61 /* test_bolt.cpp */; };
 		72DE64721E5F74F8009B5E61 /* bolt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64531E5F74BB009B5E61 /* bolt.cpp */; };
+		72E01C721EB8DF840038A2B9 /* test_multicodebook.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64691E5F74BB009B5E61 /* test_multicodebook.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -1200,6 +1201,7 @@
 				72DE646E1E5F74F3009B5E61 /* profile_bolt.cpp in Sources */,
 				72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */,
 				72DE646D1E5F74ED009B5E61 /* main.cpp in Sources */,
+				72E01C721EB8DF840038A2B9 /* test_multicodebook.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1354,6 +1356,7 @@
 				72DE62E41E5F7467009B5E61 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

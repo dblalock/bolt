@@ -44,7 +44,7 @@
 
 %{
   #define SWIG_FILE_WITH_INIT
-  #include "Eigen/Core"
+  #include "eigen/Core"
 %}
 
 %include "numpy.i"
@@ -66,7 +66,7 @@
   template<> int NumPyType<signed char>() {return NPY_BYTE;};
   template<> int NumPyType<unsigned char>() {return NPY_UBYTE;};
   template<> int NumPyType<short>() {return NPY_INT;};
-  template<> int NumPyType<unsigned short>() {return NPY_UINT;};
+  template<> int NumPyType<unsigned short>() {return NPY_USHORT;};
   template<> int NumPyType<int>() {return NPY_INT;};
   template<> int NumPyType<unsigned int>() {return NPY_UINT;};
   template<> int NumPyType<long>() {return NPY_LONG;};

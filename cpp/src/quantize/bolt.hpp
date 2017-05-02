@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
 
+#include <iostream>  // TODO rm after debug
+
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
 #else
@@ -182,7 +184,7 @@ void bolt_lut(const float* q, int len, const float* centroids, uint8_t* out) {
  * 11   12  13  14
  *
  * The LUT will also be written in column major order. If the query were
- * [0 0 0 0], the LUT resulting LUT would be:
+ * [0 0 0 0], the LUT resulting LUT would be (assuming 0 offsets and scaleby=1):
  *
  * (1^2 + 2^2)      (3^2 + 4^2)
  * (11^2 + 12^2)    (13^2 + 14^2)
@@ -192,7 +194,7 @@ void bolt_lut(const float* q, int len, const float* centroids, uint8_t* out) {
  * @param len The length of the query, measured as the number of elements.
  * @param centroids A set of 16 * 2 * NBytes centroids in contiguous vertical
  *  layout, as returned by bolt_encode_centroids.
- * @param offsets The values to subtract from each LUT in order to shift
+ * @param offsets The values to add to from each LUT in order to shift
  *  the range of represented values towards the minimum possible
  * @param scaleby The amount by which to scale raw LUT entries after
  *  subtracting the offsets
@@ -222,7 +224,10 @@ void bolt_lut(const float* q, int len, const float* centroids,
     __m256 accumulators[nstripes];
     __m256i dists_uint16_0 = _mm256_undefined_si256();
 
-    __m256 scaleby_vect = _mm256_set1_ps(scaleby);
+    __m256 scaleby_vect = _mm256_set1_ps(scaleby);  // TODO uncomment this!!!
+    // __m256 scaleby_vect = _mm256_set1_ps(1.);
+
+    std::cout << "cpp scaleby: " << scaleby << "\n";
 
     for (int m = 0; m < ncodebooks; m++) { // for each codebook
         for (int i = 0; i < nstripes; i++) {
@@ -230,9 +235,9 @@ void bolt_lut(const float* q, int len, const float* centroids,
         }
         for (int j = 0; j < subvect_len; j++) { // for each dim in subvect
             float q_j = q[(m * subvect_len) + j];
-            if (Reduction == Reductions::DotProd) {
-                q_j = (q_j - offsets[j]) * scaleby;
-            }
+            // if (Reduction == Reductions::DotProd) {
+            //     q_j = (q_j - offsets[j]) * scaleby;
+            // }
             auto q_broadcast = _mm256_set1_ps(q_j);
             for (int i = 0; i < nstripes; i++) { // for upper 8, lower 8 floats
                 auto centroids_col = _mm256_load_ps(centroids);
@@ -248,20 +253,38 @@ void bolt_lut(const float* q, int len, const float* centroids,
         }
 
         // apply scale factor (if not already applied, because dotprod)
-        __m256i dists_int32_low, dists_int32_high;
-        if (Reduction == Reductions::DotProd) {
-            // convert the floats to ints
-            dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
-            dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
-        } else {
-            // scale dists and add offsets
-            auto offset_vect = _mm256_set1_ps(offsets[m]);
-            auto dist0 = fma(accumulators[0], scaleby_vect, offset_vect);
-            auto dist1 = fma(accumulators[1], scaleby_vect, offset_vect);
-            // convert the floats to ints
-            dists_int32_low = _mm256_cvtps_epi32(dist0);
-            dists_int32_high = _mm256_cvtps_epi32(dist1);
-        }
+        // __m256i dists_int32_low, dists_int32_high;
+        // if (Reduction == Reductions::DotProd) {
+        //     // convert the floats to ints
+        //     dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
+        //     dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
+        // } else {
+        //     // scale dists and add offsets
+        //     auto offset_vect = _mm256_set1_ps(offsets[m]);
+        //     auto dist0 = fma(accumulators[0], scaleby_vect, offset_vect);
+        //     auto dist1 = fma(accumulators[1], scaleby_vect, offset_vect);
+        //     // convert the floats to ints
+        //     dists_int32_low = _mm256_cvtps_epi32(dist0);
+        //     dists_int32_high = _mm256_cvtps_epi32(dist1);
+        // }
+
+        // TODO uncomment this (with the real offsets + scale)!!!
+        // // scale dists and add offsets
+        std::cout << "cpp offset: " << offsets[m] << "\n";
+        auto offset_vect = _mm256_set1_ps(offsets[m]);
+        // auto offset_vect = _mm256_set1_ps(0);
+        auto dist0 = fma(accumulators[0], scaleby_vect, offset_vect);
+        auto dist1 = fma(accumulators[1], scaleby_vect, offset_vect);
+
+        // TODO rm this part
+        // -> yes, using this instead of the scaling / offsetting above
+        // makes this impl agree with everything else
+        // auto dist0 = accumulators[0];
+        // auto dist1 = accumulators[1];
+
+        // convert the floats to ints
+        __m256i dists_int32_low = _mm256_cvtps_epi32(dist0);
+        __m256i dists_int32_high = _mm256_cvtps_epi32(dist1);
 
         // because we saturate to uint8s, we only get 32 objs to write after
         // two 16-element codebooks
@@ -295,7 +318,7 @@ void bolt_lut(const float* q, int len, const float* centroids,
  * @details Bolt requires the centroids to be stored in column-major order
  * within each codebook, and the centroids for all codebooks to be contiguous.
  *
- * @param centroids An contiguous array of codebooks, where each codebook is
+ * @param centroids A contiguous array of codebooks, where each codebook is
  *  itself a contiguous, row-major array whose rows are centroids.
  * @param ncols The number of columns in the original data. This is assumed
  *  to be a multiple of the number of codebooks.

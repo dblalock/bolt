@@ -22,6 +22,9 @@
 
 
 TEST_CASE("popcnt", "[mcq][popcount]") {
+    
+    std::cout << "testing mcq algorithms for popcount...\n";
+    
     static constexpr int nblocks = 3;
     static constexpr int N = 32 * nblocks;
     static constexpr int M = 8;  // must be 8 for tests that cast to uint64_t
@@ -199,7 +202,7 @@ TEST_CASE("popcnt", "[mcq][popcount]") {
             int d = dists[i];
             REQUIRE(d == d_vect);
         }
-
+        
         aligned_free<uint8_t>(popcount_luts16);
         aligned_free<uint8_t>(popcount_luts32);
         aligned_free<uint8_t>(block_codes);
