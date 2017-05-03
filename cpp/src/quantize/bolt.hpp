@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <sys/types.h>
+#include <math.h>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
 
 #include <iostream>  // TODO rm after debug
@@ -37,7 +38,7 @@ namespace {
  *  first byte of 32 codes at once, then the second byte, etc.
  * @tparam NBytes Byte length of Bolt encoding for each row
  */
-template<int NBytes>
+template<int NBytes, bool RowMajor=false>
 void bolt_encode(const float* X, int64_t nrows, int ncols,
     const float* centroids, uint8_t* out)
 {
@@ -45,65 +46,81 @@ void bolt_encode(const float* X, int64_t nrows, int ncols,
     static constexpr int packet_width = 8; // objs per simd register
     static constexpr int nstripes = lut_sz / packet_width;
     static constexpr int ncodebooks = 2 * NBytes;
+    static constexpr int block_rows = 32;
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
+    const int64_t nblocks = ceil(nrows / (float)block_rows);
     const int subvect_len = ncols / ncodebooks;
     const int trailing_subvect_len = ncols % ncodebooks;
     assert(trailing_subvect_len == 0); // TODO remove this constraint
 
     __m256 accumulators[lut_sz / packet_width];
 
-    for (int64_t n = 0; n < nrows; n++) { // for each row of X
-        auto x_ptr = X + n * ncols;
+    // for (int64_t n = 0; n < nrows; n++) { // for each row of X
 
-        auto centroids_ptr = centroids;
-        for (int m = 0; m < ncodebooks; m++) { // for each codebook
-            for (int i = 0; i < nstripes; i++) {
-                accumulators[i] = _mm256_setzero_ps();
-            }
-            // compute distances to each of the centroids, which we assume
-            // are in column major order; this takes 2 packets per col
-            for (int j = 0; j < subvect_len; j++) { // for each encoded dim
-                auto x_j_broadcast = _mm256_set1_ps(*x_ptr);
-                for (int i = 0; i < nstripes; i++) { // for upper and lower 8
-                    auto centroids_half_col = _mm256_load_ps((float*)centroids_ptr);
-                    centroids_ptr += packet_width;
-                    auto diff = _mm256_sub_ps(x_j_broadcast, centroids_half_col);
-                    accumulators[i] = fma(diff, diff, accumulators[i]);
+    auto x_ptr = X;
+    for (int b = 0; b < nblocks; b++) { // for each block
+        // handle nrows not a multiple of 32
+        int limit = (b == (nblocks - 1)) ? (nrows % 32) : block_rows;
+        for (int n = 0; n < limit; n++) { // for each row in block
+            // auto x_ptr = X + n * ncols;
+
+            auto centroids_ptr = centroids;
+            for (int m = 0; m < ncodebooks; m++) { // for each codebook
+                for (int i = 0; i < nstripes; i++) {
+                    accumulators[i] = _mm256_setzero_ps();
                 }
-                x_ptr++;
-            }
+                // compute distances to each of the centroids, which we assume
+                // are in column major order; this takes 2 packets per col
+                for (int j = 0; j < subvect_len; j++) { // for each encoded dim
+                    auto x_j_broadcast = _mm256_set1_ps(*x_ptr);
+                    for (int i = 0; i < nstripes; i++) { // for upper and lower 8
+                        auto centroids_half_col = _mm256_load_ps((float*)centroids_ptr);
+                        centroids_ptr += packet_width;
+                        auto diff = _mm256_sub_ps(x_j_broadcast, centroids_half_col);
+                        accumulators[i] = fma(diff, diff, accumulators[i]);
+                    }
+                    x_ptr++;
+                }
 
-            // convert the floats to ints
-            // XXX distances *must* be >> 0 for this to preserve correctness
-            auto dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
-            auto dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
+                // convert the floats to ints
+                // XXX distances *must* be >> 0 for this to preserve correctness
+                auto dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
+                auto dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
 
-            // find the minimum value
-            auto dists = _mm256_min_epi32(dists_int32_low, dists_int32_high);
-            auto min_broadcast = broadcast_min(dists);
-            // int32_t min_val = predux_min(dists);
+                // find the minimum value
+                auto dists = _mm256_min_epi32(dists_int32_low, dists_int32_high);
+                auto min_broadcast = broadcast_min(dists);
+                // int32_t min_val = predux_min(dists);
 
-            // mask where the minimum happens
-            auto mask_low = _mm256_cmpeq_epi32(dists_int32_low, min_broadcast);
-            auto mask_high = _mm256_cmpeq_epi32(dists_int32_high, min_broadcast);
+                // mask where the minimum happens
+                auto mask_low = _mm256_cmpeq_epi32(dists_int32_low, min_broadcast);
+                auto mask_high = _mm256_cmpeq_epi32(dists_int32_high, min_broadcast);
 
-            // find first int where mask is set
-            uint32_t mask0 = _mm256_movemask_epi8(mask_low); // extracts MSBs
-            uint32_t mask1 = _mm256_movemask_epi8(mask_high);
-            uint64_t mask = mask0 + (static_cast<uint64_t>(mask1) << 32);
-            uint8_t min_idx = __tzcnt_u64(mask) >> 2; // div by 4 since 4B objs
+                // find first int where mask is set
+                uint32_t mask0 = _mm256_movemask_epi8(mask_low); // extracts MSBs
+                uint32_t mask1 = _mm256_movemask_epi8(mask_high);
+                uint64_t mask = mask0 + (static_cast<uint64_t>(mask1) << 32);
+                uint8_t min_idx = __tzcnt_u64(mask) >> 2; // div by 4 since 4B objs
 
-            if (m % 2) {
-                // odds -> store in upper 4 bits
-                out[m / 2] |= min_idx << 4;
-            } else {
-                // evens -> store in lower 4 bits; we don't actually need to
-                // mask because odd iter will clobber upper 4 bits anyway
-                out[m / 2] = min_idx;
-            }
-        }
-        out += NBytes;
-    }
+                int out_idx;
+                if (RowMajor) {
+                    out_idx = m / 2;
+                } else {
+                    out_idx = block_rows * (m / 2) + n;
+                }
+                if (m % 2) {
+                    // odds -> store in upper 4 bits
+                    out[out_idx] |= min_idx << 4;
+                } else {
+                    // evens -> store in lower 4 bits; we don't actually need to
+                    // mask because odd iter will clobber upper 4 bits anyway
+                    out[out_idx] = min_idx;
+                }
+            } // m
+            if (RowMajor) { out += NBytes; }
+        } // n within block
+        if (!RowMajor) { out += NBytes * block_rows; }
+    } // block
 }
 
 
@@ -227,7 +244,7 @@ void bolt_lut(const float* q, int len, const float* centroids,
     __m256 scaleby_vect = _mm256_set1_ps(scaleby);  // TODO uncomment this!!!
     // __m256 scaleby_vect = _mm256_set1_ps(1.);
 
-    std::cout << "cpp scaleby: " << scaleby << "\n";
+    // std::cout << "cpp scaleby: " << scaleby << "\n";
 
     for (int m = 0; m < ncodebooks; m++) { // for each codebook
         for (int i = 0; i < nstripes; i++) {
@@ -270,7 +287,7 @@ void bolt_lut(const float* q, int len, const float* centroids,
 
         // TODO uncomment this (with the real offsets + scale)!!!
         // // scale dists and add offsets
-        std::cout << "cpp offset: " << offsets[m] << "\n";
+        // std::cout << "cpp offset: " << offsets[m] << "\n";
         auto offset_vect = _mm256_set1_ps(offsets[m]);
         // auto offset_vect = _mm256_set1_ps(0);
         auto dist0 = fma(accumulators[0], scaleby_vect, offset_vect);

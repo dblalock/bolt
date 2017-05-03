@@ -69,6 +69,7 @@ def _ensure_num_cols_multiple_of(X, multiple_of):
 
 def kmeans(X, k, max_iter=16, init='kmc2'):
     X = X.astype(np.float32)
+    np.random.seed(123)
 
     # if k is huge, initialize centers with cartesian product of centroids
     # in two subspaces
@@ -299,13 +300,19 @@ class MockEncoder(object):
             col = raw_Xenc[:, in_j]
             cpp_Xenc[:, out_j] = np.bitwise_and(col, 255 - 15) >> 4
 
-        # # yep, these are the same (well, *almost* always...fp errors?)
-        # print "python X enc"
-        # print self.X_enc.shape
-        # print self.X_enc[:20]
+
+        # XXX are these supposed to be the same? I don't think so...
+
+
+        # yep, these are the same (well, *almost* always...fp errors?)
+        print "python X enc"
+        print self.X_enc.shape
+        print self.X_enc[:20]
         # print "cpp X enc"
         # print cpp_Xenc.shape
         # print cpp_Xenc[:20]
+        # print "raw cpp X_enc"
+        # print raw_Xenc[:20]
 
         self.X_enc += enc_offsets
 
@@ -348,19 +355,24 @@ class MockEncoder(object):
         self._encoder.lut_l2(q)
         lut_cpp = self._encoder.get_lut()
 
-        print "py, cpp lut:"  # within +/- 1 using naive lut impl in cpp
-        print lut_py
-        print lut_cpp
+        # print "py, cpp lut:"  # within +/- 1 using naive lut impl in cpp
+        # print lut_py
+        # print lut_cpp
 
         # return self._dists(lut)
         dists_py = self._dists(lut)
-        dists_cpp = self._encoder.dists_sq(q)
+        dists_cpp = self._encoder.dists_sq(q)[:len(dists_py)]  # strip padding
 
-        print "py, cpp dists:"
-        print dists_py[:20]
-        print dists_cpp[:20]
+        # print "py, cpp initial dists:"
+        # print dists_py[:20]
+        # print dists_cpp[:20]
+
+        print "py, cpp final dists:"
+        print dists_py[-20:]
+        print dists_cpp[-20:]
 
         return dists_py
+        # return dists_cpp
 
     def dot_prods(self, q):
         lut = _fit_pq_lut(q, centroids=self.centroids,
@@ -380,6 +392,8 @@ class Encoder(object):
         self.reduction = reduction
 
     def _preproc(self, X):
+        # TODO rows of X also needs to have variance >> 1 to avoid
+        # everything going to 0 when bolt_encode converts to ints in argmin
         one_d = len(X.shape) == 1
         if one_d:
             X = X.reshape((1, -1))
@@ -396,7 +410,7 @@ class Encoder(object):
         ncentroids = 16
 
         self.DEBUG = False
-        self.DEBUG = True
+        # self.DEBUG = True
 
         X = self._preproc(X)
         self._ndims_ = X.shape[1]
@@ -462,6 +476,7 @@ class Encoder(object):
 
         if not just_train:
             self._encoder_.set_data(X)
+            self._n = len(X)
 
         return self
 
@@ -469,6 +484,7 @@ class Encoder(object):
         """set data to actually encode; separate from fit() because fit()
         could use different training data than what we actully compress"""
         self._encoder_.set_data(self._preproc(X))
+        self._n = len(X)
 
     def _set_dot(self):
         if self.reduction != Reductions.DOT_PRODUCT:
@@ -486,11 +502,11 @@ class Encoder(object):
 
     def dot(self, q):
         self._set_dot()
-        return self._encoder_.dot_prods(self._preproc(q))
+        return self._encoder_.dot_prods(self._preproc(q))[:self._n]
 
     def dists_sq(self, q):
         self._set_sq()
-        return self._encoder_.dists_sq(self._preproc(q))
+        return self._encoder_.dists_sq(self._preproc(q))[:self._n]
 
     def knn_dot(self, q, k):
         self._set_dot()

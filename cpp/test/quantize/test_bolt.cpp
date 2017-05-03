@@ -291,7 +291,6 @@ TEST_CASE("bolt_encode", "[mcq][bolt]") {
             check_encoding(nrows, enc.codes());
         }
     }
-
 }
 
 TEST_CASE("bolt_scan", "[mcq][bolt]") {

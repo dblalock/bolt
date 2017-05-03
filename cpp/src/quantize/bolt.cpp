@@ -254,13 +254,60 @@ void BoltEncoder::lut_dot(const RowVector<float>& q) {
     lut_dot(q.data(), static_cast<int>(q.size()));
 }
 
-template<int Reduction=Reductions::DistL2, class dist_t>
+template<int NBytes>
+// void _naive_bolt_scan(const uint8_t* codes, const uint8_t* lut_ptr,
+void _naive_bolt_scan(const uint8_t* codes, const ColMatrix<uint8_t>& luts,
+    uint16_t* dists_out, int64_t nblocks)
+{
+    // static constexpr int ncodebooks = 2 * NBytes;
+    static constexpr int ncentroids = 16;
+
+    auto lut_ptr = luts.data();
+    for (int b = 0; b < nblocks; b++) {
+        auto dist_ptr = dists_out + b * 32;
+        auto codes_ptr = codes + b * NBytes * 32;
+        for (int i = 0; i < 32; i++) {
+            // int dist = dist_ptr[i];
+
+            int dist_true = 0;
+            for (int m = 0; m < NBytes; m++) {
+                uint8_t code = codes_ptr[i + 32 * m];  // TODO uncomment !!!!
+                // uint8_t code = codes_ptr[i * m + 32];
+
+                uint8_t low_bits = code & 0x0F;
+                uint8_t high_bits = (code & 0xF0) >> 4;
+
+                int lut_idx_0 = (2 * m) * ncentroids + low_bits;
+                int lut_idx_1 = (2 * m + 1) * ncentroids + high_bits;
+                int d0 = lut_ptr[lut_idx_0];
+                int d1 = lut_ptr[lut_idx_1];
+
+                if (b == 0 && i < 32) {
+                    printf("%3d -> %3d, %3d -> %3d", low_bits, d0, high_bits, d1);
+                    // std::cout << "%d -> %d, %d -> %d\n"
+                }
+                // int d0 = luts(low_bits, 2 * m);
+                // int d1 = luts(high_bits, 2 * m + 1);
+
+                dist_true += d0 + d1;
+            }
+            if (b == 0 && i < 32) {
+                printf(" = %4d\n", dist_true);
+            }
+            dist_ptr[i] = dist_true;
+        }
+    }
+}
+
+// template<int Reduction=Reductions::DistL2, class dist_t>
+template<int Reduction=Reductions::DistL2>
 void query(const float* q, int len, int nbytes,
     const RowMatrix<float>& centroids,
     const RowVector<float>& offsets, float scaleby,
     const RowMatrix<uint8_t>& codes,
     // ColMatrix<float> _centroids, RowMatrix<uint8_t> _codes,
-    int64_t ncodes, ColMatrix<uint8_t>& lut_tmp, dist_t* dists)
+    // int64_t ncodes, ColMatrix<uint8_t>& lut_tmp, dist_t* dists)
+    int64_t ncodes, ColMatrix<uint8_t>& lut_tmp, uint16_t* dists)
 {
     int ncodebooks = nbytes * 2;
     assert(nbytes > 0);
@@ -281,18 +328,35 @@ void query(const float* q, int len, int nbytes,
     auto codes_ptr = codes.data();
     assert(codes_ptr != nullptr);
 
+    // TODO rm
+    RowMatrix<uint16_t> unpacked_codes(32, 4); // just first few rows
+    for (int i = 0; i < unpacked_codes.rows(); i++) {
+        unpacked_codes(i, 0) = codes(i, 0) & 0x0F;
+        unpacked_codes(i, 1) = (codes(i, 0) & 0xF0) >> 4;
+        unpacked_codes(i, 2) = codes(i, 1) & 0x0F;
+        unpacked_codes(i, 3) = (codes(i, 1) & 0xF0) >> 4;
+    }
+
     // create lookup table and then scan with it
     switch (nbytes) {
         case 2:
-//             bolt_lut<2, Reduction>(q, len, _centroids.data(), lut_ptr);
-
-
-            // TODO rm
-//            lut<Reduction>(q, len, nbytes, centroids, offsets, scaleby, lut_tmp);
-
             bolt_lut<2, Reduction>(q, len, centroids.data(), offsets.data(), scaleby,
                                    lut_ptr);
-            bolt_scan<2, true>(codes.data(), lut_ptr, dists, nblocks);
+
+            // ya, these both match the cpp...
+            // std::cout << "behold, my lut is:\n";
+            // std::cout <<  lut_tmp.cast<uint16_t>();
+//            std::cout << "\nmy initial codes are:\n";
+//            std::cout << codes.topRows<20>().cast<uint16_t>() << "\n";
+            std::cout << "\nmy initial unpacked codes are:\n";
+            std::cout << unpacked_codes << "\n";
+
+            // TODO uncomment
+            // bolt_scan<2, true>(codes.data(), lut_ptr, dists, nblocks);
+
+            // _naive_bolt_scan<2>(codes.data(), lut_ptr, dists, nblocks);
+            _naive_bolt_scan<2>(codes.data(), lut_tmp, dists, nblocks);
+
             break;
         case 8:
             bolt_lut<8, Reduction>(q, len, centroids.data(), offsets.data(), scaleby,
@@ -319,6 +383,7 @@ void query(const float* q, int len, int nbytes,
     }
 }
 
+
 // TODO version that writes to argout array to avoid unnecessary copy
 // TODO allow specifying safe (no overflow) scan
 template<int Reduction=Reductions::DistL2>
@@ -330,6 +395,7 @@ RowVector<uint16_t> query_all(const float* q, int len, int nbytes,
     ColMatrix<uint8_t>& lut_tmp)
 {
     RowVector<uint16_t> dists(codes.rows()); // need 32B alignment, so can't use stl vector
+    dists.setZero();
     query(q, len, nbytes, centroids, offsets, scaleby, codes, ncodes,
         lut_tmp, dists.data());
 
@@ -339,14 +405,14 @@ RowVector<uint16_t> query_all(const float* q, int len, int nbytes,
         std::cout << dists(i) << " ";
     }
     std::cout << "]\n";
-    
+
     return dists;
-    
+
     // copy computed distances into a vector to return; would be nice
     // to write directly into the vector, but can't guarantee 32B alignment
     // without some hacks
 //    vector<uint16_t> ret(ncodes);
-    
+
     // ret.reserve(_ncodes);
 //    std::memcpy(ret.data(), dists.data(), ncodes * sizeof(uint16_t));
 //    printf("ncodes, ret.size(), %lld, %lld\n", _ncodes, ret.size());
