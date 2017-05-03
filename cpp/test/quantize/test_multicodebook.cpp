@@ -23,7 +23,7 @@
 
 TEST_CASE("popcnt", "[mcq][popcount]") {
     
-    std::cout << "testing mcq algorithms for popcount...\n";
+//    std::cout << "testing mcq algorithms for popcount...\n";
     
     static constexpr int nblocks = 3;
     static constexpr int N = 32 * nblocks;

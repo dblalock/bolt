@@ -58,40 +58,33 @@ def test_basic():
     Q = X[-num_queries:]
     X = X[:-num_queries]
 
+    # ------------------------------------------------ squared l2
+
     enc = bolt.Encoder(nbytes=2, reduction=bolt.Reductions.SQUARED_EUCLIDEAN)
     enc.fit(X)
 
-    # dot_corrs = np.empty(len(Q))
     l2_corrs = np.empty(len(Q))
-    # for i, q in enumerate(Q[:1]):
     for i, q in enumerate(Q):
-        # dots_true = np.dot(X, q)
-        # dots_bolt = enc.dot(q)
-        # dot_corrs[i] = corr(dots_true, dots_bolt)[0]
-
-        # print "dots true, dots bolt:"
-        # print dots_true
-        # print dots_bolt
-
-        # l2_true = _dists_sq(X, q)
         l2_true = _dists_sq(X, q).astype(np.int)
         l2_bolt = enc.dists_sq(q)
+        l2_corrs[i] = corr(l2_true, l2_bolt)[0]  # TODO uncommment
 
-        # l2_bolt = l2_bolt[:len(l2_true)]  # bolt result includes padding
-
-        # l2_corrs[i] = corr(l2_true, l2_bolt)[0]  # TODO uncommment
-        l2_corrs[i] = corr(l2_true[:20], l2_bolt[:20])[0]
-
-        # print "dists sq true, dots bolt:"
-        # print l2_true[:20]
-        # print l2_bolt[:20]
-
-    # print "mean dot product correlation, squared l2 dist correlation:"
     print "squared l2 dist correlation:"
-    # print np.mean(dot_corrs[0])
-    # print np.mean(l2_corrs[0])
-    # print np.mean(dot_corrs)
     print np.mean(l2_corrs)
+
+    # ------------------------------------------------ dot product
+
+    enc2 = bolt.Encoder(nbytes=2, reduction=bolt.Reductions.DOT_PRODUCT)
+    enc2.fit(X)
+
+    dot_corrs = np.empty(len(Q))
+    for i, q in enumerate(Q):
+        dots_true = np.dot(X, q)
+        dots_bolt = enc2.dot(q)
+        dot_corrs[i] = corr(dots_true, dots_bolt)[0]
+
+    print "dot product correlation:"
+    print np.mean(dot_corrs)
 
 
 if __name__ == '__main__':

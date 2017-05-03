@@ -300,14 +300,9 @@ class MockEncoder(object):
             col = raw_Xenc[:, in_j]
             cpp_Xenc[:, out_j] = np.bitwise_and(col, 255 - 15) >> 4
 
-
-        # XXX are these supposed to be the same? I don't think so...
-
-
-        # yep, these are the same (well, *almost* always...fp errors?)
-        print "python X enc"
-        print self.X_enc.shape
-        print self.X_enc[:20]
+        # print "python X enc"
+        # print self.X_enc.shape
+        # print self.X_enc[:20]
         # print "cpp X enc"
         # print cpp_Xenc.shape
         # print cpp_Xenc[:20]
@@ -342,22 +337,23 @@ class MockEncoder(object):
         offsets_cpp = self._encoder.get_offsets()
         scale_cpp = self._encoder.get_scale()
 
-        print "py, cpp offsets:"
-        print self.offsets
-        print offsets_cpp
+        # print "py, cpp offsets:"
+        # print self.offsets
+        # print offsets_cpp
 
-        print "py, cpp scale factors:"
-        print self.scale
-        print scale_cpp
+        # print "py, cpp scale factors:"
+        # print self.scale
+        # print scale_cpp
 
         lut_py = self._quantize_lut(lut)
         # print "lets try to read the cpp lut..."
-        self._encoder.lut_l2(q)
+        # self._encoder.lut_l2(q)
+        self._encoder.lut_dot(q)
         lut_cpp = self._encoder.get_lut()
 
-        # print "py, cpp lut:"  # within +/- 1 using naive lut impl in cpp
-        # print lut_py
-        # print lut_cpp
+        print "py, cpp lut:"  # within +/- 1 using naive lut impl in cpp
+        print lut_py
+        print lut_cpp
 
         # return self._dists(lut)
         dists_py = self._dists(lut)
@@ -367,9 +363,9 @@ class MockEncoder(object):
         # print dists_py[:20]
         # print dists_cpp[:20]
 
-        print "py, cpp final dists:"
-        print dists_py[-20:]
-        print dists_cpp[-20:]
+        # print "py, cpp final dists:"
+        # print dists_py[-20:]
+        # print dists_cpp[-20:]
 
         return dists_py
         # return dists_cpp
@@ -381,8 +377,8 @@ class MockEncoder(object):
 
 
 class Reductions:
-    SQUARED_EUCLIDEAN = 1
-    DOT_PRODUCT = 2
+    SQUARED_EUCLIDEAN = 'l2'
+    DOT_PRODUCT = 'dot'
 
 
 class Encoder(object):
@@ -424,7 +420,7 @@ class Encoder(object):
         else:
             self._encoder_ = bolt.BoltEncoder(self.nbytes)
 
-        print "centroids shape: ", centroids.shape
+        # print "centroids shape: ", centroids.shape
 
         # compute lut offsets and scaleby for l2 and dot here; we'll have
         # to switch off which ones are used based on which method gets called
@@ -469,8 +465,8 @@ class Encoder(object):
             end_row = start_row + ncentroids
             flat_centroids[start_row:end_row, :] = codebook
 
-        print "centroids shape: ", centroids.shape
-        print "flat centroids shape: ", flat_centroids.shape
+        # print "centroids shape: ", centroids.shape
+        # print "flat centroids shape: ", flat_centroids.shape
 
         self._encoder_.set_centroids(flat_centroids)
 

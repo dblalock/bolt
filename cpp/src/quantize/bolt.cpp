@@ -202,8 +202,6 @@ void lut(const float* q, int len, int nbytes,
     // _naive_lut(q, len, nbytes, centroids, offsets, scaleby, lut_out);
     // return;
 
-    std::cout << "nbytes: " << nbytes << "\n";
-
     //    static constexpr int ncentroids = 16;
     //    int ncodebooks = nbytes * 2;
     // ColMatrix<uint8_t>& lut_out(ncentroids, ncodebooks);
@@ -328,14 +326,14 @@ void query(const float* q, int len, int nbytes,
     auto codes_ptr = codes.data();
     assert(codes_ptr != nullptr);
 
-    // TODO rm
-    RowMatrix<uint16_t> unpacked_codes(32, 4); // just first few rows
-    for (int i = 0; i < unpacked_codes.rows(); i++) {
-        unpacked_codes(i, 0) = codes(i, 0) & 0x0F;
-        unpacked_codes(i, 1) = (codes(i, 0) & 0xF0) >> 4;
-        unpacked_codes(i, 2) = codes(i, 1) & 0x0F;
-        unpacked_codes(i, 3) = (codes(i, 1) & 0xF0) >> 4;
-    }
+    // // TODO rm
+    // RowMatrix<uint16_t> unpacked_codes(32, 4); // just first few rows
+    // for (int i = 0; i < unpacked_codes.rows(); i++) {
+    //     unpacked_codes(i, 0) = codes(i, 0) & 0x0F;
+    //     unpacked_codes(i, 1) = (codes(i, 0) & 0xF0) >> 4;
+    //     unpacked_codes(i, 2) = codes(i, 1) & 0x0F;
+    //     unpacked_codes(i, 3) = (codes(i, 1) & 0xF0) >> 4;
+    // }
 
     // create lookup table and then scan with it
     switch (nbytes) {
@@ -348,14 +346,14 @@ void query(const float* q, int len, int nbytes,
             // std::cout <<  lut_tmp.cast<uint16_t>();
 //            std::cout << "\nmy initial codes are:\n";
 //            std::cout << codes.topRows<20>().cast<uint16_t>() << "\n";
-            std::cout << "\nmy initial unpacked codes are:\n";
-            std::cout << unpacked_codes << "\n";
+            // std::cout << "\nmy initial unpacked codes are:\n";
+            // std::cout << unpacked_codes << "\n";
 
             // TODO uncomment
-            // bolt_scan<2, true>(codes.data(), lut_ptr, dists, nblocks);
+            bolt_scan<2, true>(codes.data(), lut_ptr, dists, nblocks);
 
             // _naive_bolt_scan<2>(codes.data(), lut_ptr, dists, nblocks);
-            _naive_bolt_scan<2>(codes.data(), lut_tmp, dists, nblocks);
+            // _naive_bolt_scan<2>(codes.data(), lut_tmp, dists, nblocks);
 
             break;
         case 8:
@@ -396,15 +394,15 @@ RowVector<uint16_t> query_all(const float* q, int len, int nbytes,
 {
     RowVector<uint16_t> dists(codes.rows()); // need 32B alignment, so can't use stl vector
     dists.setZero();
-    query(q, len, nbytes, centroids, offsets, scaleby, codes, ncodes,
+    query<Reduction>(q, len, nbytes, centroids, offsets, scaleby, codes, ncodes,
         lut_tmp, dists.data());
 
-    // okay, ya, swig is returning the right values
-    std::cout << "cpp first 20 distances:\n[";
-    for (int i = 0; i < 20; i++) {
-        std::cout << dists(i) << " ";
-    }
-    std::cout << "]\n";
+    // // okay, ya, swig is returning the right values
+    // std::cout << "cpp first 20 distances:\n[";
+    // for (int i = 0; i < 20; i++) {
+    //     std::cout << dists(i) << " ";
+    // }
+    // std::cout << "]\n";
 
     return dists;
 
@@ -428,7 +426,7 @@ vector<int64_t> query_knn(const float* q, int len, int nbytes,
     int k, ColMatrix<uint8_t>& lut_tmp)
 {
     RowVector<uint16_t> dists(codes.rows()); // need 32B alignment, so can't use stl vector
-    query(q, len, nbytes, centroids, offsets, scaleby, codes, ncodes,
+    query<Reduction>(q, len, nbytes, centroids, offsets, scaleby, codes, ncodes,
         lut_tmp, dists.data());
 
     // extract and return the k nearest neighbors

@@ -171,7 +171,7 @@ TEST_CASE("bolt_lut_l2", "[mcq][bolt]") {
     // }
 
     SECTION("wrapper") {
-        std::cout << "checking wrapper lut\n";  // TODO rm
+//        std::cout << "checking wrapper lut\n";  // TODO rm
         BoltEncoder enc(M);
         enc.set_centroids(centroids_rowmajor.data(), centroids_rowmajor.rows(),
                           centroids_rowmajor.cols());
@@ -217,7 +217,14 @@ TEST_CASE("bolt_lut_l2", "[mcq][bolt]") {
     }
 }
 
-void check_encoding(int nrows, const RowMatrix<uint8_t>& encoding_out) {
+void check_encoding(int nrows, const ColMatrix<uint8_t>& encoding_out) {
+
+    // number of rows in output must be a multiple of 32, and >32 would
+    // require us to rewrite this to look at indices within each block
+    // instead of letting column-major indexing handle everything for us
+    size_t nrows_out = encoding_out.rows();
+    REQUIRE(nrows_out == 32);
+    
     for (int i = 0; i < nrows; i++) {
         for(int m = 0; m < 2 * M; m++) {
             // indices are packed into upper and lower 4 bits
@@ -244,7 +251,8 @@ TEST_CASE("bolt_encode", "[mcq][bolt]") {
             }
         }
 
-        RowVector<uint8_t> encoding_out(M);
+//        RowVector<uint8_t> encoding_out(M);
+        ColMatrix<uint8_t> encoding_out(32, M); // enough space for whole block
         bolt_encode<M>(q.data(), 1, total_len, centroids.data(), encoding_out.data());
 
 //        std::cout << "q: " << q << "\n";
@@ -253,7 +261,7 @@ TEST_CASE("bolt_encode", "[mcq][bolt]") {
 //        std::cout << "encoding:\n";
 
         for (int m = 0; m < 2 * M; m++) {
-            int byte = encoding_out(m / 2);
+            int byte = encoding_out(0, m / 2); // encodings are in first row
             int idx = m % 2 ? byte >> 4 : byte & 0x0F;
             REQUIRE(idx == 2 * m);
         }
@@ -263,32 +271,27 @@ TEST_CASE("bolt_encode", "[mcq][bolt]") {
     SECTION("encode rows of matrix") {
         static constexpr int nrows = 10;
         auto X = create_X_matrix(nrows);
-        RowMatrix<uint8_t> encoding_out(nrows, M);
+        ColMatrix<uint8_t> encoding_out(32, M);
+        encoding_out.setZero(); // TODO rm after debug
         bolt_encode<M>(X.data(), nrows, total_len, centroids.data(),
                        encoding_out.data());
 
         check_encoding(nrows, encoding_out);
-        // for (int i = 0; i < nrows; i++) {
-        //     for(int m = 0; m < 2 * M; m++) {
-        //         // indices are packed into upper and lower 4 bits
-        //         int byte = encoding_out(i, m / 2);
-        //         int idx = m % 2 ? byte >> 4 : byte & 0x0F;
-        //         REQUIRE(idx == m + (i % 5)); // i % 5 from how we designed mat
-        //     }
-        // }
-
+        
         SECTION("wrapper") {
             BoltEncoder enc(M);
-            RowMatrix<float> centroids_rowmajor = create_rowmajor_centroids(1).cast<float>();
+            RowMatrix<float> centroids_rowmajor =
+                create_rowmajor_centroids(1).cast<float>();
             enc.set_centroids(centroids_rowmajor.data(),
                 centroids_rowmajor.rows(), centroids_rowmajor.cols());
-//            enc.set_data(X.data(), (int)X.rows(), (int)X.cols());
             enc.set_data(X.data(), nrows, total_len);
 
-            // PRINTLN_VAR(encoding_out.cast<int>());
-            // PRINTLN_VAR(enc.codes().cast<int>());
-
-            check_encoding(nrows, enc.codes());
+//            PRINTLN_VAR(encoding_out.cast<int>());
+//            PRINTLN_VAR(enc.codes().cast<int>());
+            RowMatrix<uint8_t> codes_rowmajor(enc.codes());
+            Map<ColMatrix<uint8_t> > codes_colmajor(codes_rowmajor.data(), 32, M);
+            
+            check_encoding(nrows, codes_colmajor);
         }
     }
 }
@@ -343,6 +346,6 @@ TEST_CASE("bolt_scan", "[mcq][bolt]") {
         check_bolt_scan(dists_u8.data(), dists_u16.data(), dists.data(),
                     luts, codes, M, nblocks);
         
-        printf("checked bolt wrapper scan\n");  // TODO rm
+//        printf("checked bolt wrapper scan\n");  // TODO rm
     }
 }
