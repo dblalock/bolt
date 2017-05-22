@@ -97,7 +97,7 @@ class Glove:
 
 
 # note that we've only run the real experiments on the ones reported
-# in the paper(i.e., no cherrypicking)
+# in the paper (i.e., no cherrypicking)
 ALL_REAL_DATASETS = [
     Gist, Sift1M, Sift10M, Deep1M, Convnet1M, Mnist, LabelMe, Glove]
 
