@@ -84,6 +84,16 @@ inline void sort_neighbors_ascending_distance(Container<Neighbor>& neighbors) {
 }
 
 template<template<class...> class Container>
+inline void sort_neighbors_descending_distance(Container<Neighbor>& neighbors) {
+    std::sort(std::begin(neighbors), std::end(neighbors),
+        [](const Neighbor& a, const Neighbor& b) -> bool
+        {
+            return a.dist > b.dist;
+        }
+    );
+}
+
+template<template<class...> class Container>
 inline void sort_neighbors_ascending_idx(Container<Neighbor>& neighbors) {
     std::sort(std::begin(neighbors), std::end(neighbors),
         [](const Neighbor& a, const Neighbor& b) -> bool
@@ -101,49 +111,63 @@ inline void sort_neighbors_ascending_idx(Container<Neighbor>& neighbors) {
  */
 template<template<class...> class Container>
 inline dist_t maybe_insert_neighbor(
-	Container<Neighbor>& neighbors_bsf, Neighbor newNeighbor)
+	Container<Neighbor>& neighbors_bsf, Neighbor newNeighbor,
+    bool smaller_better=true)
 {
     assert(neighbors_bsf.size() > 0);
 	size_t len = neighbors_bsf.size();
     size_t i = len - 1;
     auto dist = newNeighbor.dist;
 
-    if (dist < neighbors_bsf[i].dist) {
-        neighbors_bsf[i] = newNeighbor;
+    if (smaller_better) {
+        if (dist < neighbors_bsf[i].dist) {
+            neighbors_bsf[i] = newNeighbor;
+        }
+        while (i > 0 && neighbors_bsf[i-1].dist > dist) {
+            // swap new and previous neighbor
+            Neighbor tmp = neighbors_bsf[i-1];
+            neighbors_bsf[i-1] = neighbors_bsf[i];
+            neighbors_bsf[i] = tmp;
+            i--;
+        }
+    } else { // same as first case but inequalities reversed
+        if (dist > neighbors_bsf[i].dist) {
+            neighbors_bsf[i] = newNeighbor;
+        }
+        while (i > 0 && neighbors_bsf[i-1].dist < dist) {
+            Neighbor tmp = neighbors_bsf[i-1];
+            neighbors_bsf[i-1] = neighbors_bsf[i];
+            neighbors_bsf[i] = tmp;
+            i--;
+        }
     }
 
-    while (i > 0 && neighbors_bsf[i-1].dist > dist) {
-        // swap new and previous neighbor
-        Neighbor tmp = neighbors_bsf[i-1];
-
-        neighbors_bsf[i-1] = neighbors_bsf[i];
-        neighbors_bsf[i] = tmp;
-        i--;
-    }
     return neighbors_bsf[len - 1].dist;
 }
 template<template<class...> class Container>
 inline dist_t maybe_insert_neighbor(Container<Neighbor>& neighbors_bsf,
-    double dist, typename Neighbor::idx_t idx)
+    double dist, typename Neighbor::idx_t idx, bool smaller_better=false)
 {
-	return maybe_insert_neighbor(neighbors_bsf, Neighbor{idx, dist});
+	return maybe_insert_neighbor(neighbors_bsf, Neighbor{idx, dist}, smaller_better);
 }
 
 template<template<class...> class Container,
     template<class...> class Container2>
 inline dist_t maybe_insert_neighbors(Container<Neighbor>& neighbors_bsf,
-    const Container2<Neighbor>& potential_neighbors)
+    const Container2<Neighbor>& potential_neighbors, bool smaller_better=false)
 {
     dist_t d_bsf = kMaxDist;
     for (auto& n : potential_neighbors) {
-        d_bsf = maybe_insert_neighbor(neighbors_bsf, n);
+        d_bsf = maybe_insert_neighbor(neighbors_bsf, n, smaller_better);
     }
     return d_bsf;
 }
 
 
 template<class T>
-inline vector<Neighbor> knn_from_dists(const T* dists, size_t len, size_t k) {
+inline vector<Neighbor> knn_from_dists(const T* dists, size_t len, size_t k,
+    bool smaller_better=true)
+{
     assert(k > 0);
     assert(len > 0);
     k = std::min(k, len);
@@ -151,9 +175,13 @@ inline vector<Neighbor> knn_from_dists(const T* dists, size_t len, size_t k) {
     for (idx_t i = 0; i < k; i++) {
 		ret[i] = Neighbor{i, dists[i]};
     }
-    sort_neighbors_ascending_distance(ret);
+    if (smaller_better) {
+        sort_neighbors_ascending_distance(ret);
+    } else {
+        sort_neighbors_descending_distance(ret);
+    }
     for (idx_t i = k; i < len; i++) {
-        maybe_insert_neighbor(ret, dists[i], i);
+        maybe_insert_neighbor(ret, dists[i], i, smaller_better);
     }
     return ret;
 }

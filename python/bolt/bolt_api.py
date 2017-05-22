@@ -163,8 +163,8 @@ def _learn_best_quantization(luts):  # luts can be a bunch of vstacked luts
             best_floors = floors
             best_scale_by = scale_by
 
-    print "best alpha, loss = ", best_alpha, best_loss
-    print "best floors, scale = ", best_floors, best_scale_by
+    # print "best alpha, loss = ", best_alpha, best_loss
+    # print "best floors, scale = ", best_floors, best_scale_by
 
     return best_floors, best_scale_by, best_alpha
 
@@ -235,7 +235,7 @@ def _learn_quantization_params(X, centroids, elemwise_dist_func, Q=None,
 
 
 class MockEncoder(object):
-    """Stand-in for cpp impl, for debuging"""
+    """Stand-in for cpp impl; only for debuging"""
 
     def __init__(self, nbytes):
         self.nbytes = nbytes
@@ -453,10 +453,13 @@ class Encoder(object):
         # self.scale_sq_ = 1.
         # self.scale_dot_ = 1.
 
+        print "centroids shape", centroids.shape
+        # print "centroids shape", centroids.shape
+
         # munge centroids into contiguous 2D array;
         # starts as [ncentroids, ncodebooks, subvect_len] and
         # needs to be [ncentroids * ncodebooks, subvect_len
-        subvect_len = centroids.shape[1]
+        subvect_len = centroids.shape[-1]
         flat_centroids = np.empty((self._ncodebooks * ncentroids,
                                    subvect_len), dtype=np.float32)
         for m in range(self._ncodebooks):
@@ -482,32 +485,27 @@ class Encoder(object):
         self._encoder_.set_data(self._preproc(X))
         self._n = len(X)
 
-    def _set_dot(self):
-        if self.reduction != Reductions.DOT_PRODUCT:
-            raise ValueError("This encoder is not configured to compute"
-                             "dot products!")
-        # self._encoder_.set_scale(self.scale_dot_)
-        # self._encoder_.set_offsets(self.offsets_dot_)
-
-    def _set_sq(self):
-        if self.reduction != Reductions.SQUARED_EUCLIDEAN:
-            raise ValueError("This encoder is not configured to compute"
-                             "(squared) l2 distances!")
-        # self._encoder_.set_scale(self.scale_sq_)
-        # self._encoder_.set_offsets(self.offsets_sq_)
+    def _check_reduction(self, reduction):
+        if reduction == self.reduction:
+            return
+        raise ValueError("This encoder is not configured to use the scalar "
+                         "reduction '{}', not '{}'!".format(
+                            self.reduction, reduction))
 
     def dot(self, q):
-        self._set_dot()
+        self._check_reduction(Reductions.DOT_PRODUCT)
+        # self._set_dot()
         return self._encoder_.dot_prods(self._preproc(q))[:self._n]
 
     def dists_sq(self, q):
-        self._set_sq()
+        self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
+        # self._set_sq()
         return self._encoder_.dists_sq(self._preproc(q))[:self._n]
 
     def knn_dot(self, q, k):
-        self._set_dot()
+        self._check_reduction(Reductions.DOT_PRODUCT)
         return self._encoder_.knn_mips(self._preproc(q), k)
 
     def knn_l2(self, q, k):
-        self._set_sq()
+        self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
         return self._encoder_.knn_l2(self._preproc(q), k)

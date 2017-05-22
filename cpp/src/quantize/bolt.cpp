@@ -423,17 +423,20 @@ vector<int64_t> query_knn(const float* q, int len, int nbytes,
     const RowVector<float>& offsets, float scaleby,
     // ColMatrix<float> _centroids, RowMatrix<uint8_t> _codes,
     const RowMatrix<uint8_t>& codes, int64_t ncodes,
-    int k, ColMatrix<uint8_t>& lut_tmp)
+    int k, ColMatrix<uint8_t>& lut_tmp,
+    bool smaller_better=true)
 {
     RowVector<uint16_t> dists(codes.rows()); // need 32B alignment, so can't use stl vector
     query<Reduction>(q, len, nbytes, centroids, offsets, scaleby, codes, ncodes,
         lut_tmp, dists.data());
 
     // extract and return the k nearest neighbors
-    vector<nn::Neighbor> neighbors = nn::knn_from_dists(dists.data(), codes.rows(), k);
+    vector<nn::Neighbor> neighbors = nn::knn_from_dists(
+        dists.data(), ncodes, k, smaller_better);
+
     vector<int64_t> ret(k);
     for (int i = 0; i < k; i++) {
-        ret[k] = static_cast<int64_t>(neighbors[i].idx);
+        ret[i] = neighbors[i].idx;
     }
     return ret;
 }
@@ -455,9 +458,10 @@ vector<int64_t> BoltEncoder::knn_l2(const float* q, int len, int k) {
         k, _lut);
 }
 vector<int64_t> BoltEncoder::knn_mips(const float* q, int len, int k) {
+    bool smaller_better = false;
     return query_knn<Reductions::DotProd>(
         q, len, _nbytes, _centroids, _offsets, _scaleby, _codes, _ncodes,
-        k, _lut);
+        k, _lut, smaller_better);
 }
 
 
