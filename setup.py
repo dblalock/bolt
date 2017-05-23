@@ -21,8 +21,6 @@ from setuptools import Extension
 import numpy
 
 CPP_SRC_PATH = 'cpp/src'
-# CPP_INCLUDE_PATH = 'cpp/src/include'
-
 # Obtain the numpy include directory.  This logic works across numpy versions.
 try:
     numpy_include = numpy.get_include()
@@ -32,7 +30,6 @@ except AttributeError:
 # gather up all the source files
 srcFiles = ['python/bolt/native.i']
 includeDirs = [numpy_include]
-# paths = [CPP_SRC_PATH, CPP_INCLUDE_PATH]
 paths = [CPP_SRC_PATH]
 for path in paths:
     srcDir = path
@@ -45,11 +42,6 @@ for path in paths:
             if 'eigen/src' not in absPath:  # just include top level
                 includeDirs.append(absPath)
             srcFiles += files
-
-print("includeDirs:")
-print(includeDirs)
-print("srcFiles:")
-print(srcFiles)
 
 # set the compiler flags so it'll build on different platforms (feel free
 # to file a  pull request with a fix if it doesn't work on yours)
@@ -96,10 +88,10 @@ print("found packages: ", packages)
 print("------------------------")
 
 setup(
-    name='bolt',
+    name='pybolt',
     version='0.1.0',
-    license='BSD',
-    description='Fast vector compression and search',
+    license='MPL',
+    description='Fast approximate matrix and vector operations',
     author='Davis Blalock',
     author_email='dblalock@mit.edu',
     url='https://github.com/dblalock/bolt',
@@ -113,7 +105,7 @@ setup(
         # http://pypi.python.org/pypi?%3Aaction=list_classifiers
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: MPL License',
+        'License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)',
         'Operating System :: Unix',
         'Operating System :: POSIX',
         'Programming Language :: C',
@@ -129,6 +121,7 @@ setup(
         'Topic :: Utilities',
     ],
     keywords=[
+        'Machine Learning', 'Compression', 'Big Data',
         # eg: 'keyword1', 'keyword2', 'keyword3',
     ],
     install_requires=[

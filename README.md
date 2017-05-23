@@ -17,7 +17,7 @@ Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/mas
 Provided that you're on a machine with [AVX2 instructions](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2) (which basically means an Intel/AMD processor from fall 2013 or later), you can just:
 
 ```bash
-  $ pip install bolt
+  $ pip install pybolt
 ```
 
 If your machine doesn't have AVX2 instructions, Bolt [doesn't support it yet](https://github.com/dblalock/bolt/issues/2), unfortunately. Contributions welcome.
