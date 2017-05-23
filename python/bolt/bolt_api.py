@@ -7,7 +7,7 @@ import bolt  # inner bolt because of SWIG
 
 import kmc2  # state-of-the-art kmeans initialization (as of NIPS 2016)
 import numpy as np
-from sklearn import cluster
+from sklearn import cluster, exceptions
 
 
 # ================================================================ Distances
@@ -113,7 +113,7 @@ def _encode_X_pq(X, codebooks, elemwise_dist_func=dists_elemwise_sq):
         dists = np.sum(dists, axis=2)
         idxs[i, :] = np.argmin(dists, axis=0)
 
-    # return idxs + self.offsets  # offsets let us index into raveled dists
+    # return idxs + self._offsets_  # offsets let us index into raveled dists
     return idxs  # [N x ncodebooks]
 
 
@@ -238,7 +238,7 @@ class MockEncoder(object):
     """Stand-in for cpp impl; only for debuging"""
 
     def __init__(self, nbytes):
-        self.nbytes = nbytes
+        self._enc_bytes = nbytes
         self.ncodebooks = 2 * nbytes
         self._encoder = bolt.BoltEncoder(nbytes)
 
@@ -313,7 +313,7 @@ class MockEncoder(object):
 
     def set_offsets(self, offsets):
         assert self.scale > 0
-        self.offsets = offsets
+        self._offsets_ = offsets
         self._encoder.set_offsets(offsets)
 
     def set_scale(self, scale):
@@ -321,7 +321,7 @@ class MockEncoder(object):
         self._encoder.set_scale(scale)
 
     def _quantize_lut(self, raw_lut):
-        lut = np.floor(raw_lut * self.scale + self.offsets)
+        lut = np.floor(raw_lut * self.scale + self._offsets_)
         return np.maximum(0, np.minimum(lut, 255)).astype(np.uint16)
 
     def _dists(self, raw_lut):
@@ -381,10 +381,26 @@ class Reductions:
     DOT_PRODUCT = 'dot'
 
 
+class Accuracy:
+    LOWEST = 'lowest'
+    LOW = 'low'
+    MEDIUM = 'medium'
+    HIGH = 'high'
+
+
+_acc_to_nbytes = {
+    Accuracy.LOWEST: 2,
+    Accuracy.LOW: 8,
+    Accuracy.MEDIUM: 16,
+    Accuracy.HIGH: 32,
+}
+
+
 class Encoder(object):
 
-    def __init__(self, nbytes=32, reduction=Reductions.SQUARED_EUCLIDEAN):
-        self.nbytes = nbytes
+    def __init__(self, reduction=Reductions.SQUARED_EUCLIDEAN,
+                 accuracy=Accuracy.MEDIUM):
+        self._enc_bytes = _acc_to_nbytes[accuracy]
         self.reduction = reduction
 
     def _preproc(self, X):
@@ -393,32 +409,41 @@ class Encoder(object):
         one_d = len(X.shape) == 1
         if one_d:
             X = X.reshape((1, -1))
-        ncodebooks = self.nbytes * 2
+        ncodebooks = self._enc_bytes * 2
         out = _ensure_num_cols_multiple_of(X.astype(np.float32), ncodebooks)
         return out.ravel() if one_d else out
+
+    @property
+    def nbytes(self):
+        try:
+            return self._nbytes_
+        except AttributeError:
+            raise exceptions.NotFittedError("Encoder has not yet been given "
+                                            "a dataset; call fit() first")
 
     def fit(self, X, just_train=False, Q=None):
         if not len(X.shape) == 2:
             raise IndexError("X must be [num_examples x num_dimensions]!")
-        if X.shape[1] < 2 * self.nbytes:
+        if X.shape[1] < 2 * self._enc_bytes:
             raise ValueError("num_dimensions must be at least 2 * nbytes")
 
         ncentroids = 16
+        self._nbytes_ = self._enc_bytes * len(X)  #
 
         self.DEBUG = False
         # self.DEBUG = True
 
         X = self._preproc(X)
         self._ndims_ = X.shape[1]
-        self._ncodebooks = self.nbytes * 2
+        self._ncodebooks = self._enc_bytes * 2
 
         centroids = _learn_centroids(X, ncentroids=ncentroids,
                                      ncodebooks=self._ncodebooks)
 
         if self.DEBUG:
-            self._encoder_ = MockEncoder(self.nbytes)
+            self._encoder_ = MockEncoder(self._enc_bytes)
         else:
-            self._encoder_ = bolt.BoltEncoder(self.nbytes)
+            self._encoder_ = bolt.BoltEncoder(self._enc_bytes)
 
         # print "centroids shape: ", centroids.shape
 
@@ -428,11 +453,14 @@ class Encoder(object):
             elemwise_dist_func = dists_elemwise_sq
         elif self.reduction == Reductions.DOT_PRODUCT:
             elemwise_dist_func = dists_elemwise_dot
+        else:
+            self._bad_reduction()
 
         offsets, self.scale = _learn_quantization_params(
             X, centroids, elemwise_dist_func)
         # account for fact that cpp's fma applies scale first, then adds offset
-        self.offsets = -offsets / self.scale
+        self._offsets_ = -offsets / self.scale
+        self._total_offset_ = np.sum(self._offsets_)
 
         # offsets_sq, self.scale_sq_ = _learn_quantization_params(
             # X, centroids, dists_elemwise_sq)
@@ -440,7 +468,7 @@ class Encoder(object):
             # X, centroids, dists_elemwise_dot)
 
         self._encoder_.set_scale(self.scale)
-        self._encoder_.set_offsets(self.offsets)
+        self._encoder_.set_offsets(self._offsets_)
 
         # # account for fact that cpp applies scale first, then offset, in fma
         # self.offsets_sq_ = -offsets_sq / self.scale_sq_
@@ -453,7 +481,6 @@ class Encoder(object):
         # self.scale_sq_ = 1.
         # self.scale_dot_ = 1.
 
-        print "centroids shape", centroids.shape
         # print "centroids shape", centroids.shape
 
         # munge centroids into contiguous 2D array;
@@ -485,27 +512,41 @@ class Encoder(object):
         self._encoder_.set_data(self._preproc(X))
         self._n = len(X)
 
-    def _check_reduction(self, reduction):
-        if reduction == self.reduction:
-            return
-        raise ValueError("This encoder is not configured to use the scalar "
-                         "reduction '{}', not '{}'!".format(
-                            self.reduction, reduction))
+    def transform(self, q, unquantize=False):
+        if self.reduction == Reductions.DOT_PRODUCT:
+            func = self._encoder_.dot_prods
+        elif self.reduction == Reductions.SQUARED_EUCLIDEAN:
+            func = self._encoder_.dists_sq
+        else:
+            self._bad_reduction()
 
-    def dot(self, q):
-        self._check_reduction(Reductions.DOT_PRODUCT)
-        # self._set_dot()
-        return self._encoder_.dot_prods(self._preproc(q))[:self._n]
+        ret = func(self._preproc(q))[:self._n]
+        return (ret - self._total_offset_) / self.scale if unquantize else ret
 
-    def dists_sq(self, q):
-        self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
-        # self._set_sq()
-        return self._encoder_.dists_sq(self._preproc(q))[:self._n]
+    def knn(self, q, k):
+        if self.reduction == Reductions.DOT_PRODUCT:
+            return self._encoder_.knn_mips(self._preproc(q), k)
+        elif self.reduction == Reductions.SQUARED_EUCLIDEAN:
+            return self._encoder_.knn_l2(self._preproc(q), k)
 
-    def knn_dot(self, q, k):
-        self._check_reduction(Reductions.DOT_PRODUCT)
-        return self._encoder_.knn_mips(self._preproc(q), k)
+    def _bad_reduction(self):
+        raise ValueError("Unreconized reduction '{}'!".format(self.reduction))
 
-    def knn_l2(self, q, k):
-        self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
-        return self._encoder_.knn_l2(self._preproc(q), k)
+
+    # def dot(self, q, unquantize=False):
+    #     self._check_reduction(Reductions.DOT_PRODUCT)
+    #     ret = self._encoder_.dot_prods(self._preproc(q))[:self._n]
+    #     return (ret - self._offsets_) * self.scale if unquantize else ret
+
+    # def dists_sq(self, q, unquantize=False):
+    #     self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
+    #     ret = self._encoder_.dists_sq(self._preproc(q))[:self._n]
+    #     return (ret - self._offsets_) * self.scale if unquantize else ret
+
+    # def knn_dot(self, q, k):
+    #     self._check_reduction(Reductions.DOT_PRODUCT)
+    #     return self._encoder_.knn_mips(self._preproc(q), k)
+
+    # def knn_l2(self, q, k):
+    #     self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
+    #     return self._encoder_.knn_l2(self._preproc(q), k)
