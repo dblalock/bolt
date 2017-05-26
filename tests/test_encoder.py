@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import numpy as np
-from scipy.stats import pearsonr as corr
 from sklearn.datasets import load_digits
 import timeit
 
@@ -24,14 +25,20 @@ def _element_size_bytes(x):
     return np.dtype(x.dtype).itemsize
 
 
+def _corr(x, y):
+    x = x.ravel() - np.mean(x)
+    y = y.ravel() - np.mean(y)
+    return np.mean(x * y) / (np.std(x) * np.std(y))
+
+
 def _sq_dists_to_vectors(X, queries, rowNorms=None, queryNorms=None):
     Q = queries.shape[0]
 
     mat_size = X.shape[0] * Q
     mat_size_bytes = _element_size_bytes(X[0] + queries[0])
     if mat_size_bytes > int(1e9):
-        print "WARNING: _sq_dists_to_vectors: attempting to create a matrix" \
-            "of size {} ({}B)".format(mat_size, mat_size_bytes)
+        print("WARNING: _sq_dists_to_vectors: attempting to create a matrix"
+              "of size {} ({}B)".format(mat_size, mat_size_bytes))
 
     if rowNorms is None:
         rowNorms = np.sum(X * X, axis=1, keepdims=True)
@@ -75,8 +82,8 @@ def _knn(X, Q, k=1000, print_every=5, block_sz=128):
         truth[start:end, :] = _knn(X, rows, k=k, block_sz=block_sz)
 
         if b % print_every == 0:
-            print "computing top k for query block " \
-                "{} (queries {}-{})...".format(b, start, end)
+            print("computing top k for query block " \
+                  "{} (queries {}-{})...".format(b, start, end))
 
     assert np.all(truth != -999)
     return truth
@@ -125,15 +132,15 @@ def test_time_space_savings():  # mostly to verify readme code
     enc.fit(X)
 
     # massive space savings
-    print "original space usage: {}B".format(X.nbytes)  # 1777 * 64 * 8B = 909KB
-    print "bolt space usage: {}B".format(enc.nbytes)  # 1777 * 2B = 3.55KB
+    print("original space usage: {}B".format(X.nbytes))  # 1777 * 64 * 8B = 909KB
+    print("bolt space usage: {}B".format(enc.nbytes))  # 1777 * 2B = 3.55KB
 
     # massive time savings (~10x here, but often >100x on larger datasets
     # with less Python overhead; see the Bolt paper)
     t_np = timeit.Timer(lambda: [np.dot(X, q) for q in Q]).timeit(5)  # ~8ms
     t_bolt = timeit.Timer(lambda: [enc.transform(q) for q in Q]).timeit(5)  # ~800us
-    print "Numpy / BLAS time, Bolt time: {:.3f}ms, {:.3f}ms".format(
-        t_np * 1000, t_bolt * 1000)
+    print("Numpy / BLAS time, Bolt time: {:.3f}ms, {:.3f}ms".format(
+        t_np * 1000, t_bolt * 1000))
 
 
 def test_unquantize():
@@ -147,7 +154,7 @@ def test_unquantize():
              for true_vals, bolt_vals in zip(dots_true, dots_bolt)]
     mse = np.mean([np.mean(diff*diff) for diff in diffs])
     var = np.mean([np.var(true_vals) for true_vals in dots_true])
-    print "dot product unquantize mse / variance: ", mse / var
+    print("dot product unquantize mse / variance: ", mse / var)
     assert (mse / var) < .01
 
     # print "true, bolt dot prods"
@@ -162,7 +169,7 @@ def test_unquantize():
              for true_vals, bolt_vals in zip(dists_true, dists_bolt)]
     mse = np.mean([np.mean(diff*diff) for diff in diffs])
     var = np.mean([np.var(true_vals) for true_vals in dots_true])
-    print "squared l2 unquantize mse / variance: ", mse / var
+    print("squared l2 unquantize mse / variance: ", mse / var)
     assert (mse / var) < .01
 
 
@@ -188,12 +195,12 @@ def test_basic():
     for i, q in enumerate(Q):
         l2_true = _dists_sq(X, q).astype(np.int)
         l2_bolt = enc.transform(q)
-        l2_corrs[i] = corr(l2_true, l2_bolt)[0]
+        l2_corrs[i] = _corr(l2_true, l2_bolt)
 
     mean_l2 = np.mean(l2_corrs)
     std_l2 = np.std(l2_corrs)
     assert mean_l2 > .95
-    print "squared l2 dist correlation: {} +/- {}".format(mean_l2, std_l2)
+    print("squared l2 dist correlation: {} +/- {}".format(mean_l2, std_l2))
 
     # ------------------------------------------------ dot product
 
@@ -204,11 +211,12 @@ def test_basic():
     for i, q in enumerate(Q):
         dots_true = np.dot(X, q)
         dots_bolt = enc.transform(q)
-        dot_corrs[i] = corr(dots_true, dots_bolt)[0]
+        dot_corrs[i] = _corr(dots_true, dots_bolt)
 
     mean_dot = np.mean(dot_corrs)
     std_dot = np.std(dot_corrs)
-    print "dot product correlation: {} +/- {}".format(mean_dot, std_dot)
+    assert mean_dot > .95
+    print("dot product correlation: {} +/- {}".format(mean_dot, std_dot))
 
     # ------------------------------------------------ l2 knn
 
@@ -228,7 +236,7 @@ def test_basic():
             contained[i, j] = bolt_neighbors[j] in true_neighbors
 
     precision = np.mean(contained)
-    print "l2 knn precision@{}: {}".format(k_bolt, precision)
+    print("l2 knn precision@{}: {}".format(k_bolt, precision))
     assert precision > .6
 
     # # print "true_knn, bolt_knn:"
@@ -248,29 +256,25 @@ def test_basic():
     true_knn = np.empty((nqueries, k_true), dtype=np.int64)
     for i in range(nqueries):
         true_knn[i, :] = top_k_idxs(
-            # true_dists[:, i], k_true, smaller_better=False)
-            # true_dists[i], k_true, smaller_better=True)
-            true_dists[:, i], k_true, smaller_better=True)
+            true_dists[:, i], k_true, smaller_better=False)
     bolt_knn = [enc.knn(q, k_bolt) for q in Q]
 
     contained = np.empty((len(Q), k_bolt), dtype=np.bool)
     for i in range(len(Q)):
         true_neighbors = true_knn[i]
-        bolt_neighbors = bolt_knn[i]
+        # bolt_dists = enc.transform(Q[i])
+        # bolt_neighbors = top_k_idxs(bolt_dists, k_bolt, smaller_better=True)
+        bolt_neighbors = bolt_knn[i]  # TODO uncomment
         for j in range(k_bolt):
             contained[i, j] = bolt_neighbors[j] in true_neighbors
 
-    # TODO this is much lower than l2 precision, but raw dot products are
-    # correlated with true values just as highly; possibly a bug somewhere...
-    # TODO check what precision is when we compute the knn in python
-    # given the dot products returned by bolt
     precision = np.mean(contained)
-    print "max inner product knn precision@{}: {}".format(k_bolt, precision)
-    assert precision > .4
+    print("max inner product knn precision@{}: {}".format(k_bolt, precision))
+    assert precision > .6
 
-    # print "true_knn, bolt_knn:"
-    # print true_knn[:5]
-    # print bolt_knn[:5]
+    # print("true_knn, bolt_knn:")
+    # print(true_knn[:5])
+    # print(bolt_knn[:5])
 
 
 if __name__ == '__main__':

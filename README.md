@@ -17,6 +17,8 @@ Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/mas
 Provided that you're on a machine with [AVX2 instructions](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2) (which basically means an Intel/AMD processor from fall 2013 or later), you can just:
 
 ```bash
+  $ brew install swig  # for wrapping C++; use apt-get, yum, etc, if not OS X
+  $ pip install numpy  # pybolt installation needs numpy already present
   $ pip install pybolt
 ```
 
@@ -25,7 +27,7 @@ If your machine doesn't have AVX2 instructions, Bolt [doesn't support it yet](ht
 
 ## How does it work?
 
-Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the [Bolt paper](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true).
+Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the [Bolt paper](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true) or [slides](https://github.com/dblalock/bolt/blob/master/assets/bolt-slides.pdf?raw=true).
 
 ## Benchmarks
 
@@ -93,7 +95,6 @@ print "Numpy / BLAS time, Bolt time: {:.3f}ms, {:.3f}ms".format(
 
 # can get output without offset/scaling if needed
 dots_bolt = [enc.transform(q, unquantize=True) for q in Q]
-
 ```
 
 ## Example: K-Nearest Neighbor / Maximum Inner Product Search
@@ -112,3 +113,7 @@ bolt_knn = [enc.knn(q, k_bolt) for q in Q]  # knn for each query
 ```python
 
 ``` -->
+
+## Trivia
+
+Bolt stands for "Based On Lookup Tables". <!--  Feel free to use this exciting fact at parties. -->

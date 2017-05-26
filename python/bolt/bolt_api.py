@@ -211,7 +211,7 @@ def _learn_quantization_params(X, centroids, elemwise_dist_func, Q=None,
     if plot:
         import matplotlib.pyplot as plt
         import seaborn as sb
-        print "plotting LUT distributions..."
+        # print "plotting LUT distributions..."
 
         plot_luts = np.asfortranarray(luts[:5000])
         _, ax = plt.subplots(figsize=(10, 4))
@@ -260,7 +260,7 @@ class MockEncoder(object):
         raw_centroids = self._encoder.centroids()
         cpp_centroids = np.full(raw_centroids.shape, -1)
 
-        print "ncentroids, ncodebooks, ndims ", self.centroids.shape
+        # print "ncentroids, ncodebooks, ndims ", self.centroids.shape
 
         inbuff = raw_centroids.ravel()
         outbuff = np.zeros(raw_centroids.size) - 1
@@ -351,9 +351,9 @@ class MockEncoder(object):
         self._encoder.lut_dot(q)
         lut_cpp = self._encoder.get_lut()
 
-        print "py, cpp lut:"  # within +/- 1 using naive lut impl in cpp
-        print lut_py
-        print lut_cpp
+        # print "py, cpp lut:"  # within +/- 1 using naive lut impl in cpp
+        # print lut_py
+        # print lut_cpp
 
         # return self._dists(lut)
         dists_py = self._dists(lut)

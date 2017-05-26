@@ -20,7 +20,10 @@ from setuptools import Extension
 
 import numpy
 
-CPP_SRC_PATH = 'cpp/src'
+PROJ_DIR = os.path.dirname(os.path.realpath(__file__))
+# CPP_SRC_PATH = join(PROJ_DIR, 'cpp', 'src')
+CPP_SRC_PATH = join('cpp', 'src')
+
 # Obtain the numpy include directory.  This logic works across numpy versions.
 try:
     numpy_include = numpy.get_include()
@@ -28,7 +31,8 @@ except AttributeError:
     numpy_include = numpy.get_numpy_include()
 
 # gather up all the source files
-srcFiles = ['python/bolt/native.i']
+# srcFiles = [join(PROJ_DIR, 'python', 'bolt', 'native.i')]
+srcFiles = [join('python', 'bolt', 'native.i')]
 includeDirs = [numpy_include]
 paths = [CPP_SRC_PATH]
 for path in paths:
@@ -48,16 +52,18 @@ for path in paths:
 # note that -march=native implies -mavx and -mavx2; Bolt requires AVX2
 extra_args = ['-std=c++14',
               '-fno-rtti',
-              '-stdlib=libc++',
               '-march=native',
               '-ffast-math']
 if sys.platform == 'darwin':
     extra_args.append('-mmacosx-version-min=10.9')
     os.environ['LDFLAGS'] = '-mmacosx-version-min=10.9 -stdlib=libc++ -framework Accelerate'
+    os.environ["CC"] = "g++"  # force compiling c as c++
+# else:
+    # os.environ["CC"] = "clang++"  # force compiling c as c++
 
-os.environ["CC"] = "g++"  # force compiling c as c++
 
 # inplace extension module
+includeDirs += [join(PROJ_DIR, 'python', 'bolt')]  # for swig
 nativeExt = Extension("_bolt",  # must match cpp header name with leading _
                       srcFiles,
                       define_macros=[('NDEBUG', '1')],
@@ -68,35 +74,24 @@ nativeExt = Extension("_bolt",  # must match cpp header name with leading _
                       # extra_link_args=['-stdlib=libc++'],
                       )
 
+# ================================ Python modules
 
-# ================================ Python library
+glob_str = join('python', 'bolt') + '*.py'
+modules = [splitext(basename(path))[0] for path in glob(glob_str)]
 
-def read(*names, **kwargs):
-    return io.open(
-        join(dirname(__file__), *names),
-        encoding=kwargs.get('encoding', 'utf8')
-    ).read()
-
-
-modules = [splitext(basename(path))[0] for path in glob('python/bolt/*.py')]
-
-packages = find_packages('python')
-
-print("------------------------")
-print("installing modules: ", modules)
-print("found packages: ", packages)
-print("------------------------")
+# ================================ Call to setup()
 
 setup(
     name='pybolt',
-    version='0.1.0',
+    version='0.1.2',
     license='MPL',
     description='Fast approximate matrix and vector operations',
     author='Davis Blalock',
     author_email='dblalock@mit.edu',
     url='https://github.com/dblalock/bolt',
-    packages=packages,
-    package_dir={'': 'python'},
+    download_url='https://github.com/dblalock/bolt/archive/0.1.tar.gz',
+    packages=['bolt'],
+    package_dir={'bolt': 'python/bolt'},
     py_modules=modules,
     include_package_data=True,
     zip_safe=False,
@@ -112,10 +107,6 @@ setup(
         'Programming Language :: C++',
         'Programming Language :: Python',
         'Programming Language :: Python :: 2.7',
-        # 'Programming Language :: Python :: 3',
-        # 'Programming Language :: Python :: 3.3',
-        # 'Programming Language :: Python :: 3.4',
-        # 'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: Implementation :: CPython',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Utilities',
@@ -127,7 +118,8 @@ setup(
     install_requires=[
         'numpy',
         'scikit-learn',
-        'sphinx_rtd_theme'  # for docs
+        'kmc2'
+        # 'sphinx_rtd_theme'  # for docs
     ],
     extras_require={
         # eg:
