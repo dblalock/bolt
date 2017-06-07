@@ -83,7 +83,7 @@ modules = [splitext(basename(path))[0] for path in glob(glob_str)]
 
 setup(
     name='pybolt',
-    version='0.1.2',
+    version='0.1.4',
     license='MPL',
     description='Fast approximate matrix and vector operations',
     author='Davis Blalock',

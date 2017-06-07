@@ -19,7 +19,8 @@ Provided that you're on a machine with [AVX2 instructions](https://en.wikipedia.
 ```bash
   $ brew install swig  # for wrapping C++; use apt-get, yum, etc, if not OS X
   $ pip install numpy  # pybolt installation needs numpy already present
-  $ pip install pybolt
+  $ git clone https://github.com/dblalock/bolt.git
+  $ cd bolt && python setup.py install
 ```
 
 If your machine doesn't have AVX2 instructions, Bolt [doesn't support it yet](https://github.com/dblalock/bolt/issues/2), unfortunately. Contributions welcome.
