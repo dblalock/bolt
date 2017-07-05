@@ -30,8 +30,8 @@ static constexpr int kNtrials = 5;
 
 static constexpr int ncols = 128;               // length of vectors
 static constexpr int M = 8;                     // # bytes per compressed vect
-static constexpr int64_t nrows_enc = 2*1000;    // number of rows to encode
-static constexpr int64_t nrows_lut = 2*1000;    // number of luts to create
+static constexpr int64_t nrows_enc = 10*1000;    // number of rows to encode
+static constexpr int64_t nrows_lut = 10*1000;    // number of luts to create
 static constexpr int64_t nrows_scan = 100*1000;
 static constexpr int64_t nrows_query = 100*1000;
 static constexpr int nqueries = 100;

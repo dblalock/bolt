@@ -9,6 +9,8 @@ import seaborn as sb
 import results
 from files import ensure_dir_exists
 
+# CAMERA_READY_FONT = 'Calibri'
+CAMERA_READY_FONT = 'DejaVu Sans'
 
 SAVE_DIR = os.path.expanduser('~/Desktop/bolt/figs/')
 ensure_dir_exists(SAVE_DIR)
@@ -16,6 +18,11 @@ ensure_dir_exists(SAVE_DIR)
 
 def save_fig(name):
     plt.savefig(os.path.join(SAVE_DIR, name + '.pdf'), bbox_inches='tight')
+
+
+def save_fig_png(name):
+    plt.savefig(os.path.join(SAVE_DIR, name + '.png'),
+                dpi=300, bbox_inches='tight')
 
 
 def set_palette(ncolors=8):  # use this to change color palette in all plots
@@ -68,7 +75,8 @@ def popcount_fig(fake_data=False):
     # plt.show()
 
 
-def encoding_fig(fake_data=False):
+def encoding_fig(fake_data=False, camera_ready=False):
+    sb.set_style('darkgrid')
     # sb.set_context("talk", rc={"figure.figsize": (6, 6)})
     sb.set_context("talk", rc={"figure.figsize": (7, 7)})
     # sb.set_context("talk", rc={"figure.figsize": (8, 8)})
@@ -171,8 +179,14 @@ def encoding_fig(fake_data=False):
         ax.legend_.remove()
         ax.set_ylim(5e3, 2e7)
 
-    axes[0, 0].set_title('Data Encoding Speed', y=1.03, fontsize=16)
-    axes[0, 1].set_title('Query Encoding Speed', y=1.03, fontsize=16)
+    if camera_ready:
+        # axes[0, 0].set_title('Data Encoding Speed', x=.45, y=1.03, fontsize=16)
+        # axes[0, 1].set_title('Query Encoding Speed', x=.45, y=1.03, fontsize=16)
+        axes[0, 0].set_title('Data Encoding Speed', x=.49, y=1.03, fontsize=18)
+        axes[0, 1].set_title('Query Encoding Speed', x=.5, y=1.03, fontsize=18)
+    else:
+        axes[0, 0].set_title('Data Encoding Speed', y=1.03, fontsize=16)
+        axes[0, 1].set_title('Query Encoding Speed', y=1.03, fontsize=16)
     # for ax in axes[0, :].ravel():
         # ax.set_title('Vector Length')
 
@@ -181,9 +195,14 @@ def encoding_fig(fake_data=False):
         plt.setp(ax.get_xticklabels(), visible=False)
         ax.set_xlabel('', labelpad=-10)
     for ax in axes[-1, :].ravel():
-        ax.set_xlabel('Vector Length')
+        # ax.set_xlabel('Vector Length')
+        ax.set_xlabel('Vector Length', labelpad=7)
     for ax in axes[:, 0]:
-        ax.set_ylabel('Vectors Encoded / s')
+        if camera_ready:
+            # ax.set_ylabel('Vectors Encoded / s   ', fontsize=12)
+            ax.set_ylabel('Vectors Encoded / s', fontsize=13)
+        else:
+            ax.set_ylabel('Vectors Encoded / s')
 
     # only bottom row gets xlabels
     for ax in axes[:-1, :].ravel():
@@ -192,13 +211,18 @@ def encoding_fig(fake_data=False):
 
     # show byte counts on the right
     fmt_str = "{}B Encodings"
+    # if camera_ready:
+    #     fmt_str += '  '
     for i, ax in enumerate(axes[:, 1].ravel()):
         ax.yaxis.set_label_position('right')
         ax.set_ylabel(fmt_str.format((2 ** i) * 8), labelpad=10, fontsize=15)
 
     plt.tight_layout()
     plt.subplots_adjust(bottom=.15)
-    save_fig('encoding_speed')
+    if camera_ready:
+        save_fig_png('encoding_speed')  # bypass mpl truetype pdf ineptitude
+    else:
+        save_fig('encoding_speed')
     # plt.show()
     # if data_enc:
     #     save_fig('encoding_speed_data')
@@ -207,15 +231,19 @@ def encoding_fig(fake_data=False):
     # plt.show()
 
 
-def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True):
+def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
+                    camera_ready=False):
     # experiment params: fixed N = 100k, D = 256, Q = 1024;
     # layout: rows = 8B, 16B, 32B; bar graph in each row
     #   alternative: plot in each row vs batch size
     # algos: Bolt; PQ; OPQ; PairQ; Matmul, batch={1, 16, 64, 256}
 
     sb.set_context("talk")
+    # if camera_ready:  # white style overwrites our fonts
+    #     matplotlib.rcParams['font.family'] = CAMERA_READY_FONT
     set_palette(ncolors=8)
-    fig, axes = plt.subplots(3, 1, figsize=(6, 8))
+    # fig, axes = plt.subplots(3, 1, figsize=(6, 8))
+    fig, axes = plt.subplots(3, 1, figsize=(6, 8), dpi=300)
 
     if fake_data:  # for debugging
         ALGOS = ['Bolt', 'PQ', 'OPQ', 'PairQ',
@@ -258,7 +286,11 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True):
     for i, nbytes in enumerate([8, 16, 32]):
         bytes_str = '{}B'.format(nbytes)
         data = df[df['nbytes'] == nbytes]
-        ax = sb.barplot(x='nbytes', y='y', hue=' ', hue_order=ALGOS, ci=95, data=data, ax=axes[i])
+        ax = sb.barplot(x='nbytes', y='y', hue=' ', hue_order=ALGOS, ci=95,
+                        # data=data, ax=axes[i])
+                        # data=data, ax=axes[i], errwidth=10)
+                        data=data, ax=axes[i], capsize=.0004)
+                        # data=data, ax=axes[i], capsize=.0004, errwidth=6)
 
     # ------------------------ clean up / format axes
 
@@ -270,17 +302,27 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True):
     end = .5 * (len(ALGOS) / float((len(ALGOS) + 2)))
     start = -end
     tick_positions = np.linspace(start + .02, end - .05, len(ALGOS))
+    if camera_ready:
+        tick_positions[0] += .02
+        tick_positions[2] += .02
+        tick_positions[3] += .01
 
     for ax in axes:
         ax.set_xlim([start - .02, end + .02])
-        ax.set_ylabel('Billions of Distances/s')
+        if camera_ready:
+            # ax.set_ylabel('Billions of\nDistances/s', y=.4,
+            # ax.set_ylabel('Billions of\nDistances/s', y=.5,
+            ax.set_ylabel('Billion Distances/s', y=.49,  # .5 = centered ?
+                          family=CAMERA_READY_FONT)
+        else:
+            ax.set_ylabel('Billions of Distances/s')
         ax.legend_.remove()
         if not fake_data:
             ax.set_ylim(0, 2.5)
 
     # add byte counts on the right
-    sb.set_style("white")  # adds border (spines) we have to remove
     fmt_str = "{}B Encodings"
+    sb.set_style("white")  # adds border (spines) we have to remove
     for i, ax in enumerate(axes):
         ax2 = ax.twinx()
         sb.despine(ax=ax2, top=True, left=True, bottom=True, right=True)
@@ -289,42 +331,74 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True):
         plt.setp(ax2.get_xticklabels(), visible=False)
         plt.setp(ax2.get_yticklabels(), visible=False)
         ax2.yaxis.set_label_position('right')
-        ax2.set_ylabel(fmt_str.format((2 ** i) * 8), labelpad=10, fontsize=15)
+        if camera_ready:
+            # ax2.set_ylabel(fmt_str.format((2 ** i) * 8), y=.39,
+            ax2.set_ylabel(fmt_str.format((2 ** i) * 8),
+                           labelpad=10, fontsize=14, family=CAMERA_READY_FONT)
+        else:
+            ax2.set_ylabel(fmt_str.format((2 ** i) * 8), labelpad=10, fontsize=15)
 
     # ------------------------ have bottom / top axes print title, x info
 
-    axes[0].set_title('Distance Computations per Second', y=1.02)
+    if camera_ready:
+        # axes[0].set_title('Distance Computations per Second', x=.39, y=1.02)
+        # axes[0].set_title('Distance Computations per Second', x=.42, y=1.02,
+        #                   family=CAMERA_READY_FONT)
+        axes[0].set_title('Distance Computations per Second', y=1.02,
+                          family=CAMERA_READY_FONT, fontsize=15)
+    else:
+        axes[0].set_title('Distance Computations per Second', y=1.02)
 
     # axes[-1].set_xticks(tick_positions)
     for ax in axes:
         axes[-1].set_xticks(tick_positions)
         ax.set_xlim(-.4, .4)  # no idea why this makes the bars fit right...
     xlabels = ["\n".join(name.split(' ')) for name in ALGOS]
-    for i, lbl in enumerate(xlabels):
-        if '\n' in lbl:
-            # shift label up by adding another line
-            xlabels[i] = xlabels[i] + '\n'
+    if not camera_ready:
+        for i, lbl in enumerate(xlabels):
+            if '\n' in lbl:
+                # shift label up by adding another line
+                xlabels[i] = xlabels[i] + '\n'
     # xlabels = ["\nBatch".join(name.split(' Batch')) for name in ALGOS]
     # xlabels = ALGOS
     axes[-1].set_xticklabels(xlabels, rotation=70)
+    if camera_ready:
+        # axes[-1].tick_params(axis='x', which='major', pad=15)
+        # axes[-1].tick_params(axis='x', which='major', pad=13)
+        axes[-1].tick_params(axis='x', which='major', pad=4)
+        # axes[-1].set_xticklabels(xlabels, rotation=70, y=-.02)
+    # else:
+    # axes[-1].set_xticklabels(xlabels, rotation=70)
+    # if camera_ready:
+    #     axes[-1].set_xlabel("", labelpad=10)
+    # else:
     axes[-1].set_xlabel("", labelpad=-20)
     # plt.setp(axes[-1].get_xlabel(), visible=False)  # doesn't work
 
     # ------------------------ show / save plot
 
+    # plt.tight_layout()
     plt.tight_layout()
-    save_fig(fname)
+    if camera_ready:
+        plt.subplots_adjust(hspace=.18)
+    # save_fig(fname)
+    # MPL conversion to pdf is selectively braindead for just this plot; it
+    # lays things out horribly in a way that doesn't match the results
+    # of show() at all. Just export as high-density png as a workaround
+    # plt.savefig(os.path.join(SAVE_DIR, fname + '.png'),
+    #             dpi=300, bbox_inches='tight')
+    save_fig_png(fname)
     # plt.show()
 
 
-def matmul_fig(fake_data=False, fname='matmul'):
+def matmul_fig(fake_data=False, fname='matmul', camera_ready=False):
     # two line graphs
     # lines in both top and bottom = bolt {8,16,32}B, matmul
     # just use square mats of power-of-two lengths cuz best case for matmuls
     # in top one, one mat already encoded and Bolt just has to do queries
     # in bottom one, Bolt has encode one of the mats as data before queries
 
-
+    sb.set_style('darkgrid')
     sb.set_context("talk")
     # sb.set_palette("Set1", n_colors=len(ALGOS))
     pal = set_palette(ncolors=8)
@@ -443,7 +517,11 @@ def matmul_fig(fake_data=False, fname='matmul'):
         ax.legend_.remove()
         ax.set_xscale('log', basex=2)
         ax.set_yscale('log', basey=10)
-        ax.set_ylabel('Wall Time (s)')
+        if not camera_ready:
+            ax.set_ylabel('Wall Time (s)')
+    if camera_ready:
+        axes[0].set_ylabel('Wall Time (s)')
+        axes[1].set_ylabel('Wall Time (s)', labelpad=10)
     # for ax in axes[:-1].ravel():
     # #     plt.setp(ax.get_xticklabels(), visible=False)
     #     ax.set_xlabel('', labelpad=-10)
@@ -457,11 +535,15 @@ def matmul_fig(fake_data=False, fname='matmul'):
     # plt.tight_layout(h_pad=1.4)
     plt.tight_layout(h_pad=1.2)
     plt.subplots_adjust(bottom=.23)
-    save_fig('matmul_speed')
+    if camera_ready:
+        save_fig_png('matmul_speed')  # bypass mpl truetype pdf ineptitude
+    else:
+        save_fig('matmul_speed')
     # plt.show()
 
 
-def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall'):
+def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall',
+                 camera_ready=False):
     # experiment params:
     #   datasets = Sift1M, Convnet1M, LabelMe22k, MNIST
     #   bytes = [8, 16, 32]
@@ -473,6 +555,7 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall'):
     # Rs = [1, 10, 100, 1000]
     Rs = [1, 5, 10, 50, 100, 500, 1000]
 
+    sb.set_style('darkgrid')
     sb.set_context("talk")
     set_palette(ncolors=len(ALGOS))
     fig, axes = plt.subplots(4, 3, figsize=(6, 9))
@@ -539,6 +622,9 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall'):
 
                     x = np.array(Rs)
                     y = [df_row['recall@{}'.format(r)].values[0] for r in x]
+                    if camera_ready:
+                        x = np.log10(x)
+                    # print "recall plot: using X values: ", x  # TODO rm
                     ax.plot(x, y, label=algo)
                     ax.legend()
 
@@ -558,9 +644,18 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall'):
     for i, ax_row in enumerate(axes):
         for j, ax in enumerate(ax_row):
             title = "{}, {}B".format(DATASETS[i], NBYTES_LIST[j])
-            ax.set_title(title, y=1.01)
+            if camera_ready:
+                # x_pos = .44 if j == 0 else .45
+                # ax.set_title(title, x=x_pos, y=1.01, fontsize=15)
+                # ax.set_title(title, x=.45, y=1.01, fontsize=15)
+                # x_pos = .49 if j == 0 else .48
+                # ax.set_title(title, x=.49, y=1.01, fontsize=15)
+                ax.set_title(title, y=1.01, fontsize=15)
+            else:
+                ax.set_title(title, y=1.01)
             ax.set_ylim([0, 1])
-            ax.set_xscale("log")
+            if not camera_ready:
+                ax.set_xscale("log")
 
             # remove all legends except the very last one
             if (i != len(axes) or j != len(ax_row)) and ax.legend_:
@@ -583,12 +678,17 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall'):
             ax.set_ylabel("Recall@R")
 
         # xlabel bottom rows
-        for i, ax in enumerate(axes[-1, :].ravel()):
-            # no idea why we need the dummy tick at the beginning
-            ax.set_xticklabels(['', '0', '1', '2', ''])
-            # ax.set_xticklabels(['', '0', '1', '2', '3'])
+        if camera_ready:
+            for i, ax in enumerate(axes.ravel()):
+                ax.set_xticks([0, 1, 2, 3])
+            for i, ax in enumerate(axes[-1, :].ravel()):
+                ax.set_xticklabels(['0', '1', '2', '3'])
+        else:
+            for i, ax in enumerate(axes[-1, :].ravel()):
+                # no idea why we need the dummy tick at the beginning
+                ax.set_xticklabels(['', '0', '1', '2', ''])
+            axes[-1, -1].set_xticklabels(['', '0', '1', '2', '3'])
 
-        axes[-1, -1].set_xticklabels(['', '0', '1', '2', '3'])
         axes[-1, 1].set_xlabel("Log10(R)")
 
     # ------------------------ show / save plot
@@ -596,13 +696,21 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall'):
     # plt.tight_layout(h_pad=.02, w_pad=.02)
     plt.tight_layout(w_pad=.02)
     # plt.subplots_adjust(top=.88, bottom=.21, hspace=.4)
+    # if camera_ready:
+    #     plt.suptitle(suptitle, fontsize=18)
+    # else:
+    #     plt.suptitle(suptitle, fontsize=16)
     plt.suptitle(suptitle, fontsize=16)
     plt.subplots_adjust(top=.91, bottom=.11)
-    save_fig(fname)
+    if camera_ready:
+        save_fig_png(fname)  # mpl saving as pdf stupid; just bypass it
+    else:
+        save_fig(fname)
     # plt.show()
 
 
-def distortion_fig(fake_data=False, l2=True, suptitle=None, fname='l2_distortion'):
+def distortion_fig(fake_data=False, l2=True, suptitle=None,
+                   fname='l2_distortion', camera_ready=False):
     # experiment params:
     #   datasets = Sift1M, Convnet1M, LabelMe22k, MNIST
     #   bytes = [8, 16, 32]
@@ -614,10 +722,12 @@ def distortion_fig(fake_data=False, l2=True, suptitle=None, fname='l2_distortion
     NBYTES_LIST = [8, 16, 32]
 
     figsize = (6, 8)
+    sb.set_style('darkgrid')
     sb.set_context("talk", rc={'xtick.major.pad': 3})
     set_palette(ncolors=len(ALGOS))
     # fig, axes = plt.subplots(4, 3)
-    fig, axes = plt.subplots(4, 1, figsize=figsize)
+    # fig, axes = plt.subplots(4, 1, figsize=figsize)
+    fig, axes = plt.subplots(4, 1, figsize=figsize, dpi=300)
     axes = axes.reshape((4, 1))
 
     if suptitle is None:
@@ -688,7 +798,8 @@ def distortion_fig(fake_data=False, l2=True, suptitle=None, fname='l2_distortion
             df['nbytes'] = ["{}B".format(b) for b in all_nbytes.astype(np.int)]
 
             ax = axes.ravel()[d]
-            sb.barplot(x='nbytes', y='corr', hue=' ', data=df, ax=ax)
+            # sb.barplot(x='nbytes', y='corr', hue=' ', data=df, ax=ax)
+            sb.barplot(x='nbytes', y='corr', hue=' ', data=df, ax=ax, capsize=.0025)
 
             ax.set_title(dset)
 
@@ -705,12 +816,18 @@ def distortion_fig(fake_data=False, l2=True, suptitle=None, fname='l2_distortion
     for i, ax in enumerate(axes.ravel()):
         # title = "{}".format(DATASETS[i]) # TODO uncomment
         # ax.set_title(title, y=1.01) # TODO uncomment
-        ax.set_ylim([0, 1])
+        # ax.set_ylim([0, 1])
+        ax.set_ylim([.5, 1])
+        # ax.set_ylim([.75, 1])
         ax.set_xlabel('', labelpad=-10)
         if l2:
             ax.set_ylabel('Correlation With\nTrue Distance')
         else:
-            ax.set_ylabel('Correlation With\nTrue Dot Product')
+            if camera_ready:
+                # ax.set_ylabel('Correlation With\nTrue Dot Product', y=.46, fontsize=13)
+                ax.set_ylabel('Correlation With\nTrue Dot Product', fontsize=13)
+            else:
+                ax.set_ylabel('Correlation With\nTrue Dot Product')
         if ax.legend_:
             ax.legend_.remove()
 
@@ -718,11 +835,18 @@ def distortion_fig(fake_data=False, l2=True, suptitle=None, fname='l2_distortion
 
     # plt.tight_layout()  # for fig size 6x9
     plt.tight_layout(h_pad=.8)
+    # if camera_ready:
+    #     plt.suptitle(suptitle, fontsize=17)
+    # else:
+    #     plt.suptitle(suptitle, fontsize=16)
     plt.suptitle(suptitle, fontsize=16)
     # plt.subplots_adjust(top=.92, bottom=.08)  # for fig size 6x9
     # plt.subplots_adjust(top=.90, bottom=.08)
     plt.subplots_adjust(top=.90, bottom=.1)
-    save_fig(fname)
+    if camera_ready:
+        save_fig_png(fname)  # bypass mpl truetype pdf ineptitude
+    else:
+        save_fig(fname)
     # plt.show()
 
 
@@ -802,19 +926,48 @@ def kmeans_fig(data=None, fname='kmeans'):
 
 
 def main():
+    # camera-ready can't deal with Type 3 fonts, which are what matplotlib
+    # uses by default; 42 is apparently TrueType fonts
+    # matplotlib.use("agg")
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    # matplotlib.rcParams['font.family'] = 'Helvetica'
+    # matplotlib.rcParams['font.family'] = 'Lucida Sans Unicode'
+    # matplotlib.rcParams['font.family'] = 'Arial'
+    # matplotlib.rcParams['font.family'] = 'Arial Narrow'
+    # matplotlib.rcParams['font.family'] = 'Bitstream Vera Sans'
+    # matplotlib.rcParams['font.family'] = 'Calibri'  # used this for cam ready
+    # matplotlib.rcParams['font.family'] = 'Gill Sans MT'
+    # matplotlib.rcParams['font.family'] = 'Franklin Gothic Book'
+    # matplotlib.rcParams['font.family'] = 'Herculanum'
+    # matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+    matplotlib.rcParams['font.family'] = CAMERA_READY_FONT
+    # matplotlib.rcParams['font.sans-serif'] =
+    # matplotlib.rcParams['ps.fonttype'] = 42
+    # matplotlib.rcParams['text.usetex'] = True
+
     # pal = set_palette()
     # sb.palplot(pal)
     # plt.show()
 
-    # popcount_fig()
-    # encoding_fig()
-    # query_speed_fig(fname='query_speed_with_matmuls')
-    matmul_fig()
-    # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall')
-    # distortion_fig(fake_data=False, fname='l2_distortion')
+    # ------------------------ begin actual plotting func calls
+
+    # encoding_fig(camera_ready=True)
+
+    # # # query_speed_fig(fname='query_speed_with_matmuls', camera_ready=False)
+    query_speed_fig(fname='query_speed_with_matmuls', camera_ready=True)
+
+    # matmul_fig(camera_ready=True)
+
+    # # # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall')
+    # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall',
+    #              camera_ready=True)
+
+    # # distortion_fig(fake_data=False, fname='l2_distortion')
+    # # distortion_fig(fake_data=False, fname='dotprod_distortion',
+    # #                suptitle='Quality of Approximate Dot Products', l2=False)
     # distortion_fig(fake_data=False, fname='dotprod_distortion',
-    #                suptitle='Quality of Approximate Dot Products', l2=False)
-    # kmeans_fig()
+    #                suptitle='Quality of Approximate Dot Products', l2=False,
+    #                camera_ready=True)
 
 
 if __name__ == '__main__':
