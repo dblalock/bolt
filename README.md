@@ -14,27 +14,43 @@ Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/mas
 
 ## Installing
 
-Provided that you're on a machine with [AVX2 instructions](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2) (which basically means an Intel/AMD processor from fall 2013 or later), you can just:
+#### Python
 
 ```bash
   $ brew install swig  # for wrapping C++; use apt-get, yum, etc, if not OS X
-  $ pip install numpy  # pybolt installation needs numpy already present
+  $ pip install numpy  # bolt installation needs numpy already present
   $ git clone https://github.com/dblalock/bolt.git
   $ cd bolt && python setup.py install
+  $ pytest tests/  # optionally, run the tests
 ```
 
-If your machine doesn't have AVX2 instructions, Bolt [doesn't support it yet](https://github.com/dblalock/bolt/issues/2), unfortunately. Contributions welcome.
+If you run into any problems, please don't hesitate to mention it [in the Python build problems issue](https://github.com/dblalock/bolt/issues/4).
 
+#### C++
+
+Install [Bazel](https://bazel.build), Google's open-source build system. Then
+```bash
+  $ git clone https://github.com/dblalock/bolt.git
+  $ cd bolt/cpp && bazel run :main
+```
+
+The `bazel run` command will build the project and run the tests and benchmarks.
+
+If you want to integrate Bolt with another C++ project, include `cpp/src/include/public.hpp` and add the remaining files under `cpp/src` to your builds. You should let me know if you're interested in doing such an integration because I'm hoping to see Bolt become part of many libraries and thus would be happy to help you. <!-- Note that the `BoltEncoder` object you'll interact with presently needs something else to feed it k-means centroids-see `python/bolt/bolt_api.py` for an example. -->
+
+#### Notes
+
+Bolt currently only supports machines with [AVX2 instructions](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2), which basically means x86 machines from fall 2013 or later. Contributions for ARM support [are welcome](https://github.com/dblalock/bolt/issues/2).
 
 ## How does it work?
 
-Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the [Bolt paper](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true) or [slides](https://github.com/dblalock/bolt/blob/master/assets/bolt-slides.pdf?raw=true).
+Bolt is based on [vector quantization](https://en.wikipedia.org/wiki/Vector_quantization). For details, see the [Bolt paper](https://arxiv.org/abs/1706.10283) or [slides](https://github.com/dblalock/bolt/blob/master/assets/bolt-slides.pdf?raw=true).
 
 ## Benchmarks
 
 Bolt includes a thorough set of speed and accuracy benchmarks. See the `experiments/` directory. This is also what you want if you want to reproduce the results in the paper.
 
-Note that all of the timing results use the raw C++ implementation. At present, the Python wrapper is slower. If you're interested in having a full-speed wrapper, let me know and I'll allocate time to making this happen.
+Note that all of the timing results use the raw C++ implementation. At present, the Python wrapper is slightly slower due to Python overhead. If you're interested in having a full-speed wrapper, let me know and I'll allocate time to making this happen.
 
 ## Basic usage
 ```python
@@ -110,11 +126,9 @@ enc = bolt.Encoder('dot', accuracy='medium').fit(X)
 bolt_knn = [enc.knn(q, k_bolt) for q in Q]  # knn for each query
 ```
 
-<!-- ## Example: Compression and Decompression
-```python
+## Miscellaneous
 
-``` -->
+1) Bolt stands for "Based On Lookup Tables". <!-- Feel free to use this exciting fact at parties. -->
 
-## Trivia
+2) If you use Bolt, let me know and I'll link to your project/company.
 
-Bolt stands for "Based On Lookup Tables". <!--  Feel free to use this exciting fact at parties. -->

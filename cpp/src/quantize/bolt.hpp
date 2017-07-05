@@ -13,8 +13,6 @@
 #include <math.h>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
 
-#include <iostream>  // TODO rm after debug
-
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
 #else
@@ -50,19 +48,15 @@ void bolt_encode(const float* X, int64_t nrows, int ncols,
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
     const int64_t nblocks = ceil(nrows / (float)block_rows);
     const int subvect_len = ncols / ncodebooks;
-    const int trailing_subvect_len = ncols % ncodebooks;
-    assert(trailing_subvect_len == 0); // TODO remove this constraint
+    assert(ncols % ncodebooks == 0); // TODO remove this constraint
 
     __m256 accumulators[lut_sz / packet_width];
-
-    // for (int64_t n = 0; n < nrows; n++) { // for each row of X
 
     auto x_ptr = X;
     for (int b = 0; b < nblocks; b++) { // for each block
         // handle nrows not a multiple of 32
         int limit = (b == (nblocks - 1)) ? (nrows % 32) : block_rows;
         for (int n = 0; n < limit; n++) { // for each row in block
-            // auto x_ptr = X + n * ncols;
 
             auto centroids_ptr = centroids;
             for (int m = 0; m < ncodebooks; m++) { // for each codebook
@@ -83,14 +77,13 @@ void bolt_encode(const float* X, int64_t nrows, int ncols,
                 }
 
                 // convert the floats to ints
-                // XXX distances *must* be >> 0 for this to preserve correctness
+                // XXX distances *must* be >> 0 for this to preserve accuracy
                 auto dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
                 auto dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
 
                 // find the minimum value
                 auto dists = _mm256_min_epi32(dists_int32_low, dists_int32_high);
                 auto min_broadcast = broadcast_min(dists);
-                // int32_t min_val = predux_min(dists);
 
                 // mask where the minimum happens
                 auto mask_low = _mm256_cmpeq_epi32(dists_int32_low, min_broadcast);
@@ -139,8 +132,7 @@ void bolt_lut(const float* q, int len, const float* centroids, uint8_t* out) {
     static constexpr int ncodebooks = 2 * NBytes;
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
     const int subvect_len = len / ncodebooks;
-    const int trailing_subvect_len = len % ncodebooks;
-    assert(trailing_subvect_len == 0); // TODO remove this constraint
+    assert(len % ncodebooks == 0); // TODO remove this constraint
 
     __m256 accumulators[nstripes];
     __m256i dists_uint16_0 = _mm256_undefined_si256();
@@ -235,16 +227,12 @@ void bolt_lut(const float* q, int len, const float* centroids,
     static constexpr int ncodebooks = 2 * NBytes;
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
     const int subvect_len = len / ncodebooks;
-    const int trailing_subvect_len = len % ncodebooks;
-    assert(trailing_subvect_len == 0); // TODO remove this constraint
+    assert(len % ncodebooks == 0); // TODO remove this constraint
 
     __m256 accumulators[nstripes];
     __m256i dists_uint16_0 = _mm256_undefined_si256();
 
-    __m256 scaleby_vect = _mm256_set1_ps(scaleby);  // TODO uncomment this!!!
-    // __m256 scaleby_vect = _mm256_set1_ps(1.);
-
-    // std::cout << "cpp scaleby: " << scaleby << "\n";
+    __m256 scaleby_vect = _mm256_set1_ps(scaleby);
 
     for (int m = 0; m < ncodebooks; m++) { // for each codebook
         for (int i = 0; i < nstripes; i++) {
@@ -269,35 +257,9 @@ void bolt_lut(const float* q, int len, const float* centroids,
             }
         }
 
-        // apply scale factor (if not already applied, because dotprod)
-        // __m256i dists_int32_low, dists_int32_high;
-        // if (Reduction == Reductions::DotProd) {
-        //     // convert the floats to ints
-        //     dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
-        //     dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
-        // } else {
-        //     // scale dists and add offsets
-        //     auto offset_vect = _mm256_set1_ps(offsets[m]);
-        //     auto dist0 = fma(accumulators[0], scaleby_vect, offset_vect);
-        //     auto dist1 = fma(accumulators[1], scaleby_vect, offset_vect);
-        //     // convert the floats to ints
-        //     dists_int32_low = _mm256_cvtps_epi32(dist0);
-        //     dists_int32_high = _mm256_cvtps_epi32(dist1);
-        // }
-
-        // TODO uncomment this (with the real offsets + scale)!!!
-        // // scale dists and add offsets
-        // std::cout << "cpp offset: " << offsets[m] << "\n";
         auto offset_vect = _mm256_set1_ps(offsets[m]);
-        // auto offset_vect = _mm256_set1_ps(0);
         auto dist0 = fma(accumulators[0], scaleby_vect, offset_vect);
         auto dist1 = fma(accumulators[1], scaleby_vect, offset_vect);
-
-        // TODO rm this part
-        // -> yes, using this instead of the scaling / offsetting above
-        // makes this impl agree with everything else
-        // auto dist0 = accumulators[0];
-        // auto dist1 = accumulators[1];
 
         // convert the floats to ints
         __m256i dists_int32_low = _mm256_cvtps_epi32(dist0);
@@ -350,8 +312,7 @@ void bolt_encode_centroids(const data_t* centroids, int ncols, data_t* out) {
     static constexpr int ncodebooks = 2 * NBytes;
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
     const int subvect_len = ncols / ncodebooks;
-    const int trailing_subvect_len = ncols % ncodebooks;
-    assert(trailing_subvect_len == 0); // TODO remove this constraint
+    assert(ncols % ncodebooks == 0); // TODO remove this constraint
 
     for (int m = 0; m < ncodebooks; m++) {
         // for each codebook, just copy rowmajor to colmajor, then offset
