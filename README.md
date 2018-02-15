@@ -40,7 +40,7 @@ If you want to integrate Bolt with another C++ project, include `cpp/src/include
 
 #### Notes
 
-Bolt currently only supports machines with [AVX2 instructions](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2), which basically means x86 machines from fall 2013 or later. Contributions for ARM support [are welcome](https://github.com/dblalock/bolt/issues/2).
+Bolt currently only supports machines with [AVX2 instructions](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions#Advanced_Vector_Extensions_2), which basically means x86 machines from fall 2013 or later. Contributions for ARM support [are welcome](https://github.com/dblalock/bolt/issues/2). Also note that the Bolt Python wrapper is currently configured to require Clang, since GCC apparently [runs into issues](https://github.com/dblalock/bolt/issues/4).
 
 ## How does it work?
 
