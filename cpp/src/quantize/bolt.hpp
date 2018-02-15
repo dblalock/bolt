@@ -9,6 +9,7 @@
 #define __BOLT_HPP
 
 #include <assert.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <math.h>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
