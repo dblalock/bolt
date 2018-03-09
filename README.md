@@ -128,7 +128,7 @@ bolt_knn = [enc.knn(q, k_bolt) for q in Q]  # knn for each query
 
 ## Miscellaneous
 
-1) Bolt stands for "Based On Lookup Tables". <!-- Feel free to use this exciting fact at parties. -->
+Bolt stands for "Based On Lookup Tables". Feel free to use this exciting fact at parties.
 
-2) If you use Bolt, let me know and I'll link to your project/company.
+<!-- 2) If you use Bolt, let me know and I'll link to your project/company. -->
 
