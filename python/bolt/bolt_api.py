@@ -29,20 +29,31 @@ def dists_elemwise_dot(x, q):
 
 def _insert_zeros(X, nzeros):
     """injects nzeros zero columns spaced as far apart as possible"""
+    if nzeros < 1:
+        return X
+
     N, D = X.shape
     D_new = D + nzeros
     X_new = np.zeros((N, D_new), dtype=X.dtype)
-    step = int(D / (nzeros + 1)) - 1
 
+    nonzeros_per_zero = D // nzeros
+    if nonzeros_per_zero < 1:
+        X_new[:, :D] = X
+        return X_new
+
+    stripe_width = nonzeros_per_zero
     for i in range(nzeros):
-        in_start = step * i
-        in_end = in_start + step
-        out_start = in_start + i + 1
-        out_end = out_start + step
+        in_start = stripe_width * i
+        in_end = in_start + stripe_width
+        out_start = i * (stripe_width + 1)
+        out_end = out_start + stripe_width
         X_new[:, out_start:out_end] = X[:, in_start:in_end]
+    out_end += 1
 
     remaining_len = D - in_end
     out_remaining_len = D_new - out_end
+    # print "D, remaining_incols, remaining_outcols, in_end, out_end: ", \
+    #     D, remaining_len, out_remaining_len, in_end, out_end
     assert remaining_len == out_remaining_len
     assert remaining_len >= 0
     if remaining_len:
@@ -51,7 +62,8 @@ def _insert_zeros(X, nzeros):
     # check that we copied both the beginning and end properly
     # assert np.array_equal(X[:, 0], X_new[:, 1])
     assert np.array_equal(X[:, 0], X_new[:, 0])
-    assert np.array_equal(X[:, -1], X_new[:, -1])
+    if remaining_len > 0:
+        assert np.array_equal(X[:, -1], X_new[:, -1])
 
     return X_new
 
@@ -550,3 +562,14 @@ class Encoder(object):
     # def knn_l2(self, q, k):
     #     self._check_reduction(Reductions.SQUARED_EUCLIDEAN)
     #     return self._encoder_.knn_l2(self._preproc(q), k)
+
+
+def _test_insert_zeros():
+    X = np.random.randn(4, 1000)
+    for ncols in range(1, X.shape[1] + 1):
+        for nzeros in np.arange(64):
+            _insert_zeros(X[:, :ncols], nzeros)
+
+
+if __name__ == '__main__':
+    _test_insert_zeros()
