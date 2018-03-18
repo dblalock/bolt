@@ -615,9 +615,9 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
 def experiment(eval_dists=False, dotprods=False):
 
     # which_datasets = [datasets.Mnist]
-    # which_datasets = [datasets.Sift1M, datasets.LabelMe,
-    #                   datasets.Convnet1M, datasets.Mnist]
-    which_datasets = [datasets.Glove]
+    which_datasets = [datasets.Mnist, datasets.Sift1M,
+                      datasets.LabelMe, datasets.Convnet1M]
+    # which_datasets = [datasets.Glove]
     # which_datasets = [datasets.Deep1M, datasets.Gist]
 
     if eval_dists:
