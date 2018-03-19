@@ -411,9 +411,11 @@ _acc_to_nbytes = {
 class Encoder(object):
 
     def __init__(self, reduction=Reductions.SQUARED_EUCLIDEAN,
-                 accuracy=Accuracy.MEDIUM):
+                 accuracy=Accuracy.MEDIUM, norm_mean=None):
         self._enc_bytes = _acc_to_nbytes[accuracy]
         self.reduction = reduction
+        self.norm_mean = norm_mean if norm_mean is not None \
+            else reduction != Reductions.DOT_PRODUCT
 
     def _preproc(self, X):
         # TODO rows of X also needs to have variance >> 1 to avoid
@@ -422,6 +424,10 @@ class Encoder(object):
         if one_d:
             X = X.reshape((1, -1))
         ncodebooks = self._enc_bytes * 2
+        X = X.astype(np.float32)
+        if self.norm_mean:
+            # X = X - self.means_
+            X -= self.means_
         out = _ensure_num_cols_multiple_of(X.astype(np.float32), ncodebooks)
         return out.ravel() if one_d else out
 
@@ -445,12 +451,24 @@ class Encoder(object):
         self.DEBUG = False
         # self.DEBUG = True
 
+        self.means_ = np.mean(X, axis=0) if self.norm_mean \
+            else np.zeros(X.shape[1])
+        self.means_ = self.means_.astype(np.float32)
+        # self.means_ = np.zeros_like(self.means_) # TODO rm
+        # self.means_ = np.ones_like(self.means_) # TODO rm
+
         X = self._preproc(X)
         self._ndims_ = X.shape[1]
         self._ncodebooks = self._enc_bytes * 2
 
         centroids = _learn_centroids(X, ncentroids=ncentroids,
                                      ncodebooks=self._ncodebooks)
+        centroids = centroids.astype(np.float32)
+
+        # print "X shape, centroids shape: ", X.shape, centroids.shape
+        # print "X means before preproc:", self.means_
+        # print "X means after preproc:", np.mean(X, axis=0)
+        # print "means of centroids:", np.mean(centroids, axis=0)
 
         if self.DEBUG:
             self._encoder_ = MockEncoder(self._enc_bytes)
