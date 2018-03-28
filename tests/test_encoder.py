@@ -26,9 +26,12 @@ def _element_size_bytes(x):
 
 
 def _corr(x, y):
+    x, y = x.astype(np.float64), y.astype(np.float64)
     x = x.ravel() - np.mean(x)
     y = y.ravel() - np.mean(y)
-    return np.mean(x * y) / (np.std(x) * np.std(y))
+    r = np.mean(x * y) / (np.std(x) * np.std(y))
+    assert -1.00001 <= r <= 1.00001
+    return r
 
 
 def _sq_dists_to_vectors(X, queries, rowNorms=None, queryNorms=None):
@@ -178,7 +181,23 @@ def test_basic():
     np.set_printoptions(formatter={'float_kind': _fmt_float})
 
     nqueries = 20
+    # nqueries = 10
+    # nqueries = 3
     X, Q = _load_digits_X_Q(nqueries)
+
+    # TODO rm this block
+    # shift = 100.
+    # shift = 100
+    # scaleby = 1.
+    # scaleby = 3.5  # acc goes to **** at accelerating rate as this gets larger...
+    # scaleby = 4
+    # scaleby = 1.0
+    # X, Q = X + shift, Q + shift
+    # X, Q = X * scaleby, Q * scaleby
+    # X = X[:200]
+    # X = X[:50]
+    # X = X[:20]
+
     # X, _ = load_digits(return_X_y=True)
     # Q = X[-nqueries:]
     # X = X[:-nqueries]
@@ -191,16 +210,22 @@ def test_basic():
     enc = bolt.Encoder(accuracy='low', reduction=bolt.Reductions.SQUARED_EUCLIDEAN)
     enc.fit(X)
 
-    l2_corrs = np.empty(nqueries)
+    l2_corrs = np.empty(len(Q))
     for i, q in enumerate(Q):
         l2_true = _dists_sq(X, q).astype(np.int)
         l2_bolt = enc.transform(q)
         l2_corrs[i] = _corr(l2_true, l2_bolt)
+        if i == nqueries - 1:
+            print("l2 true: ", l2_true)
+            print("l2 bolt: ", l2_bolt)
+            print("corr: ", l2_corrs[i])
 
     mean_l2 = np.mean(l2_corrs)
     std_l2 = np.std(l2_corrs)
     assert mean_l2 > .95
-    print("squared l2 dist correlation: {} +/- {}".format(mean_l2, std_l2))
+    print("--> squared l2 dist correlation: {} +/- {}".format(mean_l2, std_l2))
+
+    # return
 
     # ------------------------------------------------ dot product
 
@@ -216,7 +241,7 @@ def test_basic():
     mean_dot = np.mean(dot_corrs)
     std_dot = np.std(dot_corrs)
     assert mean_dot > .95
-    print("dot product correlation: {} +/- {}".format(mean_dot, std_dot))
+    print("--> dot product correlation: {} +/- {}".format(mean_dot, std_dot))
 
     # ------------------------------------------------ l2 knn
 
@@ -236,7 +261,7 @@ def test_basic():
             contained[i, j] = bolt_neighbors[j] in true_neighbors
 
     precision = np.mean(contained)
-    print("l2 knn precision@{}: {}".format(k_bolt, precision))
+    print("--> l2 knn precision@{}: {}".format(k_bolt, precision))
     assert precision > .6
 
     # # print "true_knn, bolt_knn:"
@@ -269,7 +294,8 @@ def test_basic():
             contained[i, j] = bolt_neighbors[j] in true_neighbors
 
     precision = np.mean(contained)
-    print("max inner product knn precision@{}: {}".format(k_bolt, precision))
+    print("--> max inner product knn precision@{}: {}".format(
+        k_bolt, precision))
     assert precision > .6
 
     # print("true_knn, bolt_knn:")

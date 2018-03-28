@@ -489,7 +489,8 @@ class Encoder(object):
         offsets, self.scale = _learn_quantization_params(
             X, centroids, elemwise_dist_func)
         # account for fact that cpp's fma applies scale first, then adds offset
-        self._offsets_ = -offsets / self.scale
+        # self._offsets_ = -offsets / self.scale
+        self._offsets_ = -offsets * self.scale
         self._total_offset_ = np.sum(self._offsets_)
 
         # offsets_sq, self.scale_sq_ = _learn_quantization_params(
