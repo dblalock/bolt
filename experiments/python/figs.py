@@ -26,10 +26,17 @@ def save_fig_png(name):
 
 
 def set_palette(ncolors=8):  # use this to change color palette in all plots
-    pal = sb.color_palette("Set1", n_colors=8)
+    pal = sb.color_palette("Set1", n_colors=ncolors)
     sb.set_palette(pal)
 
     return pal
+
+
+def set_xlabels_bold(ax, which_lbl_idxs, rotation=0):
+    xlabels = list(ax.get_xticklabels())
+    for idx in which_lbl_idxs:
+        xlabels[idx].set_weight('bold')
+    ax.set_xticklabels(xlabels, rotation=rotation)
 
 
 def popcount_fig(fake_data=False):
@@ -381,6 +388,134 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
     plt.tight_layout()
     if camera_ready:
         plt.subplots_adjust(hspace=.18)
+    # save_fig(fname)
+    # MPL conversion to pdf is selectively braindead for just this plot; it
+    # lays things out horribly in a way that doesn't match the results
+    # of show() at all. Just export as high-density png as a workaround
+    # plt.savefig(os.path.join(SAVE_DIR, fname + '.png'),
+    #             dpi=300, bbox_inches='tight')
+    save_fig_png(fname)
+    # plt.show()
+
+
+def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
+    # experiment params: fixed N = 100k, D = 256, Q = 1024;
+    # layout: rows = 8B, 16B, 32B; bar graph in each row
+    #   alternative: plot in each row vs batch size
+    # algos: Bolt; PQ; OPQ; PairQ; Matmul, batch={1, 16, 64, 256}
+
+    sb.set_context("talk")
+    # sb.set_style("whitegrid")
+    sb.set_style("darkgrid")
+    # if camera_ready:  # white style overwrites our fonts
+    #     matplotlib.rcParams['font.family'] = CAMERA_READY_FONT
+    set_palette(ncolors=8)
+    # fig, axes = plt.subplots(3, 1, figsize=(6, 8))
+    # fig, axes = plt.subplots(3, 1, figsize=(6, 8), dpi=300)
+    # fig, axes = plt.subplots(2, 1, figsize=(6, 6), dpi=300)
+    fig, axes = plt.subplots(2, 1, figsize=(4, 6), dpi=300)
+
+    # ALGOS = ['Bolt', 'PQ', 'OPQ', 'PairQ', 'Matmul 1', # 'Matmul 16',
+    #          'Matmul 64', 'Matmul 256', 'Matmul 1024']
+
+    if with_matmuls:
+        # ALGOS = ['Ours', 'Binary Embedding', 'PQ', 'OPQ',
+        #          'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
+        ALGOS = ['Ours', 'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
+    else:
+        ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ']
+    df = results.query_speed_results()
+    df['y'] = df['y'] / 1e9  # convert to billions
+
+    print "df cols: ", df.columns
+    df['algo'] = df['algo'].apply(lambda s: 'Ours' if s == 'Bolt' else s)
+    df['algo'] = df['algo'].apply(lambda s: 'Matmul Batch={}'.format(s.split()[1]) if 'Matmul' in s else s)
+    df.rename(columns={'algo': ' '}, inplace=True)  # hide from legend
+
+    # ax = sb.barplot(x='x', y='y', hue=' ', ci=95, data=df, ax=axes[i])
+    # for i, nbytes in enumerate([8, 16, 32]):
+    for i, nbytes in enumerate([8, 16]):
+        data = df[df['nbytes'] == nbytes]
+        # ax = sb.barplot(x='nbytes', y='y', hue=' ', hue_order=ALGOS, ci=95,
+        ax = sb.barplot(x='nbytes', y='y', hue=' ', hue_order=ALGOS, ci='sd',
+                        # data=data, ax=axes[i])
+                        # data=data, ax=axes[i], errwidth=10)
+                        data=data, ax=axes[i], capsize=.0004)
+                        # data=data, ax=axes[i], capsize=.0004, errwidth=6)
+
+    # ------------------------ clean up / format axes
+
+    for ax in axes[:-1]:
+        # remove x labels except for bottom axis
+        plt.setp(ax.get_xticklabels(), visible=False)
+        ax.get_xaxis().set_visible(False)
+
+    end = .5 * (len(ALGOS) / float((len(ALGOS) + 2)))
+    start = -end
+    tick_positions = np.linspace(start + .02, end - .05, len(ALGOS))
+
+    tick_positions[0] += .02
+    tick_positions[2] += .02
+    tick_positions[3] += .01
+
+    for ax in axes:
+        ax.set_xlim([start - .02, end + .02])
+        ax.set_ylabel('Billion Activations/s', y=.49,  # .5 = centered ?
+                      family=CAMERA_READY_FONT)
+        ax.legend_.remove()
+        ax.set_ylim(0, 2.5)
+
+    # add byte counts on the right
+    # fmt_str = "{}B Encodings"
+    sb.set_style("white")  # adds border (spines) we have to remove
+    for i, ax in enumerate(axes):
+        ax2 = ax.twinx()
+        sb.despine(ax=ax2, top=True, left=True, bottom=True, right=True)
+        ax2.get_xaxis().set_visible(False)
+        # ax2.get_yaxis().set_visible(False)  # nope, removes ylabel
+        plt.setp(ax2.get_xticklabels(), visible=False)
+        plt.setp(ax2.get_yticklabels(), visible=False)
+        ax2.yaxis.set_label_position('right')
+        # lbl = fmt_str.format((2 ** i) * 8)
+        lbl = {0: 'Fastest Setting', 1: 'Higher Accuracy', 2: 'Highest Accuracy'}[i]
+        ax2.set_ylabel(lbl,
+                       labelpad=10, fontsize=14, family=CAMERA_READY_FONT)
+
+    # ------------------------ have bottom / top axes print title, x info
+
+    # axes[0].set_title('Activations Computed per Second', y=1.02,
+    axes[0].set_title('Activations Computed / Second', y=1.04,
+                      family=CAMERA_READY_FONT, fontsize=15)
+
+    # axes[-1].set_xticks(tick_positions)
+    for ax in axes:
+        axes[-1].set_xticks(tick_positions)
+        ax.set_xlim(-.4, .4)  # no idea why this makes the bars fit right...
+    xlabels = ["\n".join(name.split(' ')) for name in ALGOS]
+
+    # xlabels = ["\nBatch".join(name.split(' Batch')) for name in ALGOS]
+    # xlabels = ALGOS
+    axes[-1].set_xticklabels(xlabels, rotation=70)
+
+    # get and set them again so we can make the first one bold; can't make
+    # it bold beforehand because need a tick lbl object, not a string
+    xlabels = list(axes[-1].get_xticklabels())
+    xlabels[0].set_weight('bold')
+    axes[-1].set_xticklabels(xlabels, rotation=70)
+
+
+    axes[-1].tick_params(axis='x', which='major', pad=4)
+    axes[-1].set_xlabel("", labelpad=-20)
+    # plt.setp(axes[-1].get_xlabel(), visible=False)  # doesn't work
+
+    # plt.setp(axes[-1].get_xticks(), visible=False)
+    ax.xaxis.set_ticks_position('none')
+
+    # ------------------------ show / save plot
+
+    # plt.tight_layout()
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=.18)
     # save_fig(fname)
     # MPL conversion to pdf is selectively braindead for just this plot; it
     # lays things out horribly in a way that doesn't match the results
@@ -954,7 +1089,8 @@ def main():
     # encoding_fig(camera_ready=True)
 
     # # # query_speed_fig(fname='query_speed_with_matmuls', camera_ready=False)
-    query_speed_fig(fname='query_speed_with_matmuls', camera_ready=True)
+    # query_speed_fig(fname='query_speed_with_matmuls', camera_ready=True)
+    query_speed_poster_fig(fname='query_speed_poster')
 
     # matmul_fig(camera_ready=True)
 

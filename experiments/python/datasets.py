@@ -245,10 +245,14 @@ def load_dataset(which_dataset, N=-1, D=-1, norm_mean=False, norm_len=False,
     Q = Q[:, :D] if len(Q.shape) > 1 else Q[:D]
 
     train_is_test = X_train.base is X_test or X_test.base is X_train
-    train_is_test = train_is_test or np.array_equal(X_train[:100], X_test[:100])
+    train_test_equal = np.array_equal(X_train[:100], X_test[:100])
+    train_test_same = train_is_test or train_test_equal
+
+    if train_test_same:
+        print "WARNING: Training data is also the test data!"
 
     if train_is_test:
-        print "WARNING: Training data is also the test data!"
+        X_test = np.copy(X_test)
 
     if norm_mean:
         means = np.mean(X_train, axis=0)
