@@ -57,6 +57,9 @@ void bolt_encode(const float* X, int64_t nrows, int ncols,
     for (int b = 0; b < nblocks; b++) { // for each block
         // handle nrows not a multiple of 32
         int limit = (b == (nblocks - 1)) ? (nrows % 32) : block_rows;
+        if (limit == 0) {
+            limit = block_rows;
+        }
         for (int n = 0; n < limit; n++) { // for each row in block
 
             auto centroids_ptr = centroids;
