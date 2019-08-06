@@ -121,9 +121,9 @@ def _load_complete_dataset(which_dataset, num_queries=10):
     X_test = np.load(which_dataset.TEST)
     try:
         X_train = np.load(which_dataset.TRAIN)
-        print "using separate test set!"
+        print("using separate test set!")
     except AttributeError:
-        print "No training set found for dataset {}".format(str(which_dataset))
+        print("No training set found for dataset {}".format(str(which_dataset)))
         X_train = np.copy(X_test)
     try:
         Q = np.load(which_dataset.QUERIES)
@@ -249,7 +249,7 @@ def load_dataset(which_dataset, N=-1, D=-1, norm_mean=False, norm_len=False,
     train_test_same = train_is_test or train_test_equal
 
     if train_test_same:
-        print "WARNING: Training data is also the test data!"
+        print("WARNING: Training data is also the test data!")
 
     if train_is_test:
         X_test = np.copy(X_test)
@@ -284,7 +284,7 @@ def load_dataset(which_dataset, N=-1, D=-1, norm_mean=False, norm_len=False,
 
 def read_yael_vecs(path, c_contiguous=True, limit_rows=-1, dtype=None):
     dim = np.fromfile(path, dtype=np.int32, count=2)[0]
-    print "vector length = {}".format(dim)
+    print("vector length = {}".format(dim))
 
     if dtype is None:
         if 'fvecs' in path:

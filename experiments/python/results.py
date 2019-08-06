@@ -47,7 +47,7 @@ class McqResults(object):
         # check that file was named properly
         expected_path = get_mcq_path(D=self.D, nbytes=self.nbytes)
         if expected_path != path:
-            print "expected path, path = ", expected_path, path
+            print("expected path, path = ", expected_path, path)
             assert expected_path == path
 
     def __str__(self):  # for debugging
@@ -90,7 +90,7 @@ def popcount_results_256():
     algos = ['Bolt', 'Binary Embedding']
     dicts = [bolt_times, popcnt_times]
     for algo, d in zip(algos, dicts):
-        for nbytes, s in d.items():
+        for nbytes, s in list(d.items()):
             thruputs = _extract_thruput(s)
             out_dicts += [{'algo': algo, 'nbytes': nbytes, 'length': LENGTH,
                           'trial': i, 'y': t} for i, t in enumerate(thruputs)]
@@ -194,7 +194,7 @@ def encode_data_results_256():
     algos = ['Bolt', 'PQ', 'OPQ']
     dicts = [bolt_times, pq_times, opq_times]
     for algo, d in zip(algos, dicts):
-        for nbytes, s in d.items():
+        for nbytes, s in list(d.items()):
             thruputs = _extract_thruput(s)
             out_dicts += [{'algo': algo, 'nbytes': nbytes, 'length': LENGTH,
                           'trial': i, 'y': t} for i, t in enumerate(thruputs)]
@@ -222,7 +222,7 @@ def encode_lut_results():
     algos = ['Bolt', 'PQ', 'OPQ']
     dicts = [bolt_times, pq_times, opq_times]
     for algo, d in zip(algos, dicts):
-        for nbytes, s in d.items():
+        for nbytes, s in list(d.items()):
             thruputs = _extract_thruput(s)
             out_dicts += [{'algo': algo, 'nbytes': nbytes, 'y': t} for t in thruputs]
 
@@ -266,7 +266,7 @@ def query_speed_results():
     dicts = [bolt_times, pq_times, opq_times, popcnt_times]
 
     for algo, d in zip(algos, dicts):
-        for nbytes, s in d.items():
+        for nbytes, s in list(d.items()):
             thruputs = _extract_thruput(s) * 1e5
             if algo == 'Binary Embedding':
                 thruputs /= 1e5  # these are already dists/sec, not qps

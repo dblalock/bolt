@@ -160,12 +160,12 @@ def expand_params(params):
     # keys with values that aren't Options; these are the same every time
     no_options_keys = [key for key in params if not isinstance(params[key], Options)]
     no_options_vals = [params[key] for key in no_options_keys]
-    no_options_params = dict(zip(no_options_keys, no_options_vals))
+    no_options_params = dict(list(zip(no_options_keys, no_options_vals)))
 
     # make a list of all possible combos of values for each key with Options
     expanded_params_list = []
     for v in itertools.product(*options_vals):
-        expanded_params = dict(zip(options_keys, v))  # pick one option for each
+        expanded_params = dict(list(zip(options_keys, v)))  # pick one option for each
         expanded_params.update(no_options_params)  # add in fixed params
         expanded_params_list.append(expanded_params)
 
@@ -174,9 +174,9 @@ def expand_params(params):
 
 def update_func_from_dict(d):
     def f(params, new_keys):
-        for k, v in d.items():
+        for k, v in list(d.items()):
             if k in new_keys:
-                for kk, vv in v.items():
+                for kk, vv in list(v.items()):
                     params.setdefault(kk, vv)
     return f
 
@@ -212,13 +212,13 @@ def generate_params_combinations(params_list, update_func):
                 # read which keys were added last time and which keys
                 # are currently present
                 new_keys = params[KEY_NEW_KEYS]
-                existing_keys = frozenset(params.keys())
+                existing_keys = frozenset(list(params.keys()))
                 params.pop(KEY_NEW_KEYS)
 
                 unfinished = update_func(params, new_keys)
 
                 # compute and store which keys were added this time
-                new_keys = frozenset(params.keys()) - existing_keys
+                new_keys = frozenset(list(params.keys())) - existing_keys
                 params[KEY_NEW_KEYS] = new_keys
 
                 if unfinished:
@@ -415,7 +415,7 @@ def parse_cmd_line(argv=None, positional_keys=None, allow_flags=True,
             raise UsageError("couldn't parse argument '{}'".format(arg))
 
     if infer_types:
-        for k, v in argKV.items():
+        for k, v in list(argKV.items()):
             argKV[k] = _to_appropriate_type(v)
 
     return argKV
@@ -452,7 +452,7 @@ def set_attrs(obj, attrs_dict, require_attrs_exist=False):
     if require_attrs_exist:
         keys_and_there = ([(k, k in obj.__dict__) for k in attrs_dict])
         missing_keys = [k for (k, there) in keys_and_there if not there]
-        there = zip(*keys_and_there)[1]
+        there = list(zip(*keys_and_there))[1]
         if not all(there):
             raise ValueError("Object is missing keys {}".format(
                 missing_keys))
@@ -520,7 +520,7 @@ def cv_partition_idxs(labels, n_folds=5, fractions=None, stratified=True):
     if stratified:
         all_idxs = [[] for i in range(n_folds)]
         lbl2idxs = _uniq_element_positions(labels)
-        for lbl, idxs in lbl2idxs.items():
+        for lbl, idxs in list(lbl2idxs.items()):
             if len(idxs) < n_folds:
                 warnings.warn(("Label {} appears only {} times, which is "
                                "less than the number of folds requested, {}"
@@ -577,7 +577,7 @@ def main():
 
     # print out a dataframe so we can see that this worked
     import pandas as pd
-    print pd.DataFrame.from_records(combos)  # woot; it worked
+    print(pd.DataFrame.from_records(combos))  # woot; it worked
 
 
 if __name__ == '__main__':

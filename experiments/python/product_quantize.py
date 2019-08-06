@@ -39,7 +39,7 @@ def reconstruct_X_pq(assignments, codebooks):
     D = M * subvect_len
     pointsCount = assignments.shape[0]
     points = np.zeros((pointsCount, D), dtype=np.float32)
-    for i in xrange(M):
+    for i in range(M):
         subspace_start = subvect_len * i
         subspace_end = subspace_start + subvect_len
         subspace_codes = assignments[:, i]
@@ -80,8 +80,8 @@ def compute_reconstruction_error(X, X_hat, subvect_len=-1):
         for i in range(0, diffs_sq.shape[1], subvect_len):
             errs_block = diffs_sq[:, i:i+subvect_len]
             errs.append(np.mean(errs_block))
-        print "   errors in each block: {} ({})".format(
-            np.array(errs), np.sum(errs))
+        print("   errors in each block: {} ({})".format(
+            np.array(errs), np.sum(errs)))
 
     errors = np.mean(diffs_sq, axis=1)
     variances = np.var(X, axis=1)
@@ -130,7 +130,7 @@ def eigenvalue_allocation(num_buckets, eigenvalues, shuffle=False):
     # this is not actually a requirement, but I'm curious about whether this
     # condition is ever violated
     if not np.all(eigenvalues > 0):
-        print "WARNING: some eigenvalues were nonpositive"
+        print("WARNING: some eigenvalues were nonpositive")
 
     # Iterate eigenvalues in descending order
     sorted_inds = np.argsort(eigenvalues)[::-1]
@@ -205,11 +205,11 @@ def _debug_rotation(R):
     RtR = np.dot(R.T, R)
 
     R_det = np.linalg.det(RtR)
-    print "determinant of R*R: ", R_det
+    print("determinant of R*R: ", R_det)
     R_trace = np.trace(RtR)
-    print "trace of R*R, trace divided by D: {}, {}".format(R_trace, R_trace / D)
+    print("trace of R*R, trace divided by D: {}, {}".format(R_trace, R_trace / D))
     off_diagonal_abs_mean = np.mean(np.abs(RtR - identity))
-    print "mean(abs(off diagonals of R*R)): ", off_diagonal_abs_mean
+    print("mean(abs(off diagonals of R*R)): ", off_diagonal_abs_mean)
 
     if R_det < .999 or R_det > 1.001:
         raise NumericalException("Bad determinant")
@@ -273,7 +273,7 @@ def learn_opq(X_train, ncodebooks, codebook_bits=8, niters=20,
               initial_kmeans_iters=1, init='gauss', debug=False):
     """init in {'gauss', 'identity', 'random'}"""
 
-    print "OPQ: Using init '{}'".format(init)
+    print("OPQ: Using init '{}'".format(init))
 
     t0 = time.time()
 
@@ -298,8 +298,8 @@ def learn_opq(X_train, ncodebooks, codebook_bits=8, niters=20,
         X_hat = reconstruct_X_pq(assignments, codebooks)
         # err = compute_reconstruction_error(X_rotated, X_hat, subvect_len=subvect_len)
         err = compute_reconstruction_error(X_rotated, X_hat)
-        print "---- OPQ {}x{}b iter {}: mse / variance = {:.5f}".format(
-            ncodebooks, codebook_bits, it, err)
+        print("---- OPQ {}x{}b iter {}: mse / variance = {:.5f}".format(
+            ncodebooks, codebook_bits, it, err))
 
         # update rotation matrix based on reconstruction errors
         U, s, V = np.linalg.svd(np.dot(X_hat.T, X), full_matrices=False)
@@ -313,8 +313,8 @@ def learn_opq(X_train, ncodebooks, codebook_bits=8, niters=20,
     X_hat = reconstruct_X_pq(assignments, codebooks)
     err = compute_reconstruction_error(X_rotated, X_hat)
     t = time.time() - t0
-    print "---- OPQ {}x{}b final mse / variance = {:.5f} ({:.3f}s)".format(
-        ncodebooks, codebook_bits, err, t)
+    print("---- OPQ {}x{}b final mse / variance = {:.5f} ({:.3f}s)".format(
+        ncodebooks, codebook_bits, err, t))
 
     return codebooks, assignments, R
 
@@ -373,8 +373,8 @@ def learn_bopq(X_train, ncodebooks, codebook_bits=4, niters=20,
         X_hat = reconstruct_X_pq(assignments, codebooks)
         # err = compute_reconstruction_error(X_rotated, X_hat, subvect_len=subvect_len)
         err = compute_reconstruction_error(X_rotated, X_hat)
-        print "---- BOPQ {} {}x{}b iter {}: mse / variance = {:.5f}".format(
-            R_sz, ncodebooks, codebook_bits, it, err)
+        print("---- BOPQ {} {}x{}b iter {}: mse / variance = {:.5f}".format(
+            R_sz, ncodebooks, codebook_bits, it, err))
 
         rotations = []
         for i in range(nrots):
@@ -397,7 +397,7 @@ def learn_bopq(X_train, ncodebooks, codebook_bits=4, niters=20,
     X_hat = reconstruct_X_pq(assignments, codebooks)
     err = compute_reconstruction_error(X_rotated, X_hat)
     t = time.time() - t0
-    print "---- BOPQ {} {}x{}b final mse / variance = {:.5f} ({:.3f}s)".format(
-        R_sz, ncodebooks, codebook_bits, err, t)
+    print("---- BOPQ {} {}x{}b final mse / variance = {:.5f} ({:.3f}s)".format(
+        R_sz, ncodebooks, codebook_bits, err, t))
 
     return codebooks, assignments, rotations

@@ -84,11 +84,11 @@ def _parse_codebook_params(D, code_bits=-1, bits_per_subvect=-1, nsubvects=-1):
         bits_per_subvect = code_bits // nsubvects
 
     ncentroids = int(2 ** bits_per_subvect)
-    subvect_len = D / nsubvects
+    subvect_len = D // nsubvects
 
     assert code_bits % bits_per_subvect == 0
     if D % subvect_len:
-        print "D, nsubvects, subvect_len = ", D, nsubvects, subvect_len
+        print("D, nsubvects, subvect_len = ", D, nsubvects, subvect_len)
         assert D % subvect_len == 0  # TODO rm this constraint
 
     return nsubvects, ncentroids, subvect_len
@@ -222,9 +222,9 @@ class OPQEncoder(PQEncoder):
         self.order_idxs = np.arange(self.nsubvects, dtype=np.int)
 
         if self.quantize_lut:  # TODO put this logic in separate function
-            print "learning quantization..."
+            print("learning quantization...")
 
-            num_rows = min(10*1000, len(X) / 2)
+            num_rows = min(10*1000, len(X) // 2)
             _, queries = datasets.extract_random_rows(
                 X[num_rows:], how_many=1000, remove_from_X=False)
             X = X[:num_rows]  # limit to first 10k rows of X
@@ -322,10 +322,10 @@ def eval_encoder(dataset, encoder, dist_func_true=None, dist_func_enc=None,
     true_nn = dataset.true_nn
 
     if true_nn is not None:
-        print "eval encoder(): got true_nn with shape: ", true_nn.shape
+        print("eval encoder(): got true_nn with shape: ", true_nn.shape)
 
     queries = queries[:1000]  # TODO rm for tables; fine for plots
-    print "queries.shape", queries.shape
+    print("queries.shape", queries.shape)
 
     need_true_dists = eval_dists or plot or true_nn is None
 
@@ -353,13 +353,13 @@ def eval_encoder(dataset, encoder, dist_func_true=None, dist_func_enc=None,
         X = X[:10000]  # limit to 10k points because otherwise it takes forever
         queries = queries[:256, :]
 
-    print "encoding X..."
+    print("encoding X...")
     X_enc = encoder.encode_X(X)
-    print "trying queries..."
+    print("trying queries...")
     for i, q in enumerate(queries):
 
         if i % 100 == 0:
-            print "trying query {}...".format(i)
+            print("trying query {}...".format(i))
 
         q_enc = encoder.encode_q(q)
         encoder.fit_query(q)
@@ -472,11 +472,11 @@ def eval_encoder(dataset, encoder, dist_func_true=None, dist_func_enc=None,
             d.update(encoder_params(encoder))
 
     if verbosity > 0:
-        print "------------------------ {}".format(name_for_encoder(encoder))
+        print("------------------------ {}".format(name_for_encoder(encoder)))
         keys = sorted(stats.keys())
         lines = ["{}: {}".format(k, stats[k]) for k in keys if isinstance(stats[k], str)]
         lines += ["{}: {:.4g}".format(k, stats[k]) for k in keys if not isinstance(stats[k], str)]
-        print "\n".join(lines)
+        print("\n".join(lines))
 
     stats.update(encoder_params(encoder))
 
@@ -509,7 +509,7 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
 
     num_queries = -1  # no effect for "real" datasets
     if isinstance(which_dataset, str):
-        print "WARNING: sampling queries from data file"
+        print("WARNING: sampling queries from data file")
         num_queries = 128  # if just loading one file, need to sample queries
 
     norm_len = False  # set to true for cosine similarity
@@ -523,7 +523,7 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
                                      D_multiple_of=max_ncodebooks)
 
     dataset = dataset_func(which_dataset)
-    print "=== Using Dataset: {} ({}x{})".format(dataset.name, N, D)
+    print("=== Using Dataset: {} ({}x{})".format(dataset.name, N, D))
 
     dicts = []
     detailed_dicts = []
@@ -565,7 +565,7 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
     # for codebook_bits in [4, 8]:
     for codebook_bits in [8]:
         for nbytes in nbytes_list:
-            nsubvects = nbytes * (8 / codebook_bits)
+            nsubvects = nbytes * (8 // codebook_bits)
             encoder = PQEncoder(dataset, nsubvects=nsubvects,
                                 bits_per_subvect=codebook_bits,
                                 elemwise_dist_func=elemwise_dist_func)
@@ -580,7 +580,7 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
     opq_iters = max_opq_iters
     for codebook_bits in [8]:
         for nbytes in nbytes_list:
-            nsubvects = nbytes * (8 / codebook_bits)
+            nsubvects = nbytes * (8 // codebook_bits)
             encoder = OPQEncoder(dataset, nsubvects=nsubvects,
                                  bits_per_subvect=codebook_bits,
                                  opq_iters=opq_iters, init=init,
@@ -642,13 +642,13 @@ def main():
     opts.setdefault('eval_recall@R', False)
 
     if opts['eval_l2_dists']:
-        print ">>>>>>>> evaluating l2 dists"
+        print(">>>>>>>> evaluating l2 dists")
         experiment(eval_dists=True, dotprods=False)
     if opts['eval_dotprods']:
-        print ">>>>>>>> evaluating dot prods"
+        print(">>>>>>>> evaluating dot prods")
         experiment(eval_dists=True, dotprods=True)
     if opts['eval_recall@R']:
-        print ">>>>>>>> evaluating recall@R"
+        print(">>>>>>>> evaluating recall@R")
         experiment(eval_dists=False, dotprods=False)
     return
 

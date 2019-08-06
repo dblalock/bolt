@@ -68,7 +68,7 @@ def popcount_fig(fake_data=False):
     else:
         df = results.popcount_results()
 
-    print "df cols: ", df.columns
+    print("df cols: ", df.columns)
     # df.rename(columns={'algo': 'Algorithm'}, inplace=True)
     df.rename(columns={'algo': ' '}, inplace=True)  # hide from legend
 
@@ -286,7 +286,7 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
         df = results.query_speed_results()
         df['y'] = df['y'] / 1e9  # convert to billions
 
-    print "df cols: ", df.columns
+    print("df cols: ", df.columns)
     df.rename(columns={'algo': ' '}, inplace=True)  # hide from legend
 
     # ax = sb.barplot(x='x', y='y', hue=' ', ci=95, data=df, ax=axes[i])
@@ -427,7 +427,7 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
     df = results.query_speed_results()
     df['y'] = df['y'] / 1e9  # convert to billions
 
-    print "df cols: ", df.columns
+    print("df cols: ", df.columns)
     df['algo'] = df['algo'].apply(lambda s: 'Ours' if s == 'Bolt' else s)
     df['algo'] = df['algo'].apply(lambda s: 'Matmul Batch={}'.format(s.split()[1]) if 'Matmul' in s else s)
     df.rename(columns={'algo': ' '}, inplace=True)  # hide from legend
@@ -749,9 +749,9 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall',
                 for algo in ALGOS:
                     df_row = data.loc[data['algo'] == algo]  # should be 1 row
                     if len(df_row) != 1:
-                        print df_row
-                        print "dset = ", dset
-                        print "algo = ", algo
+                        print(df_row)
+                        print("dset = ", dset)
+                        print("algo = ", algo)
                         assert len(df_row) == 1
                     assert len(df_row) == 1
 
@@ -915,7 +915,7 @@ def distortion_fig(fake_data=False, l2=True, suptitle=None,
 
             df = pd.read_csv(path)
 
-            print "path: ", path
+            print("path: ", path)
 
             pq4 = (df['_algo'] == 'PQ') & (df['_code_bits'] == 4)
             df.loc[pq4, '_algo'] = 'Bolt No Quantize'
