@@ -94,8 +94,9 @@ def _split_existing_buckets(buckets):
     return new_buckets
 
 
-def learn_splits(X, nsplits):
+def learn_splits(X, nsplits, verbose=2):
     N, D = X.shape
+    assert nsplits <= D
 
     # precompute sorted lists of values within each dimension,
     # along with which row they originally were so look can look
@@ -116,88 +117,87 @@ def learn_splits(X, nsplits):
     # print("initial SSE: ", total_loss)
 
     total_loss = sum([bucket.loss for bucket in buckets])
-    print("initial loss: ", total_loss)
+    if verbose > 0:
+        print("learn_splits(): initial loss: ", total_loss)
 
     unused_dims = set(np.arange(X.shape[1]))
 
     for s in range(nsplits):
-        print("================================ finding split #:", s)
+        if verbose > 2:
+            print("================================ finding split #:", s)
         best_split = Split(dim=-1, val=-np.inf, loss_change=0)
         for d in unused_dims:
             vals_and_point_ids = dim2sorted[d]
             new_buckets = _split_existing_buckets(buckets)
             new_total_loss = total_loss
-            print("------------------------ dim = ", d)
+            if verbose > 2:
+                print("---------------------- dim = ", d)
             for val, point_id in vals_and_point_ids:
                 info = all_point_infos[point_id]
                 point, bucket_id = info.data, info.bucket_id
 
-                print("-------- split point_id, val = ", point_id, val)
-
-                # new_bucket_ids = bucket_id_to_new_bucket_ids(bucket_id)
-                # bucket0 = new_buckets[new_bucket_ids[0]]
-                # bucket1 = new_buckets[new_bucket_ids[1]]
                 bucket0 = new_buckets[bucket_id][0]
                 bucket1 = new_buckets[bucket_id][1]
-                # print("bucket0 N, loss before update: ", bucket0.N, bucket0.loss)
                 old_loss = bucket0.loss + bucket1.loss
                 bucket0.remove_point(point, point_id=point_id)
                 bucket1.add_point(point, point_id=point_id)
-                print("bucket0 point ids, loss after update: ", bucket0.point_ids, bucket0.loss)
-                print("bucket1 point ids, loss after update: ", bucket1.point_ids, bucket1.loss)
-                # bucket0.remove_point(point)
-                # bucket1.add_point(point)
-                new_loss = bucket0.loss + bucket1.loss
 
+                new_loss = bucket0.loss + bucket1.loss
                 new_total_loss += new_loss - old_loss
                 loss_change = new_total_loss - total_loss
 
-                print("loss change = {:.3f};\tnew_loss = {:.3f} ".format(
-                      loss_change, new_total_loss))
+                assert loss_change <= 1e-10  # should be nonincreasing
+
+                if verbose > 2:
+                    print("-------- split point_id, val = ", point_id, val)
+                    print("bucket0 point ids, loss after update: ",
+                          bucket0.point_ids, bucket0.loss)
+                    print("bucket1 point ids, loss after update: ",
+                          bucket1.point_ids, bucket1.loss)
+                    print("loss change = {:.3f};\tnew_loss = {:.3f} ".format(
+                          loss_change, new_total_loss))
 
                 if loss_change < best_split.loss_change:
                     best_split.dim = d
                     best_split.val = val
                     best_split.loss_change = loss_change
 
-        print("------------------------ split on dim={}, val={:.3f} ".format(
-            best_split.dim, best_split.val))
+        if verbose > 2:
+            print("---------------------- split on dim={}, val={:.3f} ".format(
+                best_split.dim, best_split.val))
 
         # we've identified the best split; now apply it
         new_buckets = [Bucket(D=D) for _ in 1 + np.arange(2 * len(buckets))]
         for i, info in enumerate(all_point_infos):
-            data, bucket_id = info.data, info.bucket_id
-            # new_bucket_ids = bucket_id_to_new_bucket_ids(bucket_id)
-            # which_new_bucket = 0 if (point[best_split.dim] <= val) else 1
-            # reassign point to its new (more granular) bucket
-            # new_bucket_id = new_bucket_ids[which_new_bucket]
-
-            print("applying split to point {}: {}".format(i, data))
-
             # determine which bucket this point should be in
+            data, bucket_id = info.data, info.bucket_id
             new_bucket_id = 2 * bucket_id
             if (data[best_split.dim] <= best_split.val):
                 new_bucket_id += 1
-            print("goes in bucket ", new_bucket_id)
+            # update info for this point + stats for that bucket
             info.bucket_id = new_bucket_id
-            # update stats for that bucket
             new_buckets[new_bucket_id].add_point(data, point_id=i)
 
+            if verbose > 2:
+                print("applying split to point {}: {}".format(i, data))
+                print("goes in bucket ", new_bucket_id)
+
         buckets = new_buckets
-
-        print('bucket losses: ')
-        print([bucket.loss for bucket in buckets])
-        print('bucket N, sumX, sumX2')
-        print([bucket.N for bucket in buckets])
-        print([list(bucket.sumX) for bucket in buckets])
-        print([list(bucket.sumX2) for bucket in buckets])
-
         total_loss = sum([bucket.loss for bucket in buckets])
         unused_dims.remove(best_split.dim)
         splits.append(best_split)
 
-        print('new loss: {:.3f} from split at dim {}, value {:.3f}'.format(
-              total_loss, best_split.dim, best_split.val))
+        if verbose > 1:
+            print('learn_splits(): new loss: {:.3f} from split at dim {}, '
+                  'value {:.3f}'.format(
+                    total_loss, best_split.dim, best_split.val))
+            if verbose > 2:
+                print('bucket losses: ')
+                print([bucket.loss for bucket in buckets])
+                print('bucket N, sumX, sumX2')
+                print([bucket.N for bucket in buckets])
+                print([list(bucket.sumX) for bucket in buckets])
+                print([list(bucket.sumX2) for bucket in buckets])
 
     return splits, total_loss
 
@@ -205,10 +205,10 @@ def learn_splits(X, nsplits):
 def main():
     # np.random.seed(123)
     np.random.seed(1234)
-    X = np.random.randint(5, size=(3, 2)).astype(np.float32)
+    X = np.random.randint(5, size=(5, 3)).astype(np.float32)
     print("X:\n", X)
 
-    splits, loss = learn_splits(X, 1)
+    splits, loss = learn_splits(X, 2)
 
 
     # print('loss: ', np.var(X, axis=0))
