@@ -39,8 +39,7 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
     const int trailing_subvect_len = ncols % ncodebooks;
     assert(trailing_subvect_len == 0); // TODO remove this constraint
 
-    // for unclear reasons, clang -03 segfaults if this isn't volatile
-    volatile __m256 accumulators[nstripes];
+    __m256 accumulators[nstripes];
 
     for (int64_t n = 0; n < nrows; n++) { // for each row of X
         auto x_ptr = X + n * ncols;
@@ -73,6 +72,8 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
             int32_t min_val = std::numeric_limits<int32_t>::max();
             // uint8_t best_s = -1;
             uint32_t indicators = 0;
+            
+//            uint8_t best_s = 0;  // TODO rm
             for (int s = 0; s < nstripes; s += 2) {
                 // convert the floats to ints
                 // XXX distances *must* be >> 0 for this to preserve correctness
@@ -94,13 +95,22 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
                 indicators = indicators | (static_cast<uint32_t>(less) << s);
                 // the 3 lines above this, along with the msb extraction below,
                 // are equivalent to the following:
-                // if (val < min_val) {
-                //     min_val = val;
-                //     best_s = s;
-                // }
+//                 if (val < min_val) { // TODO rm
+//                     min_val = val;
+//                     best_s = s;
+//                 }
             }
-            uint8_t best_s = msb_idx_u32(indicators);
-
+            int8_t best_s = msb_idx_u32(indicators);
+//            assert(best_s >= 0);
+//            if (best_s < 0 || best_s > 31) {
+//                volatile int best_s_int = best_s;
+//                printf("best s: %d\n", best_s_int);
+//                printf("indicators: %u\n", indicators);
+//                printf("sizeof(indicators): %lu\n", sizeof(indicators));
+//                printf("clzl(indicators): %d\n", __builtin_clz((uint32_t)indicators));
+//                printf("\n");
+//            }
+            
             // ------------------------ now find min idx within best group
             auto dists_int32_low = _mm256_cvtps_epi32(accumulators[best_s]);
             auto dists_int32_high = _mm256_cvtps_epi32(accumulators[best_s+1]);

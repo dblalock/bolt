@@ -26,7 +26,11 @@ struct Reductions {
 
 template<class T>
 static int8_t msb_idx_u32(T x) {
-    return 8*sizeof(uint32_t) - 1 - __builtin_clzl((uint32_t)x);
+    // return 8*sizeof(uint32_t) - 1 - __builtin_clzl((uint32_t)x);
+    // XXX if sizeof(uinsigned int) != 4, this will break
+    static_assert(sizeof(unsigned int) == 4,
+        "XXX Need to use different builtin for counting leading zeros");
+    return ((uint32_t)31) - __builtin_clz((uint32_t)x);
 }
 
 template<class T>
