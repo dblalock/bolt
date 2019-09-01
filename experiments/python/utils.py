@@ -3,7 +3,8 @@
 import itertools
 import numpy as np
 from sklearn import cluster
-import types
+from scipy import signal
+# import types
 
 import kmc2  # state-of-the-art kmeans initialization (as of NIPS 2016)
 
@@ -25,6 +26,25 @@ def as_list_or_tuple(x):
     return x if is_list_or_tuple(x) else [x]
 
 
+def is_scalar_seq(x):
+    try:
+        [float(element) for element in x]
+        return True
+    except TypeError:
+        return False
+
+
+def as_scalar_seq(x):
+    if is_scalar_seq(x):
+        return x
+    try:
+        _ = float(x)
+        return [x]
+    except TypeError:
+        raise TypeError("Couldn't convert value '{}' to sequence "
+                        "of scalars".format(x))
+
+
 def is_string(x):
     return isinstance(x, (str,))
 
@@ -35,6 +55,28 @@ def flatten_list_of_lists(l):
 
 def element_size_bytes(x):
     return np.dtype(x.dtype).itemsize
+
+
+# ================================================================ image
+
+def conv2d(img, filt, pad='same'):
+    # assert pad in ('same',)  # TODO support valid
+    # mode = 'constant'
+    if len(img.shape) == 2:
+        return signal.correlate2d(img, filt, mode=pad)
+
+    # img is more than 2d; do a 2d conv for each channel and sum results
+    assert len(img.shape) == 3
+    out = np.zeros(img.shape[:2], dtype=np.float32)
+    for c in range(img.shape[2]):
+        f = filt[:, :, c] if len(filt.shape) == 3 else filt
+        out += signal.correlate2d(img[:, :, c], f, mode=pad)
+    return out
+
+
+# def filter_img(img, filt):
+#     out = conv2d(img, filt)
+#     return out / np.max(out)
 
 
 # ================================================================ distance
@@ -56,7 +98,7 @@ def sq_dists_to_vectors(X, queries, rowNorms=None, queryNorms=None):
     mat_size_bytes = element_size_bytes(X[0] + queries[0])
     if mat_size_bytes > int(1e9):
         print("WARNING: sq_dists_to_vectors: attempting to create a matrix" \
-            "of size {} ({}B)".format(mat_size, mat_size_bytes))
+              "of size {} ({}B)".format(mat_size, mat_size_bytes))
 
     if rowNorms is None:
         rowNorms = np.sum(X * X, axis=1, keepdims=True)
@@ -107,8 +149,8 @@ def compute_true_knn(X, Q, k=1000, print_every=5, block_sz=128):
         truth[start:end, :] = compute_true_knn(X, rows, k=k, block_sz=block_sz)
 
         if b % print_every == 0:
-            print("computing top k for query block " \
-                "{} (queries {}-{})...".format(b, start, end))
+            print("computing top k for query block "
+                  "{} (queries {}-{})...".format(b, start, end))
 
     # for i in range(nqueries):
     #     if i % print_every == 0:
@@ -134,8 +176,8 @@ def kmeans(X, k, max_iter=16, init='kmc2'):
     # in two subspaces
     sqrt_k = int(np.sqrt(k) + .5)
     if k > 256 and sqrt_k ** 2 == k and init == 'subspaces':
-        print("kmeans: clustering in subspaces first; k, sqrt(k) =" \
-            " {}, {}".format(k, sqrt_k))
+        print("kmeans: clustering in subspaces first; k, sqrt(k) ="
+              " {}, {}".format(k, sqrt_k))
         _, D = X.shape
         centroids0, _ = kmeans(X[:, :D/2], sqrt_k, max_iter=1)
         centroids1, _ = kmeans(X[:, D/2:], sqrt_k, max_iter=1)

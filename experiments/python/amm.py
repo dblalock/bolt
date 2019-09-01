@@ -1,5 +1,6 @@
 #!/bin/env/python
 
+
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
@@ -34,6 +35,7 @@ def sketch_sq_deterministic(A, B, d):
 
 
 def test_sketch_sq_sample():
+    print("test_sketch_sq_sample")
     N, M, D = 100, 50, 200
     np.random.seed(1234)
     A = np.random.randint(5, size=(N, D)).astype(np.float32)
@@ -70,6 +72,7 @@ def svd_sketches(A, B, d, **kwargs):
 
 
 def test_svd_sketches():
+    print("test_svd_sketches")
     N, M, D = 100, 80, 50
     np.random.seed(1234)
     A = np.random.randint(5, size=(N, D)).astype(np.float32)
@@ -129,9 +132,6 @@ def frequent_directions(A, d, variant=None):
 def fd_amm_sketches(A, B, d):
     G = np.hstack((A.T, B))   # D x (N + M)
     H = frequent_directions(G, d)
-    # print("A shape: ", A.shape)
-    # print("B shape: ", B.shape)
-    # print("H shape: ", H.shape)
     assert H.shape == (d, A.shape[0] + B.shape[1])
     C = H[:, :A.shape[0]]  # d x N
     D = H[:, A.shape[0]:]  # d x M
@@ -139,6 +139,7 @@ def fd_amm_sketches(A, B, d):
 
 
 def test_fd_amm_sketches():
+    print("test_fd_amm_sketches")
     N, M, D = 100, 80, 50
     np.random.seed(1234)
     A = np.random.randint(5, size=(N, D)).astype(np.float32)
@@ -148,15 +149,9 @@ def test_fd_amm_sketches():
     orig_frob_sq = np.sum(AB * AB)
 
     prev_normed_err = np.inf
-    # for d in [10]:
     for d in (1, 2, 4, 8, 16, 32):
-        # (Ua, SVTa), (Ub, SVTb) = svd_sketches(A, B, d)
-        # AB_hat = Ua @ (SVTa @ Ub) @ SVTb
         A_hat, B_hat = fd_amm_sketches(A, B, d)
         AB_hat = A_hat @ B_hat
-
-        # print("fused mats shapes: ")
-        # print(Ua.shape, SVTa.shape, Ub.shape, SVTb.shape)
 
         diffs = AB - AB_hat
         err_frob_sq = np.sum(diffs * diffs)
@@ -217,6 +212,7 @@ def cooccur_sketches(A, B, d):
 
 
 def test_cooccur_sketches():
+    print("test_cooccur_sketches")
     # so this doesn't have monotonically better acc as d increases; seems to
     # run into issues with d being a large fraction of D, possibly because
     # then it doesn't have many iterations and it's just zeroing out a ton of
@@ -231,7 +227,7 @@ def test_cooccur_sketches():
     AB = A @ B
     orig_frob_sq = np.sum(AB * AB)
 
-    prev_normed_err = np.inf
+    # prev_normed_err = np.inf
     # for d in [4]:
     for d in (2, 4, 8, 16, 32):
         # A_hat, B_hat = fd_amm_sketches(A, B, d)
@@ -257,7 +253,7 @@ def test_cooccur_sketches():
 
 
 if __name__ == '__main__':
-    # test_sketch_sq_sample()
-    # test_svd_sketches()
-    # test_fd_amm_sketches()
+    test_sketch_sq_sample()
+    test_svd_sketches()
+    test_fd_amm_sketches()
     test_cooccur_sketches()

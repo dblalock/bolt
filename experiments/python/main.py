@@ -10,11 +10,12 @@ import time
 
 from collections import namedtuple
 
-import datasets
+# import datasets
 import files
 import product_quantize as pq
 import pyience as pyn
 
+from datasets import neighbors as dsets
 from utils import kmeans, top_k_idxs
 
 from joblib import Memory
@@ -43,7 +44,7 @@ def dists_elemwise_dot(x, q):
 # ================================================================ Clustering
 
 def load_dataset_object(which_dataset, **load_dataset_kwargs):
-    X_train, Q, X_test, true_nn = datasets.load_dataset(
+    X_train, Q, X_test, true_nn = dsets.load_dataset(
         which_dataset, **load_dataset_kwargs)
     assert Q.shape[-1] == X_train.shape[-1]
 
@@ -225,7 +226,7 @@ class OPQEncoder(PQEncoder):
             print("learning quantization...")
 
             num_rows = min(10*1000, len(X) // 2)
-            _, queries = datasets.extract_random_rows(
+            _, queries = dsets.extract_random_rows(
                 X[num_rows:], how_many=1000, remove_from_X=False)
             X = X[:num_rows]  # limit to first 10k rows of X
 
@@ -614,11 +615,11 @@ def _experiment_one_dataset(which_dataset, eval_dists=False, dotprods=False,
 
 def experiment(eval_dists=False, dotprods=False):
 
-    # which_datasets = [datasets.Mnist]
-    which_datasets = [datasets.Mnist, datasets.Sift1M,
-                      datasets.LabelMe, datasets.Convnet1M]
-    # which_datasets = [datasets.Glove]
-    # which_datasets = [datasets.Deep1M, datasets.Gist]
+    # which_datasets = [dsets.Mnist]
+    which_datasets = [dsets.Mnist, dsets.Sift1M,
+                      dsets.LabelMe, dsets.Convnet1M]
+    # which_datasets = [dsets.Glove]
+    # which_datasets = [dsets.Deep1M, dsets.Gist]
 
     if eval_dists:
         save_dir = '../results/acc_dotprods/' if dotprods else '../results/acc_l2'
