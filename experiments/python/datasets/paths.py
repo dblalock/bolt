@@ -51,3 +51,10 @@ COMPRESSION_COLMAJOR_DIR = to_path('compress', 'colmajor')
 # caltech-{101,256}
 CALTECH_101 = to_path('caltech', '101_ObjectCategories')
 CALTECH_256 = to_path('caltech', '256_ObjectCategories')
+
+# UCD Database (just holter ECG signals)
+# UCD_ECG = to_path('ucddb', 'ecg')
+
+# SHAREE Database
+SHAREE_ECG = to_path('sharee-ecg-database')
+
