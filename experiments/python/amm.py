@@ -1,8 +1,17 @@
 #!/bin/env/python
 
-
+import abc
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
+
+
+class ApproxMatmul(abc.ABC):
+
+    def set_A(self, A):
+        pass
+
+    def set_B(self, B):
+        pass
 
 
 # ================================================================ samplings
@@ -16,13 +25,29 @@ def _compute_dim_scores(A, B, A_col_norms=None, B_row_norms=None):
 
 
 def sketch_sq_sample(A, B, d):
-    scores = _compute_dim_scores(A, B)
+    scores = _compute_dim_scores(A, B)  # TODO uncomment after debug
+    # scores = np.ones(A.shape[1]) # TODO rm after debug
     probs = scores / np.sum(scores)
+
     D = A.shape[1]
     keep_idxs = np.random.choice(D, size=d, p=probs)
+    # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)
 
-    weights = np.sqrt(d * probs[keep_idxs])
-    return A[:, keep_idxs] / weights, B[keep_idxs] / weights.reshape(-1, 1)
+    # weights = np.sqrt(d * probs)  # what the paper says; huge errors
+    weights = np.sqrt(D * probs)  # actually mostly works
+    A = A / weights
+    B = B / weights.reshape(-1, 1)
+
+    return A[:, keep_idxs], B[keep_idxs]
+
+
+    # # weights = np.sqrt(d * probs[keep_idxs])
+    # weights = np.sqrt(D * probs[keep_idxs])  # think above is correct, but this actually works
+    # # weights = D * probs[keep_idxs]
+    # # weights = np.ones_like(probs[keep_idxs])
+    # # weights = np.sqrt(d * probs[keep_idxs] / D)
+    # # weights = d * probs[keep_idxs]
+    # return A[:, keep_idxs] / weights, B[keep_idxs] / weights.reshape(-1, 1)
 
 
 def sketch_sq_deterministic(A, B, d):
@@ -31,44 +56,70 @@ def sketch_sq_deterministic(A, B, d):
     keep_idxs = np.argsort(scores)[::-d]
 
     weights = np.sqrt(d * (1. / D))  # uniform prob
-    return A[:, keep_idxs] / weights, B[keep_idxs] / weights
+    return A[:, keep_idxs] / weights, B[keep_idxs] / weights.reshape(-1, 1)
 
 
 def test_sketch_sq_sample():
     print("test_sketch_sq_sample")
     N, M, D = 100, 50, 200
     np.random.seed(1234)
-    A = np.random.randint(5, size=(N, D)).astype(np.float32)
-    B = np.random.randint(5, size=(D, M)).astype(np.float32)
+    # A = np.random.randint(5, size=(N, D)).astype(np.float32)
+    # B = np.random.randint(5, size=(D, M)).astype(np.float32)
+    # A -= np.mean(A)
+    # B -= np.mean(B)
+    A = np.random.randn(N, D).astype(np.float32)
+    B = np.random.randn(D, M).astype(np.float32)
 
     AB = A @ B
-    orig_frob_sq = np.sum(AB * AB)
+    orig_frob_sq = np.mean(AB * AB)
+    print("true mss: ", orig_frob_sq)
 
     prev_normed_err = np.inf
     for d in (10, 20, 30, 40, 50):
         A_hat, B_hat = sketch_sq_sample(A, B, d)
         # A_hat, B_hat = sketch_sq_deterministic(A, B, d)
         AB_hat = A_hat @ B_hat
+        # print("AB_hat mss: ", (AB_hat * AB_hat).mean())
         diffs = AB - AB_hat
-        err_frob_sq = np.sum(diffs * diffs)
+        err_frob_sq = np.mean(diffs * diffs)
         normed_err_sq = err_frob_sq / orig_frob_sq
+        # print("orig mss: ", orig_frob_sq)
         print('d = {}, err = {:.3f}'.format(d, normed_err_sq))
-        assert normed_err_sq < 1.
-        assert normed_err_sq < prev_normed_err
+        assert normed_err_sq < 2.
+        assert normed_err_sq < (prev_normed_err + .05)  # should usually hold
         prev_normed_err = normed_err_sq
 
 
-# ================================================================ TruncatedSVD
+class SketchSqSample(object):
+    __slots__ = 'd'
+
+    def __init__(self, d):
+        self.d = d
+
+    def __call__(self, A, B):
+        A_hat, B_hat = sketch_sq_sample(A, B, self.d)
+        return A_hat @ B_hat
+
+
+# ================================================================ Rand SVD
+
+def svd_sketch(A, d, **kwargs):
+    U, S, Vt = randomized_svd(A, n_components=d, **kwargs)
+    # print("Vt shape: ", Vt.shape)
+    # print("S: ", S)
+    return (U, np.diag(S) @ Vt)
+
 
 def svd_sketches(A, B, d, **kwargs):
-    Ua, Sa, VTa = randomized_svd(A, n_components=d, **kwargs)
-    Ub, Sb, VTb = randomized_svd(B, n_components=d, **kwargs)
+    return svd_sketch(A, d, **kwargs), svd_sketch(B, d, **kwargs)
+    # Ua, Sa, VTa = randomized_svd(A, n_components=d, **kwargs)
+    # Ub, Sb, VTb = randomized_svd(B, n_components=d, **kwargs)
 
     # print("truncated svd mat shapes:")
     # print(Ua.shape, Sa.shape, VTa.shape)
     # print(Ub.shape, Sb.shape, VTb.shape)
 
-    return (Ua, np.diag(Sa) @ VTa), (Ub, np.diag(Sb) @ VTb)
+    # return (Ua, np.diag(Sa) @ VTa), (Ub, np.diag(Sb) @ VTb)
 
 
 def test_svd_sketches():
@@ -77,6 +128,8 @@ def test_svd_sketches():
     np.random.seed(1234)
     A = np.random.randint(5, size=(N, D)).astype(np.float32)
     B = np.random.randint(5, size=(D, M)).astype(np.float32)
+    A -= np.mean(A)
+    B -= np.mean(B)
 
     AB = A @ B
     orig_frob_sq = np.sum(AB * AB)
@@ -97,6 +150,29 @@ def test_svd_sketches():
         assert normed_err_sq < 1.
         assert normed_err_sq < prev_normed_err
         prev_normed_err = normed_err_sq
+
+
+class SvdSketch(object):
+    __slots__ = 'd Ua SVTa Ub SVTb'.split()
+
+    def __init__(self, d):
+        self.d = d
+
+    def set_A(self, A):
+        self.Ua, self. SVTa = svd_sketch(A, self.d)
+
+    def set_B(self, B):
+        self.Ub, self.SVTb = svd_sketch(B, self.d)
+
+    def __call__(self, A=None, B=None):
+        # assert (A is None) != (self.Ua is None)  # supply one or the other
+        # assert (B is None) != (self.Ub is None)  # supply one or the other
+        if self.Ua is None:
+            self.set_A(A)
+        if self.Ub is None:
+            self.set_B(B)
+        # inner parens important so that matmuls actually use low rank
+        return self.Ua @ (self.SVTa @ self.Ub) @ self.SVTb
 
 
 # ================================================================ FD-amm
@@ -122,7 +198,7 @@ def frequent_directions(A, d, variant=None):
         if variant == 'robust':
             raise NotImplementedError()
         else:
-            S = np.sqrt((S - S[-1]) ** 2)
+            S = np.sqrt((S - S[-1]) ** 2)  # note that last entry is dth entry
             # print("new S shape: ", S.shape)
         H = np.diag(S) @ Vt  # d x D
 
@@ -144,6 +220,8 @@ def test_fd_amm_sketches():
     np.random.seed(1234)
     A = np.random.randint(5, size=(N, D)).astype(np.float32)
     B = np.random.randint(5, size=(D, M)).astype(np.float32)
+    # A -= np.mean(A)
+    # B -= np.mean(B)
 
     AB = A @ B
     orig_frob_sq = np.sum(AB * AB)
@@ -157,9 +235,20 @@ def test_fd_amm_sketches():
         err_frob_sq = np.sum(diffs * diffs)
         normed_err_sq = err_frob_sq / orig_frob_sq
         print('d = {}, err = {:.5f}'.format(d, normed_err_sq))
-        assert normed_err_sq < 1.
+        assert normed_err_sq < 1.05
         assert normed_err_sq < prev_normed_err
         prev_normed_err = normed_err_sq
+
+
+class FdAmm(object):
+    __slots__ = 'd'
+
+    def __init__(self, d):
+        self.d = d
+
+    def __call__(self, A, B):
+        A_hat, B_hat = fd_amm_sketches(A, B, self.d)
+        return A_hat @ B_hat
 
 
 # ================================================================ Co-occurring
@@ -223,6 +312,8 @@ def test_cooccur_sketches():
     np.random.seed(1234)
     A = np.random.randint(5, size=(N, D)).astype(np.float32)
     B = np.random.randint(5, size=(D, M)).astype(np.float32)
+    A -= np.mean(A)
+    B -= np.mean(B)
 
     AB = A @ B
     orig_frob_sq = np.sum(AB * AB)
@@ -244,6 +335,17 @@ def test_cooccur_sketches():
         assert normed_err_sq < 1.
         # assert normed_err_sq < prev_normed_err
         # prev_normed_err = normed_err_sq
+
+
+class CooccurSketch(object):
+    __slots__ = 'd'
+
+    def __init__(self, d):
+        self.d = d
+
+    def __call__(self, A, B):
+        A_hat, B_hat = cooccur_sketches(A, B, self.d)
+        return A_hat @ B_hat
 
 
 # ================================================================ main
