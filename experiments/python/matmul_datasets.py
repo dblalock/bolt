@@ -85,7 +85,8 @@ def load_ampd_x_y_w(window_len=16, verbose=1):
     X_test, Y_test = X[N_train:], Y[N_train:]
 
     # fit the autoregressive model (just a filter)
-    est = linear_model.LinearRegression(fit_intercept=False)
+    # est = linear_model.LinearRegression(fit_intercept=False)
+    est = linear_model.Ridge(alpha=.1, fit_intercept=False)
     # est.fit(X, Y)
     est.fit(X_train, Y_train)
     W = est.coef_.T
@@ -122,7 +123,13 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
         data, ws=(window_len, data.shape[1]), ss=(1, 1))
 
     X = windows.reshape(windows.shape[0], -1)[:-1]
-    Y = windows[1:, -1, :]  # targets are last row of next window
+    # Y = windows[1:, -1, :]  # targets are last row of next window
+    Y = data[window_len:]
+
+    # TODO rm
+    diffs = Y[1:] - Y[:-1]
+    print("var(diffs) / var(Y)", np.var(diffs) / np.var(Y))
+    # import sys; sys.exit()
 
     N = len(X)
     if N_train < data.shape[1]:
@@ -133,7 +140,8 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 
     # fit the autoregressive model (just a filter)
     est = linear_model.LinearRegression(fit_intercept=False)
-    # est.fit(X, Y)
+    # est = linear_model.Ridge(
+    #     alpha=.01*len(Y)*np.var(data), fit_intercept=False)
     est.fit(X_train, Y_train)
     W = est.coef_.T
 
@@ -142,6 +150,8 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
         print("ts ar model: windows.shape: ", windows.shape)
         print("ts ar model: X shape: ", X.shape)
         print("ts ar model: Y shape: ", Y.shape)
+        # print("train r^2:", est.score(X_train, Y_train))
+        # print("test r^2:", est.score(X_test, Y_test))
 
     # print(W.shape)
     # print(est.score(X, Y))
@@ -157,19 +167,31 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
                       X_test=X_test, Y_test=Y_test, W_train=W)
 
 
-def load_ecg_x_y_w_for_recording(recording, window_len=8):
-    return load_x_y_w_for_ar_model(recording, window_len=window_len)
+# def load_ecg_x_y_w_for_recording(recording, window_len=8):
+#     return load_x_y_w_for_ar_model(recording, window_len=window_len)
+
+# @_memory.cache
+# def load_ecg_recordings(limit_nhours=2):
+#     generator = limit_nhours is not None and limit_nhours > 0
+#     return sharee.load_recordings(
+#         limit_nhours=limit_nhours, generator=generator)
 
 
-def load_ecg_recordings():
-    # return list(sharee.load_recordings())
-    return sharee.load_recordings()  # generator, since takes lots of memory
+@_memory.cache
+def load_ecg_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=2):
+    rec = sharee.load_recording(rec_id, limit_nhours=2)
+    return load_x_y_w_for_ar_model(rec, window_len=window_len)
 
 
-def load_ecg_tasks(window_len=8):
-    recordings = load_ecg_recordings()
-    for recording in recordings:
-        yield load_ecg_x_y_w_for_recording(recording, window_len=window_len)
+def load_ecg_tasks(window_len=8, validate=False, **kwargs):
+    # recordings = load_ecg_recordings(**kwargs)
+    rec_ids = sharee.load_recording_ids()
+    # for i, rec_id in list(enumerate(rec_ids))[:10]: # TODO rm
+    for i, rec_id in enumerate(rec_ids):
+        task = load_ecg_x_y_w_for_recording_id(rec_id, window_len=window_len)
+        if validate:
+            print("validating task {}/{}...".format(i + 1, len(rec_ids)))
+            task.validate(mse_thresh=.25)  # normalized mse; >0 since lstsq
 
 
 # ================================================================ caltech
@@ -326,8 +348,7 @@ def _load_caltech_test_imgs():
     return [caltech.load_caltech_img(img_id) for img_id in test_ids]
 
 
-def load_caltech_tasks():
-    # imgs_train, imgs_test = load_caltech_imgs()
+def load_caltech_tasks(validate_tasks=False, verbose=0):
     filters = load_filters_sobel_3x3()
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
@@ -340,15 +361,18 @@ def load_caltech_tasks():
     print("X train nbytes: ", X_train.nbytes)
     print("Y train shape: ", Y_train.shape)
     print("Y train nbytes: ", Y_train.nbytes)
-
     print("size of test imgs (not windows): ",
           sum([img.nbytes for img in test_imgs]))
 
-    for img in test_imgs:
+    for i, img in enumerate(test_imgs):
         X_test, Y_test = caltech_x_y_for_img(
             img, filt_spatial_shape=filt_spatial_shape, W=W)
-        yield MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
-                         X_test=X_test, Y_test=Y_test, W_test=W)
+        task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
+                          X_test=X_test, Y_test=Y_test, W_test=W)
+        if validate_tasks and verbose > 1:
+            print("validating task {}/{}...".format(i + 1), len(test_imgs))
+            task.validate()
+        yield task
 
 
 def test_caltech_loading():
@@ -432,7 +456,8 @@ def load_cifar100_task():
 # ================================================================ main
 
 def main():
-    load_caltech_tasks()
+    # load_caltech_tasks(validate=True)
+    load_ecg_tasks(validate=True)
 
     # load_ampd_data_mat()
     # load_ampd_windows()
