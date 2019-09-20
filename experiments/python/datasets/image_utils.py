@@ -152,7 +152,7 @@ def load_jpg(path, layout='nhwc', dtype=None, resample=None,
 def load_jpegs_from_dir(dirpath, remove_classes=None, require_suffix=None,
                         layout='nhwc', dtype=None, resample=(224, 224),
                         crop='center', pad=None, verbose=1,
-                        limit_per_class=None):
+                        limit_per_class=None, only_return_path=False):
     subdirs = sorted(files.list_subdirs(dirpath, only_visible=True))
     if remove_classes is not None:
         if isinstance(remove_classes, str):
@@ -186,15 +186,22 @@ def load_jpegs_from_dir(dirpath, remove_classes=None, require_suffix=None,
         for i in range(len(img_paths)):
             all_labels.append(label)
         # all_labels += [] * len(img_paths)
-        imgs = [load_jpg(f, layout=layout, dtype=dtype, resample=resample,
-                         crop_how=crop, pad_how=pad)[np.newaxis, :, :, :]
-                for f in img_paths]
+        if only_return_path:
+            imgs = img_paths
+        else:
+            imgs = [load_jpg(f, layout=layout, dtype=dtype, resample=resample,
+                             crop_how=crop, pad_how=pad)[np.newaxis, :, :, :]
+                    for f in img_paths]
         all_imgs += imgs
 
-    try:
-        # this works iff resampled/padded/cropped to same size
-        X = np.concatenate(all_imgs, axis=0)
-    except ValueError:
-        X = [img.reshape(img.shape[1:]) for img in all_imgs]  # otherwise
+    if only_return_path:
+        X = all_imgs
+    else:
+        try:
+            # this works iff resampled/padded/cropped to same size
+            X = np.concatenate(all_imgs, axis=0)
+        except ValueError:
+            # otherwise strip batch dim (so each image is 3D)
+            X = [img.reshape(img.shape[1:]) for img in all_imgs]
     y = np.array(all_labels, dtype=np.int32)
     return (X, y), label_to_classname

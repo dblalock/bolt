@@ -4,7 +4,6 @@ import abc
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
-
 class ApproxMatmul(abc.ABC):
 
     def set_A(self, A):
@@ -152,7 +151,7 @@ def test_svd_sketches():
         prev_normed_err = normed_err_sq
 
 
-class SvdSketch(object):
+class SvdSketch(ApproxMatmul):
     __slots__ = 'd Ua SVTa Ub SVTb'.split()
 
     def __init__(self, d):
@@ -240,7 +239,7 @@ def test_fd_amm_sketches():
         prev_normed_err = normed_err_sq
 
 
-class FdAmm(object):
+class FdAmm(ApproxMatmul):
     __slots__ = 'd'
 
     def __init__(self, d):
@@ -337,7 +336,7 @@ def test_cooccur_sketches():
         # prev_normed_err = normed_err_sq
 
 
-class CooccurSketch(object):
+class CooccurSketch(ApproxMatmul):
     __slots__ = 'd'
 
     def __init__(self, d):

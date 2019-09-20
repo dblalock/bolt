@@ -17,20 +17,40 @@ DATADIR_256 = paths.CALTECH_256
 
 
 _DEFAULT_CALTECH_KWARGS = dict(resample=(224, 224), crop='center', verbose=2)
+_CALTECH_101_KWARGS = dict(
+    dirpath=DATADIR_101, remove_classes='BACKGROUND_Google')
+_CALTECH_256_KWARGS = dict(
+    dirpath=DATADIR_256, remove_classes='257.clutter')
 
 
 @_memory.cache
 def load_caltech101(**kwargs):
     [kwargs.setdefault(*item) for item in _DEFAULT_CALTECH_KWARGS.items()]
-    return imgs.load_jpegs_from_dir(
-        DATADIR_101, remove_classes='BACKGROUND_Google', **kwargs)
+    return imgs.load_jpegs_from_dir(**_CALTECH_101_KWARGS, **kwargs)
 
 
 @_memory.cache
 def load_caltech256(**kwargs):
     [kwargs.setdefault(*item) for item in _DEFAULT_CALTECH_KWARGS.items()]
+    return imgs.load_jpegs_from_dir(**_CALTECH_256_KWARGS, **kwargs)
+
+
+@_memory.cache
+def load_caltech101_ids(**kwargs):
     return imgs.load_jpegs_from_dir(
-        DATADIR_256, remove_classes='257.clutter', **kwargs)
+        **_CALTECH_101_KWARGS, only_return_path=True, **kwargs)
+
+
+@_memory.cache
+def load_caltech256_ids(**kwargs):
+    return imgs.load_jpegs_from_dir(
+        **_CALTECH_256_KWARGS, only_return_path=True, **kwargs)
+
+
+# @_memory.cache
+def load_caltech_img(img_id, **kwargs):
+    path = img_id  # load_jpegs_from_dir returns abs path as id
+    return imgs.load_jpg(path, **kwargs).astype(np.float32)
 
 
 def main():
