@@ -190,7 +190,7 @@ def load_ecg_tasks(window_len=8, validate=False, **kwargs):
     for i, rec_id in enumerate(rec_ids):
         task = load_ecg_x_y_w_for_recording_id(rec_id, window_len=window_len)
         if validate:
-            print("validating task {}/{}...".format(i + 1, len(rec_ids)))
+            print("validating ecg task {}/{}...".format(i + 1, len(rec_ids)))
             task.validate(mse_thresh=.25)  # normalized mse; >0 since lstsq
 
 
@@ -348,7 +348,11 @@ def _load_caltech_test_imgs():
     return [caltech.load_caltech_img(img_id) for img_id in test_ids]
 
 
-def load_caltech_tasks(validate_tasks=False, verbose=0):
+def load_caltech_tasks(validate=False):
+    # print("called load_caltech_tasks")
+
+    # import sys; sys.exit()
+
     filters = load_filters_sobel_3x3()
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
@@ -369,8 +373,9 @@ def load_caltech_tasks(validate_tasks=False, verbose=0):
             img, filt_spatial_shape=filt_spatial_shape, W=W)
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
                           X_test=X_test, Y_test=Y_test, W_test=W)
-        if validate_tasks and verbose > 1:
-            print("validating task {}/{}...".format(i + 1), len(test_imgs))
+        if validate:
+            print("validating caltech task {}/{}...".format(
+                i + 1, len(test_imgs)))
             task.validate()
         yield task
 
@@ -397,7 +402,7 @@ def test_caltech_loading():
 
 # ================================================================ cifar
 
-def load_cifar10_task():
+def load_cifar10_tasks():
     SOFTMAX_INPUTS_TRAIN_PATH = 'cifar10_softmax_inputs_train.npy'
     SOFTMAX_OUTPUTS_TRAIN_PATH = 'cifar10_softmax_outputs_train.npy'
     SOFTMAX_INPUTS_TEST_PATH = 'cifar10_softmax_inputs_test.npy'
@@ -421,11 +426,11 @@ def load_cifar10_task():
     Y_train -= b
     Y_test -= b
 
-    return MatmulTask(X_train, Y_train, X_test, Y_test, W,
-                      name='CIFAR-10 Softmax')
+    return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
+                       name='CIFAR-10 Softmax')]
 
 
-def load_cifar100_task():
+def load_cifar100_tasks():
     SOFTMAX_INPUTS_TRAIN_PATH = 'cifar100_softmax_inputs_train.npy'
     SOFTMAX_OUTPUTS_TRAIN_PATH = 'cifar100_softmax_outputs_train.npy'
     SOFTMAX_INPUTS_TEST_PATH = 'cifar100_softmax_inputs_test.npy'
@@ -449,30 +454,34 @@ def load_cifar100_task():
     Y_train -= b
     Y_test -= b
 
-    return MatmulTask(X_train, Y_train, X_test, Y_test, W,
-                      name='CIFAR-100 Softmax')
+    return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
+                       name='CIFAR-100 Softmax')]
 
 
 # ================================================================ main
 
-def main():
-    # load_caltech_tasks(validate=True)
+def test_caltech_tasks():
+    for _ in load_caltech_tasks(validate=True):
+        pass  # need to loop thru since it's a generator
+
+
+def test_ecg_tasks():
     load_ecg_tasks(validate=True)
 
-    # load_ampd_data_mat()
-    # load_ampd_windows()
-    # load_ampd_x_y_w()
-    # load_caltech_imgs()
-    # test_caltech_loading()
 
-    # task = load_cifar10_task()
-    # print(task)
-    # task.validate()
-    # task = load_cifar100_task()
-    # print(task)
-    # task.validate()
+def test_cifar_tasks():
+    task = load_cifar10_tasks()[0]
+    print(task)
+    task.validate()
+    task = load_cifar100_tasks()[0]
+    print(task)
+    task.validate()
 
-    # load_dummy_caltech_filter_3x3()
+
+def main():
+    # test_caltech_tasks()
+    test_cifar_tasks()
+    test_ecg_tasks()
 
 
 if __name__ == '__main__':

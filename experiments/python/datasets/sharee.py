@@ -41,7 +41,8 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
 
     if limit_nhours and limit_nhours > 0:
         a = a[:limit_nhours * SAMPLES_PER_HOUR]
-    a = a[10*SAMPLES_PER_MIN:]  # often a bunch of garbage at the beginning
+    a = a[SAMPLES_PER_MIN:]  # often a bunch of garbage at the beginning
+    a = a.astype(dtype)
 
     # small amount of smoothing since heavily oversampled + noisy
     filt = np.hamming(5).astype(dtype)
@@ -53,7 +54,7 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
         # a[:, j] = smoothed
         a[:, j] = np.convolve(a[:, j], filt, mode='same')
 
-    return a.astype(dtype)
+    return a
 
 
 # def load_recordings(generator=False, plot=False, **kwargs):
