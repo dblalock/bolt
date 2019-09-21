@@ -24,7 +24,7 @@ SAMPLES_PER_MIN = SAMPLES_PER_SEC * 60
 SAMPLES_PER_HOUR = SAMPLES_PER_MIN * 60
 
 
-# @_memory.cache
+@_memory.cache
 def load_recording_ids():
     # fpaths = files.list_files(DATA_DIR, abs_paths=True, endswith='.dat')
     fpaths = files.list_files(DATA_DIR, abs_paths=False, endswith='.dat')
@@ -32,12 +32,14 @@ def load_recording_ids():
     return fpaths
 
 
+@_memory.cache
 def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
+    # dtype = np.float32 if dtype is None else dtype
     path = os.path.join(DATA_DIR, rec_id)
     a = np.fromfile(path, dtype=np.uint16)
     assert len(a) % 3 == 0
     a = a.reshape(-1, 3)  # looks like it's rowmajor
-    # a = a.reshape(3, -1).T  # is colmajor clearly worse? EDIT: yes
+    # a = a.reshape(3, -1).T  # is colmajor clearly wrong? EDIT: yes
 
     if limit_nhours and limit_nhours > 0:
         a = a[:limit_nhours * SAMPLES_PER_HOUR]
@@ -45,13 +47,9 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
     a = a.astype(dtype)
 
     # small amount of smoothing since heavily oversampled + noisy
-    filt = np.hamming(5).astype(dtype)
+    filt = np.hamming(5).astype(np.float32)
     filt /= np.sum(filt)
     for j in range(a.shape[1]):
-        # print("a shape: ", a[:, j].shape)
-        # smoothed = np.convolve(filt, a[:, j], mode='same')
-        # print("smoothed shape: ", smoothed.shape)
-        # a[:, j] = smoothed
         a[:, j] = np.convolve(a[:, j], filt, mode='same')
 
     return a

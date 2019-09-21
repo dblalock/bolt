@@ -7,10 +7,12 @@ import numpy as np
 # import pathlib as pl
 from sklearn import linear_model
 
-from python.datasets import ampds, caltech, sharee
+from python.datasets import caltech, sharee
 from python import window
 
 from joblib import Memory
+# _memory = Memory('.', verbose=0, compress=7)  # compression between 1 and 9
+# _memory = Memory('.', verbose=0, compress=3)  # compression between 1 and 9
 _memory = Memory('.', verbose=0)
 
 
@@ -24,7 +26,7 @@ CIFAR100_DIR = os.path.join(_dir, '..', 'assets', 'cifar100-softmax')
 class MatmulTask(object):
 
     def __init__(self, X_train, Y_train, X_test, Y_test, W_train, W_test=None,
-                 name=None):
+                 name=None, info=None):
         self.X_train = X_train
         self.Y_train = Y_train
         self.X_test = X_test
@@ -32,6 +34,7 @@ class MatmulTask(object):
         self.W_train = W_train
         self.W_test = W_test if W_test is not None else W_train
         self.name = name
+        self.info = info
 
         self.train_mats = (self.X_train, self.Y_train, self.W_train)
         self.test_mats = (self.X_test, self.Y_test, self.W_test)
@@ -56,80 +59,14 @@ class MatmulTask(object):
             assert mse < mse_thresh
 
 
-# class
-
-
-# ================================================================ ampds
-
-# TODO deterministic train test split
-
-def load_ampd_data_mat():
-    # return ampds.all_power_recordings()[0].data
-    return ampds.all_weather_recordings()[0].data
-    # print("mat.shape", mat.shape)
-
-
-@_memory.cache
-def load_ampd_x_y_w(window_len=16, verbose=1):
-    data = load_ampd_data_mat()
-    windows = window.sliding_window(
-        data, ws=(window_len, data.shape[1]), ss=(1, 1))
-
-    X = windows.reshape(windows.shape[0], -1)[:-1]
-    Y = windows[1:, -1, :]  # targets are last row of next window
-
-    N = len(X)
-    N_train = N // 2
-    # N_test = N - N_train
-    X_train, Y_train = X[:N_train], Y[:N_train]
-    X_test, Y_test = X[N_train:], Y[N_train:]
-
-    # fit the autoregressive model (just a filter)
-    # est = linear_model.LinearRegression(fit_intercept=False)
-    est = linear_model.Ridge(alpha=.1, fit_intercept=False)
-    # est.fit(X, Y)
-    est.fit(X_train, Y_train)
-    W = est.coef_.T
-
-    if verbose > 0:
-        print("ampd data.shape: ", data.shape)
-        print("ampd windows.shape: ", windows.shape)
-        print("ampd X shape: ", X.shape)
-        print("ampd Y shape: ", Y.shape)
-
-    # print(W.shape)
-    # print(est.score(X, Y))
-    # Y_hat = est.predict(X)
-    # diffs = Y - Y_hat
-    # print("normalized mse: ", np.mean(diffs * diffs) / np.var(Y))
-    # Y_hat = X @ W
-    # diffs = Y - Y_hat
-    # print("normalized mse: ", np.mean(diffs * diffs) / np.var(Y))
-
-    return X, Y, W  # Y_hat = X @ W
-
-
-# def load_ampd_filter(windows):
-#     est = linear_model.LinearRegression()
-#     X = windows[:-1]
-#     Y = windows[]
-#     est.fit(windows)
-#     pass
-
 # ================================================================ ECG (sharee)
 
-def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
+def _load_x_y_w_for_ar_model(data, window_len=8, verbose=0, N_train=-1):
     windows = window.sliding_window(
         data, ws=(window_len, data.shape[1]), ss=(1, 1))
 
     X = windows.reshape(windows.shape[0], -1)[:-1]
-    # Y = windows[1:, -1, :]  # targets are last row of next window
     Y = data[window_len:]
-
-    # TODO rm
-    diffs = Y[1:] - Y[:-1]
-    print("var(diffs) / var(Y)", np.var(diffs) / np.var(Y))
-    # import sys; sys.exit()
 
     N = len(X)
     if N_train < data.shape[1]:
@@ -152,6 +89,8 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
         print("ts ar model: Y shape: ", Y.shape)
         # print("train r^2:", est.score(X_train, Y_train))
         # print("test r^2:", est.score(X_test, Y_test))
+        diffs = Y[1:] - Y[:-1]
+        print("var(diffs) / var(Y)", np.var(diffs) / np.var(Y))
 
     # print(W.shape)
     # print(est.score(X, Y))
@@ -168,7 +107,7 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 
 
 # def load_ecg_x_y_w_for_recording(recording, window_len=8):
-#     return load_x_y_w_for_ar_model(recording, window_len=window_len)
+#     return _load_x_y_w_for_ar_model(recording, window_len=window_len)
 
 # @_memory.cache
 # def load_ecg_recordings(limit_nhours=2):
@@ -177,26 +116,30 @@ def load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 #         limit_nhours=limit_nhours, generator=generator)
 
 
-@_memory.cache
-def load_ecg_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=2):
-    rec = sharee.load_recording(rec_id, limit_nhours=2)
-    return load_x_y_w_for_ar_model(rec, window_len=window_len)
+# @_memory.cache()  # caching is no faster than just recomputing
+def load_ecg_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=1):
+    rec = sharee.load_recording(rec_id, limit_nhours=limit_nhours)
+    return _load_x_y_w_for_ar_model(rec, window_len=window_len)
 
 
 def load_ecg_tasks(window_len=8, validate=False, **kwargs):
     # recordings = load_ecg_recordings(**kwargs)
     rec_ids = sharee.load_recording_ids()
     # for i, rec_id in list(enumerate(rec_ids))[:10]: # TODO rm
+    # tasks = []
     for i, rec_id in enumerate(rec_ids):
         task = load_ecg_x_y_w_for_recording_id(rec_id, window_len=window_len)
+        # task.info = {'rec_id: ', rec_id}
+        task.name = rec_id
         if validate:
             print("validating ecg task {}/{}...".format(i + 1, len(rec_ids)))
             task.validate(mse_thresh=.25)  # normalized mse; >0 since lstsq
+        yield task
+        # tasks.append(task)
+    # return tasks
 
 
 # ================================================================ caltech
-
-# TODO deterministic train test split
 
 def load_caltech_imgs(ntrain_classes=50, limit_per_class=10):
     # imgs = caltech.load_caltech101(resample=None, crop=None)
@@ -230,7 +173,7 @@ def load_caltech_img_ids(ntrain_classes=50, limit_per_class=10):
     return imgs_ids_train, imgs_ids_test
 
 
-def load_dummy_caltech_filter_3x3(order='hwc'):
+def _load_dummy_caltech_filter_3x3(order='hwc'):
     filt = [[-1, 2, -1],
             [-1, 2, -1],
             [-1, 2, -1]]
@@ -289,12 +232,6 @@ def _filters_list_to_mat(filters):
 
 
 def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None):
-    # W = filt.ravel()
-    # img = img[np.newaxis, ...]
-    # windows = window.extract_conv2d_windows(img, filt_shape=filt.shape[1:])
-
-    # print(windows.shape)
-
     # extract and flatten windows into rows of X matrix
     windows = window.extract_conv2d_windows(img, filt_shape=filt_spatial_shape)
     # filt_sz = filters_list[0].size
@@ -316,10 +253,21 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None):
     return X, X @ W
 
 
+@_memory.cache  # cache raw images to avoid IO, but dynamically produce windows
+def _load_caltech_train_imgs():
+    train_ids, _ = load_caltech_img_ids()
+    return [caltech.load_caltech_img(img_id) for img_id in train_ids]
+
+
+@_memory.cache  # cache raw images to avoid IO, but dynamically produce windows
+def _load_caltech_test_imgs():
+    _, test_ids = load_caltech_img_ids()
+    return [caltech.load_caltech_img(img_id) for img_id in test_ids]
+
+
 # def _load_caltech_train(filters, filt_spatial_shape):
 def _load_caltech_train(W, filt_spatial_shape):
-    img_ids_train, img_ids_test = load_caltech_img_ids()
-    train_imgs = [caltech.load_caltech_img(img_id) for img_id in img_ids_train]
+    train_imgs = _load_caltech_train_imgs()
 
     #
     # uncomment to plot imgs to make sure this is working
@@ -342,17 +290,7 @@ def _load_caltech_train(W, filt_spatial_shape):
     return X_train, Y_train
 
 
-@_memory.cache  # cache raw images to avoid IO, but dynamically produce windows
-def _load_caltech_test_imgs():
-    _, test_ids = load_caltech_img_ids()
-    return [caltech.load_caltech_img(img_id) for img_id in test_ids]
-
-
 def load_caltech_tasks(validate=False):
-    # print("called load_caltech_tasks")
-
-    # import sys; sys.exit()
-
     filters = load_filters_sobel_3x3()
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
@@ -361,6 +299,7 @@ def load_caltech_tasks(validate=False):
         W=W, filt_spatial_shape=filt_spatial_shape)
     test_imgs = _load_caltech_test_imgs()
 
+    print("caltech tasks stats:")
     print("X train shape: ", X_train.shape)
     print("X train nbytes: ", X_train.nbytes)
     print("Y train shape: ", Y_train.shape)
@@ -373,6 +312,8 @@ def load_caltech_tasks(validate=False):
             img, filt_spatial_shape=filt_spatial_shape, W=W)
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
                           X_test=X_test, Y_test=Y_test, W_test=W)
+        # task.info = {'task_id: ', i}
+        task.name = str(i)
         if validate:
             print("validating caltech task {}/{}...".format(
                 i + 1, len(test_imgs)))
@@ -382,7 +323,7 @@ def load_caltech_tasks(validate=False):
 
 def test_caltech_loading():
     imgs_train, imgs_test = load_caltech_imgs()
-    filt = load_dummy_caltech_filter_3x3()
+    filt = _load_dummy_caltech_filter_3x3()
     imgs = imgs_train
 
     print("imgs[0].shape", imgs[0].shape)
@@ -466,7 +407,9 @@ def test_caltech_tasks():
 
 
 def test_ecg_tasks():
-    load_ecg_tasks(validate=True)
+    # for _ in load_ecg_tasks(validate=True):
+    for i, _ in enumerate(load_ecg_tasks(validate=False)):
+        print("loaded ecg task {}/{}".format(i + 1, sharee.NUM_RECORDINGS))
 
 
 def test_cifar_tasks():
@@ -480,7 +423,7 @@ def test_cifar_tasks():
 
 def main():
     # test_caltech_tasks()
-    test_cifar_tasks()
+    # test_cifar_tasks()
     test_ecg_tasks()
 
 

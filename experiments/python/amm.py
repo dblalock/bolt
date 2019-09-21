@@ -4,13 +4,36 @@ import abc
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
+
 class ApproxMatmul(abc.ABC):
+
+    def __init__(*args_unused, **kwargs_unused):
+        pass
+
+    def fit(self, A, B, Y=None):  # Y = A @ B if not specified
+        pass
 
     def set_A(self, A):
         pass
 
     def set_B(self, B):
         pass
+
+    @abc.abstractmethod
+    def __call__(self, A, B):
+        pass
+
+    def predict(self, A, B):
+        return self(A, B)
+
+    def get_params(self):
+        return {}
+
+
+class ExactMatMul(ApproxMatmul):
+
+    def __call__(self, A, B):
+        return A @ B
 
 
 # ================================================================ samplings
@@ -38,7 +61,6 @@ def sketch_sq_sample(A, B, d):
     B = B / weights.reshape(-1, 1)
 
     return A[:, keep_idxs], B[keep_idxs]
-
 
     # # weights = np.sqrt(d * probs[keep_idxs])
     # weights = np.sqrt(D * probs[keep_idxs])  # think above is correct, but this actually works
@@ -94,6 +116,9 @@ class SketchSqSample(object):
 
     def __init__(self, d):
         self.d = d
+
+    def get_params(self):
+        return {'d': self.d}
 
     def __call__(self, A, B):
         A_hat, B_hat = sketch_sq_sample(A, B, self.d)
@@ -162,6 +187,9 @@ class SvdSketch(ApproxMatmul):
 
     def set_B(self, B):
         self.Ub, self.SVTb = svd_sketch(B, self.d)
+
+    def get_params(self):
+        return {'d': self.d}
 
     def __call__(self, A=None, B=None):
         # assert (A is None) != (self.Ua is None)  # supply one or the other
@@ -244,6 +272,9 @@ class FdAmm(ApproxMatmul):
 
     def __init__(self, d):
         self.d = d
+
+    def get_params(self):
+        return {'d': self.d}
 
     def __call__(self, A, B):
         A_hat, B_hat = fd_amm_sketches(A, B, self.d)
@@ -341,6 +372,9 @@ class CooccurSketch(ApproxMatmul):
 
     def __init__(self, d):
         self.d = d
+
+    def get_params(self):
+        return {'d': self.d}
 
     def __call__(self, A, B):
         A_hat, B_hat = cooccur_sketches(A, B, self.d)
