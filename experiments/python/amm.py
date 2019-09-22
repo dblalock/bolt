@@ -289,6 +289,20 @@ def cooccur_sketches(A, B, d):
     M, _ = B.shape
     assert B.shape[1] == D
 
+    # assert N >= d  # not enough rows in specified A matrix
+    # assert M >= d  # not enough cols in specified B matrix
+
+    # add new rows to A or B so that R from QR factorization is at least d x d
+    if N < d:
+        A_new = np.zeros((d, D), dtype=A.dtype)
+        A_new[:N] = A
+        A = A_new
+    if M < d:
+        B_new = np.zeros((d, D), dtype=B.dtype)
+        B_new[:M] = B
+        B = B_new
+
+    # X = np.zeros(max(A.shape[0], ))
     X = np.copy(A[:, :d])   # N x d
     # Y = np.copy(B[:d].T)    # M x d
     Y = np.copy(B[:, :d])    # M x d
@@ -299,7 +313,12 @@ def cooccur_sketches(A, B, d):
     # print("mid_idx: ", mid_idx)
     # print("ntrailing_zeros: ", ntrailing_zeros)
 
-    i = 0
+    # print("D, d, ntrailing_zeros, mid_idx = ", D, d, ntrailing_zeros, mid_idx)
+    # print("A shape: ", A.shape)
+    # print("B shape: ", B.shape)
+
+    i = d
+    # end_dim = d
     while i < D:
         Qx, Rx = np.linalg.qr(X)  # N x d, d x d
         Qy, Ry = np.linalg.qr(Y)  # M x d, d x d
@@ -308,26 +327,41 @@ def cooccur_sketches(A, B, d):
         cutoff = S[mid_idx]
         S = np.sqrt(np.maximum(S - cutoff, 0))
 
+        # print("prod.shape", prod.shape)
+        # print("orig X.shape", X.shape)
+        # print("orig Y.shape", Y.shape)
+
         X = Qx @ (U @ np.diag(S))
         # Y = Qy @ (Vt @ np.diag(S))
         Y = Qy @ (Vt.T @ np.diag(S))
 
+        # print("X.shape", X.shape)
+        # print("Qx.shape", Qx.shape)
+        # print("U.shape", U.shape)
+
+        # replace zeroed-out cols of X and Y with new cols of A and B
         end_dim = min(D, i + ntrailing_zeros)
         ncols_to_copy = end_dim - i
         end_col = mid_idx + ncols_to_copy
-
-        # print("S: ", S)
+        assert ncols_to_copy <= ntrailing_zeros
+        assert end_col <= d
+        # # print("S: ", S)
         # print("i, end_dim, ncols_to_copy, end_col = ",
         #       i, end_dim, ncols_to_copy, end_col)
+        # # X[:, mid_idx:end_col] = A[:, i:end_dim]
+        # # Y[:, mid_idx:end_col] = B[i:end_dim].T
+        # print("end_col - mid_idx = ", end_col - mid_idx)
+        # print("end_dim - i = ", end_dim - i)
+        # # X[:, mid_idx:end_col] = np.copy(A[:, i:end_dim])
+        # # Y[:, mid_idx:end_col] = np.copy(B[:, i:end_dim])
+        # print("A[:, i:end_dim].shape: ", A[:, i:end_dim].shape)
+        # print("X[:, mid_idx:end_col].shape: ", X[:, mid_idx:end_col].shape)
 
-        # X[:, mid_idx:end_col] = A[:, i:end_dim]
-        # Y[:, mid_idx:end_col] = B[i:end_dim].T
-        X[:, mid_idx:end_col] = np.copy(A[:, i:end_dim])
-        # Y[:, mid_idx:end_col] = np.copy(B[i:end_dim].T)
-        Y[:, mid_idx:end_col] = np.copy(B[:, i:end_dim])
+        X[:, mid_idx:end_col] = A[:, i:end_dim]
+        Y[:, mid_idx:end_col] = B[:, i:end_dim]
         i = end_dim
 
-    return X, Y.T
+    return X[:N], Y[:M].T
 
 
 def test_cooccur_sketches():
