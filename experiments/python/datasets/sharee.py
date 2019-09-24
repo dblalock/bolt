@@ -42,7 +42,7 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
     # a = a.reshape(3, -1).T  # is colmajor clearly wrong? EDIT: yes
 
     if limit_nhours and limit_nhours > 0:
-        a = a[:limit_nhours * SAMPLES_PER_HOUR]
+        a = a[:int(limit_nhours * SAMPLES_PER_HOUR)]
     a = a[SAMPLES_PER_MIN:]  # often a bunch of garbage at the beginning
     a = a.astype(dtype)
 

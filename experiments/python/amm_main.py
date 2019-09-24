@@ -10,14 +10,26 @@ from . import matmul_datasets as md
 from . import pyience as pyn
 
 
+METHOD_EXACT = 'Exact'
+METHOD_SKETCH_SQ_SAMPLE = 'SketchSqSample'
+METHOD_SVD = 'SVD'
+METHOD_FD_AMM = 'FD-AMM'
+METHOD_COOCCUR = 'CooccurSketch'
+
 _METHOD_TO_ESTIMATOR = {
-    'Exact': amm.ExactMatMul,
-    'SketchSqSample': amm.SketchSqSample,
-    'Svd': amm.SvdSketch,
-    'FdAmm': amm.FdAmm,
-    'CooccurSketch': amm.CooccurSketch,
+    METHOD_EXACT: amm.ExactMatMul,
+    METHOD_SKETCH_SQ_SAMPLE: amm.SketchSqSample,
+    METHOD_SVD: amm.SvdSketch,
+    METHOD_FD_AMM: amm.FdAmm,
+    METHOD_COOCCUR: amm.CooccurSketch,
 }
 _ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
+_ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE)  # always terrible results
+SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
+                  METHOD_FD_AMM, METHOD_COOCCUR)
+NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD)
+
+NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
 
 
 def _estimator_for_method_id(method_id, **method_hparams):
@@ -82,53 +94,82 @@ def _compute_metrics(Y, Y_hat, compression_metrics=True, **sink):
 
 def _eval_amm(task, est, **metrics_kwargs):
     est.fit(A=task.X_train, B=task.W_train, Y=task.Y_train)
+    # print("task: ", task.name)
+    # print("X_test shape: ", task.X_test.shape)
+    # print("W_test shape: ", task.W_test.shape)
     Y_hat = est.predict(task.X_test, task.W_test)
     return _compute_metrics(task.Y_test, Y_hat, **metrics_kwargs)
 
 
-# def train_eval_ecg(rec_id, method_id):
-#     all_metrics = []
-#     # cached_load_matmul_tasks(rec_id)
-#     # B = W matrix (same for train and test)
-#     # est = get_estimator(method_id)
-#     # est.set_B(B)
-#     # for each window:
-#     #   task = construct the matmultask
-#     #   metrics = eval_amm(task, est)
+# SELF: pick up here by writing func to generate params combos based on
+# method_id, and then using pyience to expand them
+#   -once we have that, can start getting results with other methods
+
+def _hparams_for_method(method_id):
+    if method_id in SKETCH_METHODS:
+        # dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        dvals = [4, 8, 16, 32, 64, 128]
+        # dvals = [32, 64, 128] # TODO rm after debug
+        return [{'d': dval} for dval in dvals]
+    return [{}]
 
 
-def main_ecg(methods=['Exact'], saveas='ecg_results'):
-    methods = _ALL_METHODS if methods is None else methods
+def _ntrials_for_method(method_id):
+    return NUM_TRIALS if method_id in NONDETERMINISTIC_METHODS else 1
+    # return 1 # TODO rm
 
-    base_independent_vars = set(['task_id', 'method'])
-    for method_id in methods:
-        est = _estimator_for_method_id(method_id)
-        independent_vars = (base_independent_vars |
+
+def _get_all_independent_vars():
+    independent_vars = set(['task_id', 'method', 'trial'])
+    for method_id in _ALL_METHODS:
+        hparams = _hparams_for_method(method_id)[0]
+        est = _estimator_for_method_id(method_id, **hparams)
+        independent_vars = (independent_vars |
                             set(est.get_params().keys()))
+    return independent_vars
 
-    # print("preproc_kwargs: ", preproc_kwargs)
-    # independent_vars += list(est.get_params().keys())
 
-    all_metrics = []
+# def main_ecg(methods=['SketchSqSample'], saveas='ecg_results', limit_nhours=.25):
+def main_ecg(methods=None, saveas='ecg_results', limit_nhours=.25):
+    methods = _ALL_METHODS if methods is None else methods
+    independent_vars = _get_all_independent_vars()
+
     # for task in load_caltech_tasks():
-    for i, task in enumerate(md.load_ecg_tasks()):
-        print("-------- running task: {} ({}/{})".format(task.name, i + 1, 139)
+    for i, task in enumerate(md.load_ecg_tasks(limit_nhours=limit_nhours)):
+        print("-------- running task: {} ({}/{})".format(
+            task.name, i + 1, 139))
+        metrics_for_task = []
         for method_id in methods:
-            print("running method: ", method_id)
-            # TODO sweep hparams somehow; prolly some func to generate set of
-            # hparams for a given method id
-            est = _estimator_for_method_id(method_id)
-            metrics = _eval_amm(task, est)
-            metrics['method'] = method_id
-            metrics['task_id'] = task.name
-            print("got metrics: ")
-            pprint.pprint(metrics)
-            all_metrics.append(metrics)
+            ntrials = _ntrials_for_method(method_id)
+            # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
+            for hparams_dict in _hparams_for_method(method_id):
+                print("running method: ", method_id)
+                print("got hparams: ")
+                pprint.pprint(hparams_dict)
+                est = _estimator_for_method_id(method_id, **hparams_dict)
+                try:
+                    for trial in range(ntrials):
+                        metrics = _eval_amm(task, est)
+                        metrics['trial'] = trial
+                        metrics['method'] = method_id
+                        metrics['task_id'] = task.name
+                        metrics.update(hparams_dict)
+                        print("got metrics: ")
+                        pprint.pprint(metrics)
+                        metrics_for_task.append(metrics)
+                except amm.InvalidParametersException as e:
+                    # hparams don't make sense for this task (eg, D < d)
+                    print("hparams apparently invalid: {}".format(e))
 
-    pyn.save_dicts_as_data_frame(
-        all_metrics, save_dir='results/amm', name='ecg',
-        dedup_cols=independent_vars)
-    return all_metrics
+        if len(metrics_for_task):
+            pyn.save_dicts_as_data_frame(
+                metrics_for_task, save_dir='results/amm', name='ecg',
+                dedup_cols=independent_vars)
+
+        if i > 2:
+            return # TODO rm
+
+    # return metrics_for_task
 
     # for each rec_id in recording_ids
         # for each method_id in method_ids

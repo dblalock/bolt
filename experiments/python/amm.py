@@ -5,6 +5,10 @@ import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
 
+class InvalidParametersException(Exception):
+    pass
+
+
 class ApproxMatmul(abc.ABC):
 
     def __init__(*args_unused, **kwargs_unused):
@@ -36,6 +40,100 @@ class ExactMatMul(ApproxMatmul):
         return A @ B
 
 
+class SketchedMatmul(ApproxMatmul, abc.ABC):
+    __slots__ = 'd'
+
+    def __init__(self, d):
+        self.d = int(d)
+
+    def get_params(self):
+        return {'d': self.d}
+
+    @abc.abstractmethod
+    def call(self, A, B):
+        pass
+
+    def __call__(self, A, B):
+        assert A.shape[1] == B.shape[0]  # dims need to match
+        D = A.shape[1]
+        if D < self.d:
+            raise InvalidParametersException(
+                'D < d: {} < {}'.format(D, self.d))
+        return self.call(A, B)
+
+
+class SketchSqSample(SketchedMatmul):
+
+    def call(self, A, B):
+        A_hat, B_hat = sketch_sq_sample(A, B, self.d)
+        # A_hat, B_hat = A, B # TODO rm
+        return A_hat @ B_hat
+
+
+class FdAmm(SketchedMatmul):
+
+    def call(self, A, B):
+        A_hat, B_hat = fd_amm_sketches(A, B, self.d)
+        return A_hat @ B_hat
+
+
+class CooccurSketch(SketchedMatmul):
+
+    def call(self, A, B):
+        A_hat, B_hat = cooccur_sketches(A, B, self.d)
+        return A_hat @ B_hat
+
+
+class SvdSketch(SketchedMatmul):
+    __slots__ = 'd Ua SVTa Ub SVTb'.split()
+
+    def __init__(self, d):
+        self.d = d
+        self.Ua = None
+        self.SVTa = None
+        self.Ub = None
+        self.SVTb = None
+
+    # def get_params(self):
+    #     return {'d': self.d}
+
+    def _check_mat_shape(self, M):
+        if M is None:
+            return False
+        # if np.min(M.shape) < self.d:
+        if np.max(M.shape) < self.d:
+            raise InvalidParametersException(
+                'shape has entry < d: {} < {}'.format(M.shape, self.d))
+        return True
+
+    def set_A(self, A):
+        # if A is None:
+        #     return
+        if self._check_mat_shape(A):
+            self.Ua, self. SVTa = svd_sketch(A, self.d)
+
+    def set_B(self, B):
+        if self._check_mat_shape(B):
+            self.Ub, self.SVTb = svd_sketch(B, self.d)
+
+    # def __call__(self, A=None, B=None):
+    #     assert A.shape[1] == B.shape[0]  # dims need to match
+    #     if A.shape[1] < self.d:
+    #         raise InvalidParametersException('D < d')
+
+    def call(self, A=None, B=None):
+        if self.Ua is None:
+            self.set_A(A)
+        if self.Ub is None:
+            self.set_B(B)
+        D = self.Ua.shape[1]
+        if D < self.d:
+            raise InvalidParametersException(
+                'D < d: {} < {}'.format(D, self.d))
+        # inner parens important so that matmuls actually use low rank
+        return self.Ua @ (self.SVTa @ self.Ub) @ self.SVTb
+
+
 # ================================================================ samplings
 
 def _compute_dim_scores(A, B, A_col_norms=None, B_row_norms=None):
@@ -53,14 +151,22 @@ def sketch_sq_sample(A, B, d):
 
     D = A.shape[1]
     keep_idxs = np.random.choice(D, size=d, p=probs)
-    # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)
+    # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)  # TODO rm
+    # keep_idxs = np.random.choice(D, size=d, replace=False)  # TODO rm
+    # keep_idxs = np.arange(D-1)  # TODO rm
+    # keep_idxs = np.arange(1, D)  # TODO rm
+    # keep_idxs = np.arange(D)  # TODO rm
 
-    # weights = np.sqrt(d * probs)  # what the paper says; huge errors
-    weights = np.sqrt(D * probs)  # actually mostly works
-    A = A / weights
-    B = B / weights.reshape(-1, 1)
+    weights = np.sqrt(d * probs)  # what the paper says; huge errors
+    # weights = np.sqrt(D * probs)  # slightly less bad
+    # weights = np.sqrt(np.sqrt(d * probs))
+    # weights = np.ones(D)
+    A = np.copy(A) / weights
+    B = np.copy(B) / weights.reshape(-1, 1)
 
+    # return np.copy(A[:, keep_idxs]), np.copy(B[keep_idxs])
     return A[:, keep_idxs], B[keep_idxs]
+    # return A, B
 
     # # weights = np.sqrt(d * probs[keep_idxs])
     # weights = np.sqrt(D * probs[keep_idxs])  # think above is correct, but this actually works
@@ -111,23 +217,12 @@ def test_sketch_sq_sample():
         prev_normed_err = normed_err_sq
 
 
-class SketchSqSample(object):
-    __slots__ = 'd'
-
-    def __init__(self, d):
-        self.d = d
-
-    def get_params(self):
-        return {'d': self.d}
-
-    def __call__(self, A, B):
-        A_hat, B_hat = sketch_sq_sample(A, B, self.d)
-        return A_hat @ B_hat
-
-
 # ================================================================ Rand SVD
 
 def svd_sketch(A, d, **kwargs):
+    # assert A.shape[0] >= d
+    # assert A.shape[1] >= d
+    assert np.max(A.shape) >= d  # can't truncate to larger size
     U, S, Vt = randomized_svd(A, n_components=d, **kwargs)
     # print("Vt shape: ", Vt.shape)
     # print("S: ", S)
@@ -176,37 +271,14 @@ def test_svd_sketches():
         prev_normed_err = normed_err_sq
 
 
-class SvdSketch(ApproxMatmul):
-    __slots__ = 'd Ua SVTa Ub SVTb'.split()
-
-    def __init__(self, d):
-        self.d = d
-
-    def set_A(self, A):
-        self.Ua, self. SVTa = svd_sketch(A, self.d)
-
-    def set_B(self, B):
-        self.Ub, self.SVTb = svd_sketch(B, self.d)
-
-    def get_params(self):
-        return {'d': self.d}
-
-    def __call__(self, A=None, B=None):
-        # assert (A is None) != (self.Ua is None)  # supply one or the other
-        # assert (B is None) != (self.Ub is None)  # supply one or the other
-        if self.Ua is None:
-            self.set_A(A)
-        if self.Ub is None:
-            self.set_B(B)
-        # inner parens important so that matmuls actually use low rank
-        return self.Ua @ (self.SVTa @ self.Ub) @ self.SVTb
-
-
 # ================================================================ FD-amm
 
 def frequent_directions(A, d, variant=None):
     N, D = A.shape
     H = np.zeros((d, D))
+
+    assert N >= d
+    assert D >= d
 
     # for i in range(N):
     H[:d - 1] = A[:d - 1]
@@ -233,6 +305,8 @@ def frequent_directions(A, d, variant=None):
 
 
 def fd_amm_sketches(A, B, d):
+    print("A shape: ", A.shape)
+    print("B shape: ", B.shape)
     G = np.hstack((A.T, B))   # D x (N + M)
     H = frequent_directions(G, d)
     assert H.shape == (d, A.shape[0] + B.shape[1])
@@ -266,19 +340,6 @@ def test_fd_amm_sketches():
         assert normed_err_sq < prev_normed_err
         prev_normed_err = normed_err_sq
 
-
-class FdAmm(ApproxMatmul):
-    __slots__ = 'd'
-
-    def __init__(self, d):
-        self.d = d
-
-    def get_params(self):
-        return {'d': self.d}
-
-    def __call__(self, A, B):
-        A_hat, B_hat = fd_amm_sketches(A, B, self.d)
-        return A_hat @ B_hat
 
 
 # ================================================================ Co-occurring
@@ -401,18 +462,6 @@ def test_cooccur_sketches():
         # prev_normed_err = normed_err_sq
 
 
-class CooccurSketch(ApproxMatmul):
-    __slots__ = 'd'
-
-    def __init__(self, d):
-        self.d = d
-
-    def get_params(self):
-        return {'d': self.d}
-
-    def __call__(self, A, B):
-        A_hat, B_hat = cooccur_sketches(A, B, self.d)
-        return A_hat @ B_hat
 
 
 # ================================================================ main
