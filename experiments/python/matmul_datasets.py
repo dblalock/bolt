@@ -49,7 +49,15 @@ class MatmulTask(object):
             s = "---- {}\n{}".format(self.name, s)
         return s
 
+    def validate_shapes(self):
+        for (X, Y, W) in [self.train_mats, self.test_mats]:
+            N, D = X.shape
+            D2, M = W.shape
+            assert D == D2
+            assert (N, M) == Y.shape
+
     def validate(self, verbose=1, mse_thresh=1e-7):
+        self.validate_shapes()
         for (X, Y, W) in [self.train_mats, self.test_mats]:
             Y_hat = X @ W
             diffs = Y - Y_hat
@@ -350,6 +358,8 @@ def load_cifar10_tasks():
     SOFTMAX_OUTPUTS_TEST_PATH = 'cifar10_softmax_outputs_test.npy'
     SOFTMAX_W_PATH = 'cifar10_softmax_W.npy'
     SOFTMAX_B_PATH = 'cifar10_softmax_b.npy'
+    LABELS_TRAIN_PATH = 'cifar10_labels_train.npy'
+    LABELS_TEST_PATH = 'cifar10_labels_test.npy'
 
     def load_mat(fname):
         fpath = os.path.join(CIFAR10_DIR, fname)
@@ -361,14 +371,37 @@ def load_cifar10_tasks():
     Y_test = load_mat(SOFTMAX_OUTPUTS_TEST_PATH)
     W = load_mat(SOFTMAX_W_PATH)
     b = load_mat(SOFTMAX_B_PATH)
+    lbls_train = load_mat(LABELS_TRAIN_PATH).ravel()
+    lbls_test = load_mat(LABELS_TEST_PATH).ravel()
 
     # we aren't going to store or approximate the biases, so just subtract
     # off their contributions at the start
     Y_train -= b
     Y_test -= b
 
+    # # TODO rm all this after debug
+    # logits_test = Y_test + b
+    # print("logits_test.shape", logits_test.shape)
+    # print("lbls_test.shape", lbls_test.shape)
+    # lbls_hat_test = np.argmax(Y_test, axis=1)
+    # print("lbls_hat_test.shape", lbls_hat_test.shape)
+    # acc = np.mean(lbls_hat_test.ravel() == lbls_test.ravel())
+    # print("Y_test: ", Y_test[:10])
+    # print("Y_train head: ", Y_train[:10])
+    # print("Y_train tail: ", Y_train[-10:])
+    # print("b:\n", b)
+    # # print("lbls hat test:")
+    # # print(lbls_hat_test[:100])
+    # # print("lbls test:")
+    # # print(lbls_test[:100])
+    # print("lbls train:")
+    # print(lbls_train[:100])
+    # print("acc: ", acc)
+
+    info = {'biases': b, 'lbls_train': lbls_train, 'lbls_test': lbls_test}
+
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
-                       name='CIFAR-10 Softmax')]
+                       name='CIFAR-10 Softmax', info=info)]
 
 
 def load_cifar100_tasks():
@@ -378,6 +411,8 @@ def load_cifar100_tasks():
     SOFTMAX_OUTPUTS_TEST_PATH = 'cifar100_softmax_outputs_test.npy'
     SOFTMAX_W_PATH = 'cifar100_softmax_W.npy'
     SOFTMAX_B_PATH = 'cifar100_softmax_b.npy'
+    LABELS_TRAIN_PATH = 'cifar100_labels_train.npy'
+    LABELS_TEST_PATH = 'cifar100_labels_test.npy'
 
     def load_mat(fname):
         fpath = os.path.join(CIFAR100_DIR, fname)
@@ -389,14 +424,41 @@ def load_cifar100_tasks():
     Y_test = load_mat(SOFTMAX_OUTPUTS_TEST_PATH)
     W = load_mat(SOFTMAX_W_PATH)
     b = load_mat(SOFTMAX_B_PATH)
+    lbls_train = load_mat(LABELS_TRAIN_PATH).ravel()
+    lbls_test = load_mat(LABELS_TEST_PATH).ravel()
 
     # we aren't going to store or approximate the biases, so just subtract
     # off their contributions at the start
     Y_train -= b
     Y_test -= b
 
+    # # TODO rm all this after debug
+    # logits_test = Y_test + b
+    # print("logits_test.shape", logits_test.shape)
+    # print("lbls_test.shape", lbls_test.shape)
+    # lbls_hat_test = np.argmax(Y_test, axis=1)
+    # print("lbls_hat_test.shape", lbls_hat_test.shape)
+    # acc = np.mean(lbls_hat_test.ravel() == lbls_test.ravel())
+    # print("Y_test: ", Y_test[:10])
+    # print("Y_train head: ", Y_train[:10])
+    # print("Y_train tail: ", Y_train[-10:])
+    # print("b:\n", b)
+    # # print("lbls hat test:")
+    # # print(lbls_hat_test[:100])
+    # # print("lbls test:")
+    # # print(lbls_test[:100])
+    # print("lbls train:")
+    # print(lbls_train[:100].ravel())
+    # print("acc: ", acc)
+
+    info = {'biases': b, 'lbls_train': lbls_train, 'lbls_test': lbls_test}
+
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
-                       name='CIFAR-100 Softmax')]
+                       name='CIFAR-100 Softmax', info=info)]
+
+
+def load_cifar_tasks():
+    return load_cifar10_tasks() + load_cifar100_tasks()
 
 
 # ================================================================ main
@@ -422,9 +484,16 @@ def test_cifar_tasks():
 
 
 def main():
+    np.set_printoptions(formatter={'float': lambda f: "{:.3}".format(f)})
+
     # test_caltech_tasks()
     # test_cifar_tasks()
-    test_ecg_tasks()
+    # test_ecg_tasks()
+
+    # load_cifar10_tasks()
+    load_cifar100_tasks()
+
+    # print("number of caltech imgs: ", len(_load_caltech_test_imgs()))
 
 
 if __name__ == '__main__':

@@ -79,7 +79,8 @@ def _compute_compression_metrics(ar, quantize_to_type=np.int16):
             'nbytes_zstd': len(_zstd_compress(ar))}
 
 
-def _compute_metrics(Y, Y_hat, compression_metrics=True, **sink):
+def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
+    Y = task.Y_test
     diffs = Y - Y_hat
     raw_mse = np.mean(diffs * diffs)
     y_var = np.var(Y)
@@ -87,6 +88,18 @@ def _compute_metrics(Y, Y_hat, compression_metrics=True, **sink):
     metrics = {'raw_mse': raw_mse, 'y_var': y_var, 'r_sq': r_sq}
     if compression_metrics:
         metrics.update(_compute_compression_metrics(diffs))
+
+    # eval softmax accuracy TODO better criterion for when to try this
+    if task.info:
+        b = task.info['biases']
+        logits_amm = Y_hat + b
+        logits_orig = Y + b
+        lbls = task.info['lbls_test'].astype(np.int32)
+        lbls_amm = np.argmax(logits_amm, axis=1).astype(np.int32)
+        lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
+        metrics['acc_amm'] = np.mean(lbls_amm == lbls)
+        metrics['acc_orig'] = np.mean(lbls_orig == lbls)
+
     return metrics
 
 
@@ -98,7 +111,7 @@ def _eval_amm(task, est, **metrics_kwargs):
     # print("X_test shape: ", task.X_test.shape)
     # print("W_test shape: ", task.W_test.shape)
     Y_hat = est.predict(task.X_test, task.W_test)
-    return _compute_metrics(task.Y_test, Y_hat, **metrics_kwargs)
+    return _compute_metrics(task, Y_hat, **metrics_kwargs)
 
 
 # SELF: pick up here by writing func to generate params combos based on
@@ -107,16 +120,18 @@ def _eval_amm(task, est, **metrics_kwargs):
 
 def _hparams_for_method(method_id):
     if method_id in SKETCH_METHODS:
-        # dvals = [1, 2, 4, 8, 16, 32, 64, 128]
-        dvals = [4, 8, 16, 32, 64, 128]
-        # dvals = [32, 64, 128] # TODO rm after debug
+        dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        # dvals = [4, 8, 16, 32, 64, 128]
+        # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
     return [{}]
 
 
-def _ntrials_for_method(method_id):
-    return NUM_TRIALS if method_id in NONDETERMINISTIC_METHODS else 1
+def _ntrials_for_method(method_id, ntasks):
     # return 1 # TODO rm
+    if ntasks > 1:  # no need to avg over trials if avging over multiple tasks
+        return 1
+    return NUM_TRIALS if method_id in NONDETERMINISTIC_METHODS else 1
 
 
 def _get_all_independent_vars():
@@ -129,27 +144,35 @@ def _get_all_independent_vars():
     return independent_vars
 
 
-# def main_ecg(methods=['SketchSqSample'], saveas='ecg_results', limit_nhours=.25):
-def main_ecg(methods=None, saveas='ecg_results', limit_nhours=.25):
+# def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
+def _main(tasks, methods=None, saveas=None, ntasks=None,
+          verbose=2, limit_ntasks=2):
     methods = _ALL_METHODS if methods is None else methods
     independent_vars = _get_all_independent_vars()
 
     # for task in load_caltech_tasks():
-    for i, task in enumerate(md.load_ecg_tasks(limit_nhours=limit_nhours)):
-        print("-------- running task: {} ({}/{})".format(
-            task.name, i + 1, 139))
+    for i, task in enumerate(tasks):
+        if verbose > 0:
+            print("-------- running task: {} ({}/{})".format(
+                task.name, i + 1, ntasks))
+        task.validate_shapes()  # fail fast if task is ill-formed
         metrics_for_task = []
         for method_id in methods:
-            ntrials = _ntrials_for_method(method_id)
+            ntrials = _ntrials_for_method(method_id=method_id, ntasks=ntasks)
             # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
             for hparams_dict in _hparams_for_method(method_id):
-                print("running method: ", method_id)
-                print("got hparams: ")
-                pprint.pprint(hparams_dict)
+                if verbose > 1:
+                    print("running method: ", method_id)
+                    if verbose > 2:
+                        print("got hparams: ")
+                        pprint.pprint(hparams_dict)
                 est = _estimator_for_method_id(method_id, **hparams_dict)
                 try:
                     for trial in range(ntrials):
                         metrics = _eval_amm(task, est)
+                        metrics['N'] = task.X_test.shape[0]
+                        metrics['D'] = task.X_test.shape[1]
+                        metrics['M'] = task.W_test.shape[1]
                         metrics['trial'] = trial
                         metrics['method'] = method_id
                         metrics['task_id'] = task.name
@@ -159,25 +182,54 @@ def main_ecg(methods=None, saveas='ecg_results', limit_nhours=.25):
                         metrics_for_task.append(metrics)
                 except amm.InvalidParametersException as e:
                     # hparams don't make sense for this task (eg, D < d)
-                    print("hparams apparently invalid: {}".format(e))
+                    if verbose > 2:
+                        print("hparams apparently invalid: {}".format(e))
 
         if len(metrics_for_task):
             pyn.save_dicts_as_data_frame(
-                metrics_for_task, save_dir='results/amm', name='ecg',
+                metrics_for_task, save_dir='results/amm', name=saveas,
                 dedup_cols=independent_vars)
 
-        if i > 2:
-            return # TODO rm
+        if i + 1 >= limit_ntasks:
+            return
 
-    # return metrics_for_task
 
-    # for each rec_id in recording_ids
-        # for each method_id in method_ids
-            # metrics.append(_train_eval_ecg(rec_id, method_id))
+def main_ecg(methods=None, saveas='ecg', limit_nhours=.25):
+    tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
+    return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
+                 limit_ntasks=2)
+
+
+def main_caltech(methods=None, saveas='caltech'):
+    tasks = md.load_caltech_tasks()
+    return _main(tasks=tasks, methods=methods, saveas=saveas,
+                 ntasks=510, limit_ntasks=2)
+
+
+def main_cifar10(methods=None, saveas='cifar10'):
+    tasks = md.load_cifar10_tasks()
+    return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=1)
+
+
+def main_cifar100(methods=None, saveas='cifar100'):
+    tasks = md.load_cifar100_tasks()
+    return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=1)
+
+
+def main_all(methods=None):
+    main_cifar10(methods=methods)
+    main_cifar100(methods=methods)
+    main_ecg(methods=methods)
+    main_caltech(methods=methods)
 
 
 def main():
-    main_ecg()
+    # main_cifar10(methods=['SVD'])
+    # main_cifar100(methods=['SVD'])
+    # main_cifar10()
+    main_cifar100()
+    # main_ecg()
+    # main_caltech()
 
 
 if __name__ == '__main__':

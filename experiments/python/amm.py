@@ -49,9 +49,15 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
     def get_params(self):
         return {'d': self.d}
 
-    @abc.abstractmethod
-    def call(self, A, B):
+    def sketch(self, A, B):
         pass
+
+    def call(self, A, B):
+        A_hat, B_hat = self.sketch(A, B)
+        assert A_hat.shape[0] == A.shape[0]
+        assert B_hat.shape[1] == B.shape[1]
+        assert A_hat.shape[1] <= self.d  # verify sketch size not cheating
+        return A_hat @ B_hat
 
     def __call__(self, A, B):
         assert A.shape[1] == B.shape[0]  # dims need to match
@@ -59,29 +65,25 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
         if D < self.d:
             raise InvalidParametersException(
                 'D < d: {} < {}'.format(D, self.d))
-        return self.call(A, B)
+        return self.call(np.copy(A), np.copy(B))  # guarantee A, B unchanged
 
 
 class SketchSqSample(SketchedMatmul):
 
-    def call(self, A, B):
-        A_hat, B_hat = sketch_sq_sample(A, B, self.d)
-        # A_hat, B_hat = A, B # TODO rm
-        return A_hat @ B_hat
+    def sketch(self, A, B):
+        return sketch_sq_sample(A, B, self.d)
 
 
 class FdAmm(SketchedMatmul):
 
-    def call(self, A, B):
-        A_hat, B_hat = fd_amm_sketches(A, B, self.d)
-        return A_hat @ B_hat
+    def sketch(self, A, B):
+        return fd_amm_sketches(A, B, self.d)
 
 
 class CooccurSketch(SketchedMatmul):
 
-    def call(self, A, B):
-        A_hat, B_hat = cooccur_sketches(A, B, self.d)
-        return A_hat @ B_hat
+    def sketch(self, A, B):
+        return cooccur_sketches(A, B, self.d)
 
 
 class SvdSketch(SketchedMatmul):
@@ -130,8 +132,21 @@ class SvdSketch(SketchedMatmul):
         if D < self.d:
             raise InvalidParametersException(
                 'D < d: {} < {}'.format(D, self.d))
-        # inner parens important so that matmuls actually use low rank
-        return self.Ua @ (self.SVTa @ self.Ub) @ self.SVTb
+        # verify sketch size isn't cheating
+        # print("A.shape", A.shape)
+        # print("B.shape", B.shape)
+        # print("self.Ua.shape: ", self.Ua.shape)
+        # print("self.SVTa.shape: ", self.SVTa.shape)
+        # print("self.Ub.shape: ", self.Ub.shape)
+        # print("self.SVTb.shape: ", self.SVTb.shape)
+        # print("self.d: ", self.d)
+        assert self.Ua.shape[1] <= self.d
+        assert self.SVTa.shape[0] <= self.d
+        assert self.SVTb.shape[0] <= self.d
+        assert self.Ub.shape[1] <= self.d
+        # innermost parens important so that matmuls actually use low rank
+        # outer parens help if B smaller than A (or something like that)
+        return self.Ua @ ((self.SVTa @ self.Ub) @ self.SVTb)
 
 
 # ================================================================ samplings
@@ -305,8 +320,8 @@ def frequent_directions(A, d, variant=None):
 
 
 def fd_amm_sketches(A, B, d):
-    print("A shape: ", A.shape)
-    print("B shape: ", B.shape)
+    # print("A shape: ", A.shape)
+    # print("B shape: ", B.shape)
     G = np.hstack((A.T, B))   # D x (N + M)
     H = frequent_directions(G, d)
     assert H.shape == (d, A.shape[0] + B.shape[1])
@@ -339,7 +354,6 @@ def test_fd_amm_sketches():
         assert normed_err_sq < 1.05
         assert normed_err_sq < prev_normed_err
         prev_normed_err = normed_err_sq
-
 
 
 # ================================================================ Co-occurring
@@ -392,9 +406,10 @@ def cooccur_sketches(A, B, d):
         # print("orig X.shape", X.shape)
         # print("orig Y.shape", Y.shape)
 
-        X = Qx @ (U @ np.diag(S))
-        # Y = Qy @ (Vt @ np.diag(S))
-        Y = Qy @ (Vt.T @ np.diag(S))
+        # X = Qx @ (U @ np.diag(S))
+        X = Qx @ (U * S)  # equivalent to U @ np.diag(S)
+        # Y = Qy @ (Vt.T @ np.diag(S))
+        Y = Qy @ (Vt.T * S)  # equivalent to Vt.T @ np.diag(S)
 
         # print("X.shape", X.shape)
         # print("Qx.shape", Qx.shape)
@@ -471,7 +486,7 @@ def test_cooccur_sketches():
 
 
 if __name__ == '__main__':
-    test_sketch_sq_sample()
-    test_svd_sketches()
-    test_fd_amm_sketches()
+    # test_sketch_sq_sample()
+    # test_svd_sketches()
+    # test_fd_amm_sketches()
     test_cooccur_sketches()
