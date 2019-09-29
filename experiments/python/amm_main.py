@@ -3,6 +3,7 @@
 import blosc  # pip install blosc
 import numpy as np
 import pprint
+import time
 import zstandard as zstd  # pip install zstandard
 
 from . import amm
@@ -110,17 +111,19 @@ def _eval_amm(task, est, **metrics_kwargs):
     # print("task: ", task.name)
     # print("X_test shape: ", task.X_test.shape)
     # print("W_test shape: ", task.W_test.shape)
+    t = time.perf_counter()
     Y_hat = est.predict(task.X_test, task.W_test)
-    return _compute_metrics(task, Y_hat, **metrics_kwargs)
+    duration_secs = time.perf_counter() - t
 
+    metrics = _compute_metrics(task, Y_hat, **metrics_kwargs)
+    metrics['secs'] = duration_secs
+    metrics['nmultiplies'] = est.get_nmuls(task.X_test, task.W_test)
+    return metrics
 
-# SELF: pick up here by writing func to generate params combos based on
-# method_id, and then using pyience to expand them
-#   -once we have that, can start getting results with other methods
 
 def _hparams_for_method(method_id):
     if method_id in SKETCH_METHODS:
-        dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        dvals = [2, 4, 6, 8, 12, 16, 24, 32, 64]  # d=1 undef for fd methods
         # dvals = [4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
@@ -176,7 +179,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                         metrics['trial'] = trial
                         metrics['method'] = method_id
                         metrics['task_id'] = task.name
-                        metrics.update(hparams_dict)
+                        # metrics.update(hparams_dict)
+                        metrics.update(est.get_params())
                         print("got metrics: ")
                         pprint.pprint(metrics)
                         metrics_for_task.append(metrics)
@@ -197,13 +201,13 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_ecg(methods=None, saveas='ecg', limit_nhours=.25):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 limit_ntasks=2)
+                 limit_ntasks=10)
 
 
 def main_caltech(methods=None, saveas='caltech'):
     tasks = md.load_caltech_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 ntasks=510, limit_ntasks=2)
+                 ntasks=510, limit_ntasks=10)
 
 
 def main_cifar10(methods=None, saveas='cifar10'):
@@ -224,12 +228,15 @@ def main_all(methods=None):
 
 
 def main():
-    # main_cifar10(methods=['SVD'])
+    # main_cifar10(methods=['SVD', 'Exact'])
     # main_cifar100(methods=['SVD'])
-    # main_cifar10()
+    main_cifar10()
     main_cifar100()
     # main_ecg()
     # main_caltech()
+
+    # imgs = md._load_caltech_train_imgs()
+    # imgs = md._load_caltech_test_imgs()
 
 
 if __name__ == '__main__':

@@ -152,7 +152,7 @@ def load_ecg_tasks(window_len=8, validate=False, **kwargs):
 def load_caltech_imgs(ntrain_classes=50, limit_per_class=10):
     # imgs = caltech.load_caltech101(resample=None, crop=None)
     (imgs, y), label2name = caltech.load_caltech101(
-        resample=None, crop=None, limit_per_class=limit_per_class)
+        limit_per_class=limit_per_class)
     # print(len(imgs))
     # print(sum([img.size for img in imgs]))
     # print("class counts: ", np.bincount(y))

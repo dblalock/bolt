@@ -16,7 +16,8 @@ DATADIR_101 = paths.CALTECH_101
 DATADIR_256 = paths.CALTECH_256
 
 
-_DEFAULT_CALTECH_KWARGS = dict(resample=(224, 224), crop='center', verbose=2)
+# _DEFAULT_CALTECH_KWARGS = dict(resample=(224, 224), crop='center', verbose=2)
+_DEFAULT_CALTECH_KWARGS = dict(resample=(224, 224), crop='center')
 _CALTECH_101_KWARGS = dict(
     dirpath=DATADIR_101, remove_classes='BACKGROUND_Google')
 _CALTECH_256_KWARGS = dict(
@@ -49,8 +50,13 @@ def load_caltech256_ids(**kwargs):
 
 # @_memory.cache
 def load_caltech_img(img_id, **kwargs):
+    [kwargs.setdefault(*item) for item in _DEFAULT_CALTECH_KWARGS.items()]
     path = img_id  # load_jpegs_from_dir returns abs path as id
     return imgs.load_jpg(path, **kwargs).astype(np.float32)
+    # img = imgs.load_jpg(path, **kwargs).astype(np.float32)
+    # print("img.shape", img.shape)
+    # assert img.shape[:2] == (224, 224)
+    # return img
 
 
 def main():

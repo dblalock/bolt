@@ -5,6 +5,26 @@ import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
 
+# ================================================================ utils
+
+def _nmultiplies_matmul(A, B):
+    return A.shape[0] * A.shape[1] * B.shape[1]
+
+
+def _nmultiplies_matmul_with_sizes(N, D, M):
+    return N * D * M
+
+
+def _nmultiplies_svd(N, D):
+    return min(N * N * D, N * D * D)
+
+
+def _nmultiplies_qr(N, D):
+    return min(N * N * D, N * D * D)
+
+
+# ================================================================ types
+
 class InvalidParametersException(Exception):
     pass
 
@@ -33,11 +53,18 @@ class ApproxMatmul(abc.ABC):
     def get_params(self):
         return {}
 
+    @abc.abstractmethod
+    def get_nmuls(self, A, B, fixedA=False, fixedB=False):
+        pass
+
 
 class ExactMatMul(ApproxMatmul):
 
     def __call__(self, A, B):
         return A @ B
+
+    def get_nmuls(self, A, B, **sink):
+        return _nmultiplies_matmul(A, B)
 
 
 class SketchedMatmul(ApproxMatmul, abc.ABC):
@@ -67,11 +94,23 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
                 'D < d: {} < {}'.format(D, self.d))
         return self.call(np.copy(A), np.copy(B))  # guarantee A, B unchanged
 
+    def get_nmuls(self, A, B, fixedA=False, fixedB=False):
+        assert not (fixedA and fixedB)  # this would be stupid, so fail fast
+        sketch_nmuls = self._get_nmuls(A.shape[0], A.shape[1], B.shape[1],
+                                       self.d, fixedA=fixedA, fixedB=fixedB)
+        return sketch_nmuls + _nmultiplies_matmul(A, B)
+
+    def _get_nmuls(self, N, D, M, d, fixedA=False, fixedB=False):
+        pass
+
 
 class SketchSqSample(SketchedMatmul):
 
     def sketch(self, A, B):
         return sketch_sq_sample(A, B, self.d)
+
+    def _get_nmuls(self, N, D, M, d, **sink):
+        return _nmultiplies_sketch_sq_sample(N, D, M, d)
 
 
 class FdAmm(SketchedMatmul):
@@ -79,25 +118,32 @@ class FdAmm(SketchedMatmul):
     def sketch(self, A, B):
         return fd_amm_sketches(A, B, self.d)
 
+    def _get_nmuls(self, N, D, M, d, **sink):
+        return _nmultiplies_fd_amm_sketches(N, D, M, d)
+
 
 class CooccurSketch(SketchedMatmul):
 
     def sketch(self, A, B):
         return cooccur_sketches(A, B, self.d)
 
+    def _get_nmuls(self, N, D, M, d, **sink):
+        return _nmultiplies_cooccur_sketches(N, D, M, d)
+
 
 class SvdSketch(SketchedMatmul):
-    __slots__ = 'd Ua SVTa Ub SVTb'.split()
+    __slots__ = 'd niters Ua SVTa Ub SVTb'.split()
 
-    def __init__(self, d):
+    def __init__(self, d, niters=5):
         self.d = d
+        self.niters = niters
         self.Ua = None
         self.SVTa = None
         self.Ub = None
         self.SVTb = None
 
-    # def get_params(self):
-    #     return {'d': self.d}
+    def get_params(self):
+        return {'d': self.d, 'niters': self.niters}
 
     def _check_mat_shape(self, M):
         if M is None:
@@ -145,8 +191,23 @@ class SvdSketch(SketchedMatmul):
         assert self.SVTb.shape[0] <= self.d
         assert self.Ub.shape[1] <= self.d
         # innermost parens important so that matmuls actually use low rank
-        # outer parens help if B smaller than A (or something like that)
+        # outer parens help if B ncols < A nrows (which is true for us)
         return self.Ua @ ((self.SVTa @ self.Ub) @ self.SVTb)
+
+    def get_nmuls(self, A, B, fixedA=False, fixedB=False):
+        # XXX this will break if not called right after self.call()
+        total = 0
+        d = self.d
+        N, D = A.shape
+        _, M = B.shape
+        if not fixedA:
+            total += _nmultiplies_svd_sketch(N, D, d, niters=self.niters)
+        if not fixedB:
+            total += _nmultiplies_svd_sketch(D, M, d, niters=self.niters)
+        total += d * D * d  # SVTa @ UB, d x D @ D x d
+        total += d * d * M  # (above) @ SVTb, d x d @ d x M
+        total += N * d * M  # Ua @ (above), N x d @ d x M
+        return total
 
 
 # ================================================================ samplings
@@ -183,13 +244,11 @@ def sketch_sq_sample(A, B, d):
     return A[:, keep_idxs], B[keep_idxs]
     # return A, B
 
-    # # weights = np.sqrt(d * probs[keep_idxs])
-    # weights = np.sqrt(D * probs[keep_idxs])  # think above is correct, but this actually works
-    # # weights = D * probs[keep_idxs]
-    # # weights = np.ones_like(probs[keep_idxs])
-    # # weights = np.sqrt(d * probs[keep_idxs] / D)
-    # # weights = d * probs[keep_idxs]
-    # return A[:, keep_idxs] / weights, B[keep_idxs] / weights.reshape(-1, 1)
+
+def _nmultiplies_sketch_sq_sample(N, D, M, d):
+    scores_nmuls = N * D + M * D  # sum of sizes of each mat
+    reweight_nmuls = N * d + M * d  # sum of sizes of each sampled mat
+    return scores_nmuls + reweight_nmuls  # neglect normalization of probs, etc
 
 
 def sketch_sq_deterministic(A, B, d):
@@ -234,14 +293,62 @@ def test_sketch_sq_sample():
 
 # ================================================================ Rand SVD
 
-def svd_sketch(A, d, **kwargs):
+def svd_sketch(A, d, niters=5, **kwargs):
     # assert A.shape[0] >= d
     # assert A.shape[1] >= d
     assert np.max(A.shape) >= d  # can't truncate to larger size
-    U, S, Vt = randomized_svd(A, n_components=d, **kwargs)
+    U, S, Vt = randomized_svd(A, n_components=d, n_iter=niters, **kwargs)
     # print("Vt shape: ", Vt.shape)
     # print("S: ", S)
     return (U, np.diag(S) @ Vt)
+
+
+def _nmultiplies_svd_sketch(N, D, d, niters):
+    # # "In contrast, randomized schemes can produce an approximate SVD using
+    # # only O(mn log(k) + (m + n)k2) flops" -Halko et al. 2010
+    # # https://arxiv.org/pdf/0909.4061.pdf
+    # iter_cost = N * D * int(np.ceil(np.log2(d)))
+    # iter_cost += (N + D) * d * d
+    # return iter_cost * niters
+
+    # # assumes algorithm 4.4 in above; sklearn randomized_svd source
+    # # code says it implements algorithm 4.3, but paper says 4.3 should actually
+    # # be implemented as 4.4 in practice. Also 4x4's complexity is much easier
+    # # to understand and counting multiplies is at best a rough estimate
+    # # regardless.
+    # #
+    # # shapes:
+    # #   A:              N x D
+    # #   A*:             D x N
+    # #   Omega:          D x d
+    # #   Y0 = A @ Omega: N x d
+    # #   Q0:             N x d
+    # #   R0:             d x d
+    # #   Y_tilde_j:
+    # # gauss_mat_cost = D * d
+    # # Y0_cost = N * D * d
+    # Y0_cost = N * D * int(np.ceil(np.log2(d)))  # subsampled FFT; see text
+    # Y0_cost += _nmultiplies_qr(N, d)
+    # Yj_tilde_cost = D * N * d + _nmultiplies_qr(N, d)
+    # Yj_cost =
+
+    # okay, sklearn says it uses algorithm 4.3 in Halko et al. 2010 [1],
+    # so we're going to go with that
+    # [1] https://arxiv.org/pdf/0909.4061.pdf
+    # shapes:
+    #   A:              N x D
+    #   A.T:            D x N
+    #   G (Omega):      D x d
+    #   A @ G:          N x d
+    #   A.T @ (AG)      D x d
+    #   A @ (A.T@A@G)   N x d
+    #   Q0:             N x d
+    #   R0:             d x d
+    Omega_cost = D * d
+    A_Omega_cost = N * D * d
+    # each iter: premul by A.T, then A; assumes no LU or QR for stability
+    iter_cost = D * N * d + N * D * d
+    return Omega_cost + A_Omega_cost + iter_cost * niters
 
 
 def svd_sketches(A, B, d, **kwargs):
@@ -300,7 +407,7 @@ def frequent_directions(A, d, variant=None):
     for i in range(d - 1, N):
         H[-1] = A[i]
         try:
-            U, S, Vt = np.linalg.svd(H, full_matrices=False)  # N x d, d, d x D
+            U, S, Vt = np.linalg.svd(H, full_matrices=False)  # d x d, d, d x D
         except np.linalg.LinAlgError as e:
             print("SVD failed at iter ", i - (d - 1))
             print("H shape: ", H.shape)
@@ -314,7 +421,8 @@ def frequent_directions(A, d, variant=None):
         else:
             S = np.sqrt((S - S[-1]) ** 2)  # note that last entry is dth entry
             # print("new S shape: ", S.shape)
-        H = np.diag(S) @ Vt  # d x D
+        # H = np.diag(S) @ Vt  # d x D
+        H = Vt * S.reshape(-1, 1)  # d x D; equivalent to np.diag(S) @ Vt
 
     return H
 
@@ -328,6 +436,19 @@ def fd_amm_sketches(A, B, d):
     C = H[:, :A.shape[0]]  # d x N
     D = H[:, A.shape[0]:]  # d x M
     return C.T, D
+
+
+def _nmultiplies_frequent_directions(N, D, d):
+    niters = int(np.ceil(N / d))
+    iter_svd_cost = _nmultiplies_svd(d, D)
+    iter_reweight_cost = d * D
+    iter_cost = iter_svd_cost + iter_reweight_cost
+    return niters * iter_cost
+
+
+def _nmultiplies_fd_amm_sketches(N, D, M, d):
+    N, D = D, N + M  # matrices get concatenated
+    return _nmultiplies_frequent_directions(N, D, d)
 
 
 def test_fd_amm_sketches():
@@ -377,23 +498,14 @@ def cooccur_sketches(A, B, d):
         B_new[:M] = B
         B = B_new
 
-    # X = np.zeros(max(A.shape[0], ))
     X = np.copy(A[:, :d])   # N x d
-    # Y = np.copy(B[:d].T)    # M x d
     Y = np.copy(B[:, :d])    # M x d
 
     # mid_idx = d - 2  # does this make it work better for large d? EDIT: nope
     mid_idx = d // 2
     ntrailing_zeros = d - mid_idx
-    # print("mid_idx: ", mid_idx)
-    # print("ntrailing_zeros: ", ntrailing_zeros)
-
-    # print("D, d, ntrailing_zeros, mid_idx = ", D, d, ntrailing_zeros, mid_idx)
-    # print("A shape: ", A.shape)
-    # print("B shape: ", B.shape)
 
     i = d
-    # end_dim = d
     while i < D:
         Qx, Rx = np.linalg.qr(X)  # N x d, d x d
         Qy, Ry = np.linalg.qr(Y)  # M x d, d x d
@@ -406,9 +518,7 @@ def cooccur_sketches(A, B, d):
         # print("orig X.shape", X.shape)
         # print("orig Y.shape", Y.shape)
 
-        # X = Qx @ (U @ np.diag(S))
         X = Qx @ (U * S)  # equivalent to U @ np.diag(S)
-        # Y = Qy @ (Vt.T @ np.diag(S))
         Y = Qy @ (Vt.T * S)  # equivalent to Vt.T @ np.diag(S)
 
         # print("X.shape", X.shape)
@@ -421,23 +531,24 @@ def cooccur_sketches(A, B, d):
         end_col = mid_idx + ncols_to_copy
         assert ncols_to_copy <= ntrailing_zeros
         assert end_col <= d
-        # # print("S: ", S)
-        # print("i, end_dim, ncols_to_copy, end_col = ",
-        #       i, end_dim, ncols_to_copy, end_col)
-        # # X[:, mid_idx:end_col] = A[:, i:end_dim]
-        # # Y[:, mid_idx:end_col] = B[i:end_dim].T
-        # print("end_col - mid_idx = ", end_col - mid_idx)
-        # print("end_dim - i = ", end_dim - i)
-        # # X[:, mid_idx:end_col] = np.copy(A[:, i:end_dim])
-        # # Y[:, mid_idx:end_col] = np.copy(B[:, i:end_dim])
-        # print("A[:, i:end_dim].shape: ", A[:, i:end_dim].shape)
-        # print("X[:, mid_idx:end_col].shape: ", X[:, mid_idx:end_col].shape)
 
         X[:, mid_idx:end_col] = A[:, i:end_dim]
         Y[:, mid_idx:end_col] = B[:, i:end_dim]
         i = end_dim
 
-    return X[:N], Y[:M].T
+    return X[:N], Y[:M].T  # slicing is because we may have zero-padded
+
+
+def _nmultiplies_cooccur_sketches(N, D, M, d):
+    niters = int(np.ceil(D / d))
+    iter_qr_cost = _nmultiplies_qr(N, d) + _nmultiplies_qr(M, d)
+    iter_RRt_cost = d * d * d
+    iter_svd_cost = _nmultiplies_svd(d, d)
+    iter_reweight_cost = N * d + M * d
+    iter_update_x_y_cost = (N * d * d) + (M * d * d)
+    iter_cost = (iter_qr_cost + iter_RRt_cost + iter_svd_cost +
+                 iter_reweight_cost + iter_update_x_y_cost)
+    return niters * iter_cost
 
 
 def test_cooccur_sketches():
@@ -475,8 +586,6 @@ def test_cooccur_sketches():
         assert normed_err_sq < 1.
         # assert normed_err_sq < prev_normed_err
         # prev_normed_err = normed_err_sq
-
-
 
 
 # ================================================================ main

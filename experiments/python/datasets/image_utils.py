@@ -54,7 +54,7 @@ def img_to_array(img, layout='nhwc', dtype='float32', mode='RGB'):
     return x
 
 
-def resize(img, ratio_or_size):
+def resize_img(img, ratio_or_size):
     if ratio_or_size is None or np.max(ratio_or_size) < 0:
         return img
     try:
@@ -72,7 +72,7 @@ def resize(img, ratio_or_size):
     return img.resize(new_size, resample=interp)
 
 
-def crop(img, crop_how=None, new_size=(224, 224), resize_shorter_to=256):
+def crop_img(img, crop_how=None, new_size=(224, 224), resize_shorter_to=256):
     if crop_how is None:
         return img
     assert crop_how in ('center', 'square')
@@ -114,10 +114,10 @@ def center_crop(img, new_size=(224, 224), resize_shorter_to=256):
 
     assert min(new_width, new_height) == resize_shorter_to
 
-    return crop(img, crop_how='square', new_size=new_size)
+    return crop_img(img, crop_how='square', new_size=new_size)
 
 
-def pad(img, pad_how='square', fill_value=0):
+def pad_img(img, pad_how='square', fill_value=0):
     if pad_how is None:
         return img
     assert pad_how == 'square'  # no other kinds of cropping supported
@@ -139,11 +139,11 @@ def pad(img, pad_how='square', fill_value=0):
 
 
 def load_jpg(path, layout='nhwc', dtype=None, resample=None,
-             crop_how=None, pad_how=None):
+             crop=None, pad=None):
     img = PIL.Image.open(path)
-    img = pad(img, pad_how)
-    img = crop(img, crop_how)
-    img = resize(img, ratio_or_size=resample)
+    img = pad_img(img, pad)
+    img = crop_img(img, crop)
+    img = resize_img(img, ratio_or_size=resample)
     return img_to_array(img, layout=layout, dtype=dtype)
 
 
@@ -190,7 +190,7 @@ def load_jpegs_from_dir(dirpath, remove_classes=None, require_suffix=None,
             imgs = img_paths
         else:
             imgs = [load_jpg(f, layout=layout, dtype=dtype, resample=resample,
-                             crop_how=crop, pad_how=pad)[np.newaxis, :, :, :]
+                             crop=crop, pad=pad)[np.newaxis, :, :, :]
                     for f in img_paths]
         all_imgs += imgs
 

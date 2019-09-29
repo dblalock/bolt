@@ -168,7 +168,13 @@ def save_data_frame(df, save_dir='results', name="", timestamp='copy',
 
     if append and os.path.exists(save_path):
         existing_df = pd.read_csv(save_path)
+        # print("existing_df_cols", existing_df.columns)
+        # print("existing_df_cols", df.columns)
+        # print("dedup_cols", dedup_cols)
         df = pd.concat([existing_df, df], axis=0, sort=False, ignore_index=True)
+        # print("df secs: ")
+        # print(df['secs'])
+        dedup_cols = set(dedup_cols) & set(list(df.columns))
         df.drop_duplicates(subset=dedup_cols, keep='last', inplace=True)
 
     df = df.sort_index(axis=1)
