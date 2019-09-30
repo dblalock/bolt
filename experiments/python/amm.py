@@ -4,7 +4,7 @@ import abc
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
-KEY_NMULTIPLIES = 'nmuls'
+KEY_NMULTIPLIES = 'muls'
 
 
 # ================================================================ utils
@@ -197,7 +197,7 @@ class SvdSketch(SketchedMatmul):
         # outer parens help if B ncols < A nrows (which is true for us)
         return self.Ua @ ((self.SVTa @ self.Ub) @ self.SVTb)
 
-    def _get_nmuls(self, A, B, fixedA=False, fixedB=False):
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         # XXX this will break if not called right after self.call()
         total = 0
         d = self.d
@@ -210,7 +210,7 @@ class SvdSketch(SketchedMatmul):
         total += d * D * d  # SVTa @ UB, d x D @ D x d
         total += d * d * M  # (above) @ SVTb, d x d @ d x M
         total += N * d * M  # Ua @ (above), N x d @ d x M
-        return total
+        return {KEY_NMULTIPLIES: total}
 
 
 # ================================================================ samplings

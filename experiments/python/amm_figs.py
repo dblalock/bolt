@@ -63,6 +63,12 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
         # print(df[['muls', 'nlookups']])
         df['muls'] = np.log10(df['muls'])
 
+    # print('opq results:')
+    # df = dfs[0]
+    # print(df.loc[df['Method'].isin(['OPQ', 'Exact']), ['Method', 'nmuls', 'muls', 'R-Squared']])
+
+    # import sys; sys.exit()
+
     def lineplot(data, ax):
         sb.lineplot(data=data, hue='Method', x=x_metric, y=y_metric,
                     style='Method', markers=True, dashes=False, ax=ax)

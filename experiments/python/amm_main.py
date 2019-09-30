@@ -35,7 +35,8 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_OPQ: vq_amm.OPQMatmul
 }
 _ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
-_ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE)  # always terrible results
+_ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE),  # always terrible results
+_ALL_METHODS.remove(METHOD_OPQ)  # takes forever to train, more muls than exact
 SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
                   METHOD_FD_AMM, METHOD_COOCCUR)
 VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
@@ -257,11 +258,12 @@ def main_all(methods=None):
 
 def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
-    main_cifar100(methods=['Bolt', 'Exact'])
+    # main_cifar100(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['OPQ', 'Exact'])
     # main_cifar100(methods=['PQ', 'Exact'])
+    # main_cifar10(methods=['SVD'])
     # main_cifar10()
-    # main_cifar100()
+    main_cifar100()
     # main_ecg()
     # main_caltech()
 
