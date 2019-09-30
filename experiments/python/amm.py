@@ -4,6 +4,8 @@ import abc
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
 
+KEY_NMULTIPLIES = 'nmuls'
+
 
 # ================================================================ utils
 
@@ -53,8 +55,9 @@ class ApproxMatmul(abc.ABC):
     def get_params(self):
         return {}
 
+    # def get_nmuls(self, A, B, fixedA=False, fixedB=False):
     @abc.abstractmethod
-    def get_nmuls(self, A, B, fixedA=False, fixedB=False):
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         pass
 
 
@@ -63,8 +66,8 @@ class ExactMatMul(ApproxMatmul):
     def __call__(self, A, B):
         return A @ B
 
-    def get_nmuls(self, A, B, **sink):
-        return _nmultiplies_matmul(A, B)
+    def get_speed_metrics(self, A, B, **sink):
+        return {KEY_NMULTIPLIES: _nmultiplies_matmul(A, B)}
 
 
 class SketchedMatmul(ApproxMatmul, abc.ABC):
@@ -94,11 +97,11 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
                 'D < d: {} < {}'.format(D, self.d))
         return self.call(np.copy(A), np.copy(B))  # guarantee A, B unchanged
 
-    def get_nmuls(self, A, B, fixedA=False, fixedB=False):
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         assert not (fixedA and fixedB)  # this would be stupid, so fail fast
         sketch_nmuls = self._get_nmuls(A.shape[0], A.shape[1], B.shape[1],
                                        self.d, fixedA=fixedA, fixedB=fixedB)
-        return sketch_nmuls + _nmultiplies_matmul(A, B)
+        return {KEY_NMULTIPLIES: sketch_nmuls + _nmultiplies_matmul(A, B)}
 
     def _get_nmuls(self, N, D, M, d, fixedA=False, fixedB=False):
         pass
@@ -194,7 +197,7 @@ class SvdSketch(SketchedMatmul):
         # outer parens help if B ncols < A nrows (which is true for us)
         return self.Ua @ ((self.SVTa @ self.Ub) @ self.SVTb)
 
-    def get_nmuls(self, A, B, fixedA=False, fixedB=False):
+    def _get_nmuls(self, A, B, fixedA=False, fixedB=False):
         # XXX this will break if not called right after self.call()
         total = 0
         d = self.d

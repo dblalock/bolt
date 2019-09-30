@@ -3,7 +3,7 @@
 import time
 import numpy as np
 
-from utils import kmeans, orthonormalize_rows, random_rotation
+from .utils import kmeans, orthonormalize_rows, random_rotation
 
 from joblib import Memory
 _memory = Memory('.', verbose=0)

@@ -33,7 +33,7 @@ def _xlabel_for_xmetric(x_metric):
 
 
 def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
-    fig, axes = plt.subplots(2, 1, figsize=(6, 9))
+    fig, axes = plt.subplots(2, 1, figsize=(6, 9), sharex=True)
 
     df10 = pd.read_csv(RESULTS_DIR / 'cifar10.csv')
     df100 = pd.read_csv(RESULTS_DIR / 'cifar100.csv')
@@ -53,6 +53,14 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
                   axis=1, inplace=True)
         df['d'] = np.log2(df['d']).astype(np.int32)
         df['Log10(MSE)'] = np.log10(1. - df['R-Squared'] + 1e-10)
+        # if 'nlookups' in df:
+        df['muls'] = df['muls'].fillna(0)
+        mask = ~df['nlookups'].isna()
+        df['muls'].loc[mask] += df['nlookups'].loc[mask]
+        # df['muls'].loc[mask].add(df['nlookups'].loc[mask], fill_value=0)
+        # df['muls'].add(df['nlookups'], fill_value=0)
+        # print("df muls, nlookups")
+        # print(df[['muls', 'nlookups']])
         df['muls'] = np.log10(df['muls'])
 
     def lineplot(data, ax):
@@ -68,6 +76,7 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
     axes[0].set_title('CIFAR-10')
     for ax in axes:
         ax.set_ylabel(y_metric)
+    axes[0].set_xlabel(None)
     axes[1].set_xlabel(xlbl)
     axes[1].set_title('CIFAR-100')
     plt.tight_layout()
@@ -88,6 +97,9 @@ def make_ecg_fig(x_metric='d'):
               axis=1, inplace=True)
     df['d'] = np.log2(df['d'])
     df['Log10(MSE)'] = np.log10(1. - df['R-Squared'] + 1e-10)  # avoid log10(0)
+    df['muls'] = df['muls'].fillna(0)
+    mask = ~df['nlookups'].isna()
+    df['muls'].loc[mask] += df['nlookups'].loc[mask]
     df['muls'] = np.log10(df['muls'])
 
     df['Compression Ratio'] = df['nbytes_orig'] / df['nbytes_blosc_byteshuf']
@@ -125,6 +137,9 @@ def make_caltech_fig(x_metric='d'):
               axis=1, inplace=True)
     df['d'] = np.log2(df['d'])
     df['Log10(MSE)'] = np.log10(1. - df['R-Squared'] + 1e-10)  # avoid log10(0)
+    df['muls'] = df['muls'].fillna(0)
+    mask = ~df['nlookups'].isna()
+    df['muls'].loc[mask] += df['nlookups'].loc[mask]
     df['muls'] = np.log10(df['muls'])
 
     # print("caltech df")
@@ -159,7 +174,8 @@ def make_caltech_fig(x_metric='d'):
 
 
 def main():
-    for x_metric in 'd secs muls'.split():
+    # for x_metric in 'd secs muls'.split():
+    for x_metric in ['muls']:
         for y_metric in ('Accuracy', 'R-Squared'):
             make_cifar_fig(x_metric, y_metric)
     # make_cifar_fig('d', 'Accuracy')
