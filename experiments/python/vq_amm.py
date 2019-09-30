@@ -43,7 +43,9 @@ class PQMatmul(amm.ApproxMatmul):
         return self.enc.dists_enc(self.A_enc, self.luts)
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        nmuls = 0 if fixedB else B.shape[0] * B.shape[1] * 256
+        nmuls = 0
+        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * 256   # enc cost
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * 256   # lut cost
         nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
@@ -59,7 +61,9 @@ class BoltMatmul(PQMatmul):
         self._reset()
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        nmuls = 0 if fixedB else B.shape[0] * B.shape[1] * 16
+        nmuls = 0
+        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * 16   # enc cost
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * 16   # lut cost
         nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
@@ -70,7 +74,9 @@ class OPQMatmul(PQMatmul):
         return dict(algo='OPQ')
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        nmuls = 0 if fixedB else B.shape[0] * B.shape[1] * 256   # lut cost
+        nmuls = 0
+        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * 256   # enc cost
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * 256   # lut cost
         nmuls += A.shape[0] * A.shape[1] * A.shape[1]  # OPQ rotation cost
         nlookups = A.shape[0] * B.shape[1] * 2 * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}

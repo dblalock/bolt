@@ -39,7 +39,8 @@ _ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE),  # always terrible results
 _ALL_METHODS.remove(METHOD_OPQ)  # takes forever to train, more muls than exact
 SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
                   METHOD_FD_AMM, METHOD_COOCCUR)
-VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
+# VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
+VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
 NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
@@ -261,9 +262,10 @@ def main():
     # main_cifar100(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['OPQ', 'Exact'])
     # main_cifar100(methods=['PQ', 'Exact'])
-    # main_cifar10(methods=['SVD'])
+    main_cifar10(methods=VQ_METHODS)
+    main_cifar100(methods=VQ_METHODS)
     # main_cifar10()
-    main_cifar100()
+    # main_cifar100()
     # main_ecg()
     # main_caltech()
 
