@@ -34,8 +34,10 @@ class PQMatmul(amm.ApproxMatmul):
 
     def set_B(self, B):
         self.luts = self.enc.encode_Q(B.T)
+        print("self.luts.shape: ", self.luts.shape)
 
     def __call__(self, A, B):
+        print("PQ amm got A shape, B shape", A.shape, B.shape)
         if self.A_enc is None:
             self.set_A(A)
         if self.luts is None:
@@ -57,8 +59,13 @@ class BoltMatmul(PQMatmul):
 
     def __init__(self, ncodebooks):
         self.ncodebooks = 2 * ncodebooks
-        self.enc = vq.PQEncoder(nsubvects=self.ncodebooks, ncentroids=16)
+        self.enc = self._create_encoder(self.ncodebooks)
         self._reset()
+
+    def _create_encoder(self, ncodebooks):
+        return vq.PQEncoder(nsubvects=ncodebooks, ncentroids=16,
+                            # TODO set quantize_lut=True after debug
+                            **self._get_encoder_kwargs())
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         nmuls = 0
@@ -71,7 +78,7 @@ class BoltMatmul(PQMatmul):
 class OPQMatmul(PQMatmul):
 
     def _get_encoder_kwargs(self):
-        return dict(algo='OPQ')
+        return dict(preproc='OPQ')
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         nmuls = 0
@@ -80,3 +87,31 @@ class OPQMatmul(PQMatmul):
         nmuls += A.shape[0] * A.shape[1] * A.shape[1]  # OPQ rotation cost
         nlookups = A.shape[0] * B.shape[1] * 2 * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
+
+
+class GEHTBoltMatmul_CovTopk(BoltMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(
+            preproc='GEHT', sample_how='deterministic', stats_mat='cov')
+
+
+class GEHTBoltMatmul_CovSamp(BoltMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(
+            preproc='GEHT', sample_how='importance', stats_mat='cov')
+
+
+class GEHTBoltMatmul_CorrTopk(BoltMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(
+            preproc='GEHT', sample_how='deterministic', stats_mat='corr')
+
+
+class GEHTBoltMatmul_CorrSamp(BoltMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(
+            preproc='GEHT', sample_how='importance', stats_mat='corr')

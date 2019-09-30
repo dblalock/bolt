@@ -30,6 +30,8 @@ def _xlabel_for_xmetric(x_metric):
         return 'Time (s)'
     elif x_metric == 'muls':
         return 'Log10(# of Multiplies)'
+    elif x_metric == 'nlookups':
+        return 'Log10(# of Table Lookups)'
 
 
 def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
@@ -96,16 +98,30 @@ def make_ecg_fig(x_metric='d'):
     df = pd.read_csv(RESULTS_DIR / 'ecg.csv')
 
     D = 24
-    mask = df['d'].isna()
-    df.loc[mask, 'd'] = D
+
+    if 'd' in df:
+        mask = df['d'].isna()
+        df.loc[mask, 'd'] = D
+        df['d'] = np.log2(df['d'])
     df.rename({'method': 'Method', 'acc_amm': 'Accuracy',
                'r_sq': 'R-Squared', 'nmultiplies': 'muls'},
               axis=1, inplace=True)
-    df['d'] = np.log2(df['d'])
     df['Log10(MSE)'] = np.log10(1. - df['R-Squared'] + 1e-10)  # avoid log10(0)
     df['muls'] = df['muls'].fillna(0)
-    mask = ~df['nlookups'].isna()
-    df['muls'].loc[mask] += df['nlookups'].loc[mask]
+    df['nlookups'] = df['nlookups'].fillna(0)
+    # mask = ~df['nlookups'].isna()
+    # print("mask: ", mask)
+
+    # print('muls, nlookups')
+    # print(df[['muls', 'nlookups']])
+
+    # add_to_muls = df['nlookups'].loc[mask]
+
+    equivalent_muls = df['muls'].add(df['nlookups'])
+    # df['muls'] = equivalent_muls
+    df['muls'] = equivalent_muls
+
+    # import sys; sys.exit()
     df['muls'] = np.log10(df['muls'])
 
     df['Compression Ratio'] = df['nbytes_orig'] / df['nbytes_blosc_byteshuf']
@@ -181,16 +197,16 @@ def make_caltech_fig(x_metric='d'):
 
 def main():
     # for x_metric in 'd secs muls'.split():
-    for x_metric in ['muls']:
-        for y_metric in ('Accuracy', 'R-Squared'):
-            make_cifar_fig(x_metric, y_metric)
+    # for x_metric in ['muls']:
+    #     for y_metric in ('Accuracy', 'R-Squared'):
+    #         make_cifar_fig(x_metric, y_metric)
     # make_cifar_fig('d', 'Accuracy')
     # make_cifar_fig('Accuracy')
     # make_cifar_fig('Accuracy')
     # make_cifar_fig('R-Squared')
     # make_ecg_fig(x_metric='d')
     # make_ecg_fig(x_metric='secs')
-    # make_ecg_fig(x_metric='muls')
+    make_ecg_fig(x_metric='muls')
     # make_caltech_fig(x_metric='d')
     # make_caltech_fig(x_metric='secs')
     # make_caltech_fig(x_metric='muls')

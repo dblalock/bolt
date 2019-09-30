@@ -125,7 +125,7 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=0, N_train=-1):
 
 
 # @_memory.cache()  # caching is no faster than just recomputing
-def load_ecg_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=.25):
+def load_ecg_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=.5):
     rec = sharee.load_recording(rec_id, limit_nhours=limit_nhours)
     return _load_x_y_w_for_ar_model(rec, window_len=window_len)
 

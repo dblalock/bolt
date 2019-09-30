@@ -7,6 +7,7 @@ import numpy as np
 import seaborn as sb
 
 from . import product_quantize as pq
+from . import subspaces as subs
 from .utils import kmeans
 
 
@@ -76,10 +77,14 @@ def _insert_zeros(X, nzeros):
     return X_new
 
 
+# def ensure_num_cols_multiple_of(X, multiple_of, min_ncols=-1):
 def ensure_num_cols_multiple_of(X, multiple_of):
     remainder = X.shape[1] % multiple_of
     if remainder > 0:
         return _insert_zeros(X, multiple_of - remainder)
+    # elif X.shape[1] < min_ncols:
+    #     remainder = min_ncols
+    #     min_ncols =
     return X
 
 
@@ -89,13 +94,33 @@ def ensure_num_cols_multiple_of(X, multiple_of):
 
 def _learn_centroids(X, ncentroids, nsubvects, subvect_len):
     ret = np.empty((ncentroids, nsubvects, subvect_len))
+    # print("_learn_centroids(): running kmeans...")
+    tot_sse = 0
+    X_bar = X - np.mean(X, axis=0)
+    col_sses = np.sum(X_bar * X_bar, axis=0) + 1e-14
+    tot_sse_using_mean = np.sum(col_sses)
+
     for i in range(nsubvects):
-        print("running kmeans in subspace {}/{}...".format(i + 1, nsubvects))
+        print("running kmeans in subspace {}/{}...".format(
+            i + 1, nsubvects), end=" ")
         start_col = i * subvect_len
         end_col = start_col + subvect_len
         X_in = X[:, start_col:end_col]
-        centroids, labels = kmeans(X_in, ncentroids)
+        # centroids, labels = kmeans(X_in, ncentroids)
+        centroids, labels, sse = kmeans(X_in, ncentroids, return_sse=True)
+
+        # X_bar = X_in - np.mean(X_in, axis=0)
+        # sse_using_mean = np.sum(X_bar * X_bar) + 1e-14
+        subspace_sse = np.sum(col_sses[start_col:end_col])
+        print("mse / {{var(X_subs), var(X)}}: {:.3g}, {:.3g}".format(
+            sse / subspace_sse, sse * nsubvects / tot_sse_using_mean))
+        tot_sse += sse
+        # print("centroids shape: ", centroids.shape)
+        # print("ret shape: ", ret.shape)
         ret[:, i, :] = centroids
+
+    print("--- total mse / var(X): {:.3g}".format(tot_sse / tot_sse_using_mean))
+
     return ret
 
 
@@ -156,7 +181,7 @@ def _fit_pq_lut(q, centroids, elemwise_dist_func):
 #         return "PQ_{}x{}b".format(self.nsubvects, self.code_bits)
 
 #     def params(self):
-#         return {'_algo': 'PQ', '_ncodebooks': self.nsubvects,
+#         return {'_preproc': 'PQ', '_ncodebooks': self.nsubvects,
 #                 '_code_bits': self.code_bits}
 
 #     def encode_X(self, X, **sink):
@@ -216,13 +241,14 @@ class PQEncoder(object):
 
     def __init__(self, nsubvects, ncentroids=256,
                  elemwise_dist_func=dists_elemwise_dot,
-                 algo='PQ', quantize_lut=False, opq_iters=5):
+                 preproc='PQ', quantize_lut=False,
+                 **preproc_kwargs):
         self.nsubvects = nsubvects
         self.ncentroids = ncentroids
         self.elemwise_dist_func = elemwise_dist_func
-        self.algo = algo
+        self.preproc = preproc
         self.quantize_lut = quantize_lut
-        self.opq_iters = opq_iters
+        self.preproc_kwargs = preproc_kwargs
 
         self.code_bits = int(np.log2(self.ncentroids))
 
@@ -230,24 +256,46 @@ class PQEncoder(object):
         self.offsets = (np.arange(self.nsubvects, dtype=np.int) *
                         self.ncentroids)
 
-    def fit(self, X, Q=None, **opq_kwargs):
-        self.subvect_len = int(np.ceil(X.shape[1] / self.nsubvects))
-        X = ensure_num_cols_multiple_of(X, self.subvect_len)
+    def _pad_ncols(self, X):
+        return ensure_num_cols_multiple_of(X, self.nsubvects)
 
+    def fit(self, X, Q=None, **preproc_kwargs):
         self.subvect_len = int(np.ceil(X.shape[1] / self.nsubvects))
-        if self.algo == 'PQ':
+        # print("orig X shape: ", X.shape)
+        print("initial X_train shape: ", X.shape)
+        print("ncodebooks:", self.nsubvects)
+        X = self._pad_ncols(X)
+        print("X_train shape after padding: ", X.shape)
+        print("nsubvects: ", self.nsubvects)
+        print("subvect_len: ", self.subvect_len)
+        print("------------------------")
+
+        if self.preproc == 'PQ':
             self.centroids = _learn_centroids(
                 X, self.ncentroids, self.nsubvects, self.subvect_len)
-        elif self.algo == 'BOPQ':
+        elif self.preproc == 'BOPQ':
             self.centroids, _, self.rotations = pq.learn_bopq(
                 X, ncodebooks=self.nsubvects, codebook_bits=self.code_bits,
-                niters=self.opq_iters, **opq_kwargs)
-        elif self.algo == 'OPQ':
+                **self.preproc_kwargs)
+        elif self.preproc == 'OPQ':
             self.centroids, _, self.R = pq.learn_opq(
                 X, ncodebooks=self.nsubvects, codebook_bits=self.code_bits,
-                niters=self.opq_iters, **opq_kwargs)
+                **self.preproc_kwargs)
+        elif self.preproc == 'GEHT':
+            self.perm = subs.greedy_eigenvector_threshold(
+                X, subspace_len=self.subvect_len, **self.preproc_kwargs)
+            assert X.shape[1] == len(set(self.perm))
+
+            # print("len(self.perm):", len(self.perm))
+            # print("len(set(self.perm)):", len(set(self.perm)))
+            # import sys; sys.exit()
+
+            X = X[:, self.perm]
+            # just normal PQ after permuting
+            self.centroids = _learn_centroids(
+                X, self.ncentroids, self.nsubvects, self.subvect_len)
         else:
-            raise ValueError("argument algo must be one of {PQ, OPQ, BOPQ}")
+            raise ValueError("unrecognized preproc: '{}'".format(self.preproc))
 
         if self.quantize_lut:  # TODO put this logic in separate function
             print("learning quantization...")
@@ -272,30 +320,39 @@ class PQEncoder(object):
 
     def name(self):
         return "{}_{}x{}b_iters={}_quantize={}".format(
-            self.algo, self.nsubvects, self.code_bits, self.opq_iters,
+            self.preproc, self.nsubvects, self.code_bits, self.opt_iters,
             int(self.quantize_lut))
 
     def params(self):
-        return {'_algo': self.algo, '_ncodebooks': self.nsubvects,
-                '_code_bits': self.code_bits, 'opq_iters': self.opq_iters,
+        return {'_preproc': self.preproc, '_ncodebooks': self.nsubvects,
+                '_code_bits': self.code_bits, 'opt_iters': self.opt_iters,
                 '_quantize': self.quantize_lut}
 
     def encode_Q(self, Q):
-        if self.algo == 'OPQ':
-            Q = pq.opq_rotate(Q, self.R)
-        elif self.algo == 'BOPQ':
-            Q = pq.bopq_rotate(Q, self.rotations)
-
         was_1d = Q.ndim == 1
         if was_1d:
             Q = Q.reshape(1, -1)
 
-        # just simplifies impl of _fit_pq_lut
-        Q = ensure_num_cols_multiple_of(Q, self.subvect_len)
+        # print("Q shape after made 2d: ", Q.shape)
 
+        # just simplifies impl of _fit_pq_lut
+        # Q = ensure_num_cols_multiple_of(Q, self.subvect_len)
+        Q = self._pad_ncols(Q)
+
+        # print("Q shape after ensure_num_cols_multiple_of: ", Q.shape)
+
+        if self.preproc == 'OPQ':
+            Q = pq.opq_rotate(Q, self.R)
+        elif self.preproc == 'BOPQ':
+            Q = pq.bopq_rotate(Q, self.rotations)
+        elif self.preproc == 'GEHT':
+            Q = Q[:, self.perm]
+
+        # print("len(self.perm):", len(self.perm))
+        # print("len(set(self.perm)):", len(set(self.perm)))
+        print("Q shape: ", Q.shape)
         luts = []
         for q in Q:
-            # print("Q shape: ", Q.shape)
             # print("q shape: ", q.shape)
             lut = _fit_pq_lut(q, centroids=self.centroids,
                               elemwise_dist_func=self.elemwise_dist_func)
@@ -311,13 +368,24 @@ class PQEncoder(object):
         return np.vstack(luts)
 
     def encode_X(self, X, **sink):
-        X = ensure_num_cols_multiple_of(X, self.subvect_len)
-        if self.algo == 'OPQ':
+        # X = ensure_num_cols_multiple_of(X, self.subvect_len)
+        X = self._pad_ncols(X)
+        if self.preproc == 'OPQ':
             X = pq.opq_rotate(X, self.R)
-        elif self.algo == 'BOPQ':
+        elif self.preproc == 'BOPQ':
             X = pq.bopq_rotate(X, self.rotations)
+        elif self.preproc == 'GEHT':
+            X = X[:, self.perm]
 
         idxs = pq._encode_X_pq(X, codebooks=self.centroids)
+
+        # TODO rm
+        X_hat = pq.reconstruct_X_pq(idxs, self.centroids)
+        # err = compute_reconstruction_error(X_rotated, X_hat, subvect_len=subvect_len)
+        err = pq.compute_reconstruction_error(X, X_hat)
+        print("X reconstruction err: ", err)
+
+        # import sys; sys.exit()
 
         return idxs + self.offsets  # offsets let us index into raveled dists
 

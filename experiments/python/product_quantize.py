@@ -83,9 +83,14 @@ def compute_reconstruction_error(X, X_hat, subvect_len=-1):
         print("   errors in each block: {} ({})".format(
             np.array(errs), np.sum(errs)))
 
+    X_bar = X - np.mean(X, axis=0)
+    col_sses = np.sum(X_bar * X_bar, axis=0) + 1e-14
+    tot_sse_using_mean = np.sum(col_sses)
+
     errors = np.mean(diffs_sq, axis=1)
-    variances = np.var(X, axis=1)
-    return np.mean(errors) / np.mean(variances)
+    # variances = np.var(X, axis=1)
+    # return np.mean(errors) / np.mean(variances)
+    return np.mean(errors) / (tot_sse_using_mean / X_bar.size)
 
 
 # ================================================================ Gaussian OPQ
@@ -268,7 +273,7 @@ def opq_initialize(X_train, ncodebooks, init='gauss'):
 # loosely based on:
 # https://github.com/arbabenko/Quantizations/blob/master/opqCoding.py
 @_memory.cache
-def learn_opq(X_train, ncodebooks, codebook_bits=8, niters=20,
+def learn_opq(X_train, ncodebooks, codebook_bits=8, niters=10,
               initial_kmeans_iters=1, init='gauss', debug=False):
     """init in {'gauss', 'identity', 'random'}"""
 

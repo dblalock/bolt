@@ -23,6 +23,14 @@ METHOD_COOCCUR = 'CooccurSketch'
 METHOD_PQ = 'PQ'
 METHOD_BOLT = 'Bolt'
 METHOD_OPQ = 'OPQ'
+METHOD_BOLT_PERM = 'Bolt+Perm'
+METHOD_BOLT_CORRPERM = 'Bolt+CorrPerm'
+
+# these are for trying out different perm options
+METHOD_BOLT_GEHT_COV_TOPK = 'Bolt_CovTopk'
+METHOD_BOLT_GEHT_COV_SAMP = 'Bolt_CovSamp'
+METHOD_BOLT_GEHT_COR_TOPK = 'Bolt_CorTopk'
+METHOD_BOLT_GEHT_COR_SAMP = 'Bolt_CorSamp'
 
 _METHOD_TO_ESTIMATOR = {
     METHOD_EXACT: amm.ExactMatMul,
@@ -32,15 +40,29 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_COOCCUR: amm.CooccurSketch,
     METHOD_PQ: vq_amm.PQMatmul,
     METHOD_BOLT: vq_amm.BoltMatmul,
-    METHOD_OPQ: vq_amm.OPQMatmul
+    METHOD_OPQ: vq_amm.OPQMatmul,
+    METHOD_BOLT_PERM: vq_amm.GEHTBoltMatmul_CovTopk,
+    METHOD_BOLT_CORRPERM: vq_amm.GEHTBoltMatmul_CorrTopk,
+    METHOD_BOLT_GEHT_COV_TOPK: vq_amm.GEHTBoltMatmul_CovTopk,
+    METHOD_BOLT_GEHT_COV_SAMP: vq_amm.GEHTBoltMatmul_CovSamp,
+    METHOD_BOLT_GEHT_COR_TOPK: vq_amm.GEHTBoltMatmul_CorrTopk,
+    METHOD_BOLT_GEHT_COR_SAMP: vq_amm.GEHTBoltMatmul_CorrSamp,
 }
 _ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
 _ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE),  # always terrible results
 _ALL_METHODS.remove(METHOD_OPQ)  # takes forever to train, more muls than exact
+# these were just for playing with different permuation options
+_ALL_METHODS.remove(METHOD_BOLT_GEHT_COV_TOPK)
+_ALL_METHODS.remove(METHOD_BOLT_GEHT_COV_SAMP)
+_ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_TOPK)
+_ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_SAMP)
+
 SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
                   METHOD_FD_AMM, METHOD_COOCCUR)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
-VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
+# VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
+BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM, METHOD_BOLT_CORRPERM)
+VQ_METHODS = (METHOD_PQ,) + BOLT_METHODS
 NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
@@ -144,7 +166,8 @@ def _hparams_for_method(method_id):
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
     if method_id in VQ_METHODS:
-        mvals = [1, 2, 4, 8, 16, 32]
+        # mvals = [1, 2, 4, 8, 16, 32]
+        mvals = [8] # TODO rm after debug
         return [{'ncodebooks': m} for m in mvals]
     return [{}]
 
@@ -167,7 +190,7 @@ def _get_all_independent_vars():
 
 
 # @functools.lru_cache(maxsize=None)
-@_memory.cache
+# @_memory.cache
 def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
                             **kwargs):
     est = _estimator_for_method_id(method_id, **hparams_dict)
@@ -179,6 +202,8 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 def _main(tasks, methods=None, saveas=None, ntasks=None,
           verbose=2, limit_ntasks=2, compression_metrics=False):
     methods = _ALL_METHODS if methods is None else methods
+    if isinstance(methods, str):
+        methods = [methods]
     independent_vars = _get_all_independent_vars()
 
     # for task in load_caltech_tasks():
@@ -197,8 +222,22 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                     if verbose > 2:
                         print("got hparams: ")
                         pprint.pprint(hparams_dict)
+
+
+
+
+
+                # XXX REMOVE AFTER DEBUG
                 est = _fitted_est_for_hparams(
-                    method_id, hparams_dict, task.X_train, task.W_train)
+                    method_id, hparams_dict, task.X_test, task.W_test)
+
+
+
+
+
+
+                # est = _fitted_est_for_hparams(
+                #     method_id, hparams_dict, task.X_train, task.W_train)
                 try:
                     for trial in range(ntrials):
                         metrics = _eval_amm(
@@ -228,10 +267,10 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
             return
 
 
-def main_ecg(methods=None, saveas='ecg', limit_nhours=.25):
+def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 limit_ntasks=10, compression_metrics=True)
+                 limit_ntasks=1, compression_metrics=True)
 
 
 def main_caltech(methods=None, saveas='caltech'):
@@ -262,12 +301,24 @@ def main():
     # main_cifar100(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['OPQ', 'Exact'])
     # main_cifar100(methods=['PQ', 'Exact'])
-    main_cifar10(methods=VQ_METHODS)
-    main_cifar100(methods=VQ_METHODS)
+    # main_cifar10(methods=VQ_METHODS)
+    # main_cifar100(methods=VQ_METHODS)
+    # main_cifar10(methods=BOLT_METHODS)
+    # main_cifar10(methods=['Bolt_CovTopk'])
+    # main_cifar10(methods=['GEHTBoltMatmul_CovSamp'])
+    # main_cifar10(methods=['GEHTBoltMatmul_CorrSamp'])
+    # main_cifar10(methods=['GEHTBoltMatmul_CorrTopk'])
+    # main_cifar100(methods=['GEHTBoltMatmul_CovTopk'])
+    # main_cifar100(methods='Bolt')
+    # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10()
     # main_cifar100()
     # main_ecg()
-    # main_caltech()
+    # main_ecg(methods=['Bolt+Perm', 'Bolt+CorrPerm', 'Bolt'])
+    # main_ecg(methods=['PQ', 'Bolt', 'Exact'])
+    # main_ecg(methods=['Bolt', 'Exact'])
+    main_ecg(methods='Bolt')
+    # main_caltech(methods=['Bolt+Perm', 'Bolt'])
 
     # imgs = md._load_caltech_train_imgs()
     # imgs = md._load_caltech_test_imgs()
