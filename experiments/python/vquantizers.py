@@ -216,7 +216,7 @@ class PQEncoder(object):
 
     def __init__(self, nsubvects, ncentroids=256,
                  elemwise_dist_func=dists_elemwise_dot,
-                 algo='PQ', quantize_lut=False, opq_iters=10):
+                 algo='PQ', quantize_lut=False, opq_iters=5):
         self.nsubvects = nsubvects
         self.ncentroids = ncentroids
         self.elemwise_dist_func = elemwise_dist_func

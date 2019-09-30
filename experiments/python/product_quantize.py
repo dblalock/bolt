@@ -116,7 +116,7 @@ def eigenvalue_allocation(num_buckets, eigenvalues, shuffle=False):
         a vector of indices by which to permute the eigenvectors
     """
     D = len(eigenvalues)
-    dims_per_bucket = D / num_buckets
+    dims_per_bucket = D // num_buckets
     eigenvalue_product = np.zeros(num_buckets, dtype=float)
     bucket_size = np.zeros(num_buckets, dtype=int)
     permutation = np.zeros((num_buckets, dims_per_bucket), dtype=int)
@@ -240,9 +240,8 @@ def opq_initialize(X_train, ncodebooks, init='gauss'):
         if init == 'gauss_flat':
             # assert R.shape[0] == R.shape[1]
             D = R.shape[1]
-            d = D / ncodebooks
-            assert int(d) == d  # need same number of dims in each subspace
-            # d = int(d)
+            d = D // ncodebooks
+            assert d * ncodebooks == D  # same # of dims in each subspace
             local_r = random_rotation(int(d))
             tiled = np.zeros((D, D))
             for c in range(ncodebooks):

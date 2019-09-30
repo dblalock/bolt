@@ -1,6 +1,7 @@
 #!/bin/env/python
 
 import blosc  # pip install blosc
+import functools
 import numpy as np
 import pprint
 import time
@@ -11,6 +12,8 @@ from . import matmul_datasets as md
 from . import pyience as pyn
 from . import vq_amm
 
+from joblib import Memory
+_memory = Memory('.', verbose=0)
 
 METHOD_EXACT = 'Exact'
 METHOD_SKETCH_SQ_SAMPLE = 'SketchSqSample'
@@ -18,6 +21,8 @@ METHOD_SVD = 'SVD'
 METHOD_FD_AMM = 'FD-AMM'
 METHOD_COOCCUR = 'CooccurSketch'
 METHOD_PQ = 'PQ'
+METHOD_BOLT = 'Bolt'
+METHOD_OPQ = 'OPQ'
 
 _METHOD_TO_ESTIMATOR = {
     METHOD_EXACT: amm.ExactMatMul,
@@ -25,13 +30,15 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_SVD: amm.SvdSketch,
     METHOD_FD_AMM: amm.FdAmm,
     METHOD_COOCCUR: amm.CooccurSketch,
-    METHOD_PQ: vq_amm.PQMatmul
+    METHOD_PQ: vq_amm.PQMatmul,
+    METHOD_BOLT: vq_amm.BoltMatmul,
+    METHOD_OPQ: vq_amm.OPQMatmul
 }
 _ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
 _ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE)  # always terrible results
 SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
                   METHOD_FD_AMM, METHOD_COOCCUR)
-VQ_METHODS = (METHOD_PQ,)
+VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
 NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
@@ -157,6 +164,8 @@ def _get_all_independent_vars():
     return independent_vars
 
 
+# @functools.lru_cache(maxsize=None)
+@_memory.cache
 def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
                             **kwargs):
     est = _estimator_for_method_id(method_id, **hparams_dict)
@@ -166,7 +175,7 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks, methods=None, saveas=None, ntasks=None,
-          verbose=2, limit_ntasks=2):
+          verbose=2, limit_ntasks=2, compression_metrics=False):
     methods = _ALL_METHODS if methods is None else methods
     independent_vars = _get_all_independent_vars()
 
@@ -190,7 +199,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                     method_id, hparams_dict, task.X_train, task.W_train)
                 try:
                     for trial in range(ntrials):
-                        metrics = _eval_amm(task, est)
+                        metrics = _eval_amm(
+                            task, est, compression_metrics=compression_metrics)
                         metrics['N'] = task.X_test.shape[0]
                         metrics['D'] = task.X_test.shape[1]
                         metrics['M'] = task.W_test.shape[1]
@@ -219,7 +229,7 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_ecg(methods=None, saveas='ecg', limit_nhours=.25):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 limit_ntasks=10)
+                 limit_ntasks=10, compression_metrics=True)
 
 
 def main_caltech(methods=None, saveas='caltech'):
@@ -246,8 +256,10 @@ def main_all(methods=None):
 
 
 def main():
-    main_cifar10(methods=['PQ', 'Exact'])
-    main_cifar100(methods=['PQ', 'Exact'])
+    # main_cifar10(methods=['Bolt', 'Exact'])
+    main_cifar100(methods=['Bolt', 'Exact'])
+    # main_cifar10(methods=['OPQ', 'Exact'])
+    # main_cifar100(methods=['PQ', 'Exact'])
     # main_cifar10()
     # main_cifar100()
     # main_ecg()

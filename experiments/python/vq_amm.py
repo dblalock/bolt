@@ -12,7 +12,17 @@ class PQMatmul(amm.ApproxMatmul):
 
     def __init__(self, ncodebooks):
         self.ncodebooks = ncodebooks
-        self.enc = vq.PQEncoder(nsubvects=ncodebooks)
+        self.enc = self._create_encoder(ncodebooks)
+        self._reset()
+
+    def _create_encoder(self, ncodebooks):  # to be overriden by subclasses
+        return vq.PQEncoder(nsubvects=ncodebooks,
+                            **self._get_encoder_kwargs())
+
+    def _get_encoder_kwargs(self):  # to be overriden by subclasses
+        return {}
+
+    def _reset(self):
         self.A_enc = None
         self.luts = None
 
@@ -34,8 +44,33 @@ class PQMatmul(amm.ApproxMatmul):
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         nmuls = 0 if fixedB else B.shape[0] * B.shape[1] * 256
-        return {amm.KEY_NMULTIPLIES: nmuls,
-                KEY_NLOOKUPS: A.shape[0] * B.shape[1] * self.ncodebooks}
+        nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
+        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
     def get_params(self):
         return {'ncodebooks': self.ncodebooks}
+
+
+class BoltMatmul(PQMatmul):
+
+    def __init__(self, ncodebooks):
+        self.ncodebooks = 2 * ncodebooks
+        self.enc = vq.PQEncoder(nsubvects=self.ncodebooks, ncentroids=16)
+        self._reset()
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        nmuls = 0 if fixedB else B.shape[0] * B.shape[1] * 16
+        nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
+        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
+
+
+class OPQMatmul(PQMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(algo='OPQ')
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        nmuls = 0 if fixedB else B.shape[0] * B.shape[1] * 256   # lut cost
+        nmuls += A.shape[0] * A.shape[1] * A.shape[1]  # OPQ rotation cost
+        nlookups = A.shape[0] * B.shape[1] * 2 * self.ncodebooks
+        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
