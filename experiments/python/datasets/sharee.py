@@ -47,6 +47,7 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
     a = a.astype(dtype)
 
     # small amount of smoothing since heavily oversampled + noisy
+    # filt = np.hamming(5).astype(np.float32)
     filt = np.hamming(5).astype(np.float32)
     filt /= np.sum(filt)
     for j in range(a.shape[1]):

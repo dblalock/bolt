@@ -69,7 +69,15 @@ class MatmulTask(object):
 
 # ================================================================ ECG (sharee)
 
-def _load_x_y_w_for_ar_model(data, window_len=8, verbose=0, N_train=-1):
+def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
+
+    # # TODO rm after debug
+    # print("initial data shape: ", data.shape)
+    # new_data = np.zeros((len(data), 4), dtype=data.dtype)
+    # new_data[:, :3] = data
+    # new_data[:, 3] = np.random.randn(len(data)) * np.std(data) * .01 + np.mean(data)
+    # data = new_data
+
     windows = window.sliding_window(
         data, ws=(window_len, data.shape[1]), ss=(1, 1))
 
@@ -84,9 +92,9 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=0, N_train=-1):
     X_test, Y_test = X[N_train:], Y[N_train:]
 
     # fit the autoregressive model (just a filter)
-    est = linear_model.LinearRegression(fit_intercept=False)
-    # est = linear_model.Ridge(
-    #     alpha=.01*len(Y)*np.var(data), fit_intercept=False)
+    # est = linear_model.LinearRegression(fit_intercept=False)
+    est = linear_model.Ridge(
+        alpha=.01*len(Y_train)*np.var(data), fit_intercept=False)
     est.fit(X_train, Y_train)
     W = est.coef_.T
 
@@ -95,10 +103,21 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=0, N_train=-1):
         print("ts ar model: windows.shape: ", windows.shape)
         print("ts ar model: X shape: ", X.shape)
         print("ts ar model: Y shape: ", Y.shape)
-        # print("train r^2:", est.score(X_train, Y_train))
-        # print("test r^2:", est.score(X_test, Y_test))
+        print("train r^2:", est.score(X_train, Y_train))
+        print("test r^2:", est.score(X_test, Y_test))
         diffs = Y[1:] - Y[:-1]
+        print("column variances of diffs", np.var(diffs, axis=0))
+        print("column variances of Y", np.var(Y, axis=0))
+        print("var(diffs), var(Y)", np.var(diffs), np.var(Y))
         print("var(diffs) / var(Y)", np.var(diffs) / np.var(Y))
+        Y_hat_train = est.predict(X_train)
+        Y_hat_test = est.predict(X_test)
+        print("Y_hat_train var / 1e3", np.var(Y_hat_train, axis=0) / 1e3)
+        print("Y_train var / 1e3", np.var(Y_train, axis=0) / 1e3)
+        print("Y_hat_test var / 1e3", np.var(Y_hat_test, axis=0) / 1e3)
+        print("Y_test var / 1e3", np.var(Y_test, axis=0) / 1e3)
+
+        # import sys; sys.exit()
 
     # print(W.shape)
     # print(est.score(X, Y))

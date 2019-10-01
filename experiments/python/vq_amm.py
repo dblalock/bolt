@@ -34,15 +34,36 @@ class PQMatmul(amm.ApproxMatmul):
 
     def set_B(self, B):
         self.luts = self.enc.encode_Q(B.T)
-        print("self.luts.shape: ", self.luts.shape)
+        # print("self.luts.shape: ", self.luts.shape)
 
     def __call__(self, A, B):
-        print("PQ amm got A shape, B shape", A.shape, B.shape)
+        # print("PQ amm got A shape, B shape", A.shape, B.shape)
+        # return A @ B  # r_sq = 0.87896 for first ecg task
+
+        # self.enc.fit(A, B)  # TODO rm
+
         if self.A_enc is None:
+            # print("encoding X")
             self.set_A(A)
+        # if True:
         if self.luts is None:
+            # print("encoding Q")
             self.set_B(B)
-        return self.enc.dists_enc(self.A_enc, self.luts)
+        # return self.enc.dists_enc(self.A_enc, self.luts)
+        # print("about to compute dists")
+        # d_hat = self.enc.dists_enc(self.A_enc, self.luts)
+        d_hat = self.enc.dists_enc(self.A_enc, self.luts, A, B)
+        d_pad = self.enc._pad_ncols(A) @ self.enc._pad_ncols(B.T).T
+        d = A @ B
+        print("corr(d_hat, d)")
+        print(np.corrcoef(np.vstack([d_hat.ravel(), d.ravel()])))
+        diffs = d - d_hat
+        print("normalized mse of d_hat vs d", np.mean(diffs * diffs) / np.var(d))
+        # diffs = d - d_pad
+        # print("normalized mse of d_pad vs d", np.mean(diffs * diffs) / np.var(d))
+        # import sys; sys.exit()
+
+        return d_hat
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         nmuls = 0

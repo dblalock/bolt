@@ -101,17 +101,23 @@ def _blosc_compress(buff, elem_sz=8, compressor='zstd', shuffle=blosc.SHUFFLE):
                           cname=compressor, shuffle=shuffle)
 
 
-def _compute_compression_metrics(ar, quantize_to_type=np.int16):
-    if quantize_to_type is not None:
-        ar = ar.astype(quantize_to_type)
+# def _compute_compression_metrics(ar, quantize_to_type=np.uint16):
+def _compute_compression_metrics(ar):
+    # if quantize_to_type is not None:
+    #     ar = ar.astype(quantize_to_type)
+    # ar -= np.min(ar)
+    # ar /= (np.max(ar) / 65535)  # 16 bits
+    # ar -= 32768  # center at 0
+    # ar = ar.astype(np.int16)
+
     elem_sz = ar.dtype.itemsize
-    return {'nbytes_orig': ar.nbytes,
-            'nbytes_blosc_noshuf': len(_blosc_compress(
-                ar, elem_sz=elem_sz, shuffle=blosc.NOSHUFFLE)),
+    return {'nbytes_raw': ar.nbytes,
+            # 'nbytes_blosc_noshuf': len(_blosc_compress(
+            #     ar, elem_sz=elem_sz, shuffle=blosc.NOSHUFFLE)),
             'nbytes_blosc_byteshuf': len(_blosc_compress(
                 ar, elem_sz=elem_sz, shuffle=blosc.SHUFFLE)),
-            'nbytes_blosc_bitshuf': len(_blosc_compress(
-                ar, elem_sz=elem_sz, shuffle=blosc.BITSHUFFLE)),
+            # 'nbytes_blosc_bitshuf': len(_blosc_compress(
+            #     ar, elem_sz=elem_sz, shuffle=blosc.BITSHUFFLE)),
             'nbytes_zstd': len(_zstd_compress(ar))}
 
 
@@ -123,7 +129,39 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     r_sq = 1 - raw_mse / y_var
     metrics = {'raw_mse': raw_mse, 'y_var': y_var, 'r_sq': r_sq}
     if compression_metrics:
-        metrics.update(_compute_compression_metrics(diffs))
+
+        def quantize(X, minval, maxval, nbits=16):
+            upper = (1 << nbits) - 1
+            dtype_min = 1 << (nbits - 1)
+
+            X = np.maximum(0, X - minval)
+            X = np.minimum(upper, (X / maxval) * upper)
+            X -= dtype_min  # center at 0
+
+            dtype = {16: np.int16, 12: np.int16, 8: np.int8}[nbits]
+            return X.astype(dtype)
+
+        minval = np.min(Y)
+        maxval = np.max(Y)
+        Y_q = quantize(Y, minval, maxval, nbits=8)
+        Y_hat_q = quantize(Y_hat, minval, maxval, nbits=8)
+        diffs_q = Y_q - Y_hat_q
+        assert Y_q.dtype == np.int8
+        assert diffs_q.dtype == np.int8
+
+        # Y_q = quantize_i16(Y)
+
+        # # quantize to 16 bits
+        # Y = Y - np.min(Y)
+        # Y /= (np.max(Y) / 65535)  # 16 bits
+        # Y -= 32768  # center at 0
+        # Y = Y.astype(np.int16)
+        # diffs =
+
+        metrics_raw = _compute_compression_metrics(Y_q)
+        metrics.update({k + '_orig': v for k, v in metrics_raw.items()})
+        metrics_raw = _compute_compression_metrics(diffs_q)
+        metrics.update({k + '_diffs': v for k, v in metrics_raw.items()})
 
     # eval softmax accuracy TODO better criterion for when to try this
     if task.info:
@@ -167,7 +205,12 @@ def _hparams_for_method(method_id):
         return [{'d': dval} for dval in dvals]
     if method_id in VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32]
+        # mvals = [1, 2, 4, 8, 16]
+        # mvals = [1, 2, 4, 8]
+        # mvals = [16] # TODO rm after debug
         mvals = [8] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
+        # mvals = [1] # TODO rm after debug
         return [{'ncodebooks': m} for m in mvals]
     return [{}]
 
@@ -317,7 +360,9 @@ def main():
     # main_ecg(methods=['Bolt+Perm', 'Bolt+CorrPerm', 'Bolt'])
     # main_ecg(methods=['PQ', 'Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Exact'])
-    main_ecg(methods='Bolt')
+    main_ecg(methods=['Bolt', 'PQ', 'Exact'])
+    # main_ecg(methods='Bolt')
+    # main_ecg(methods=['Bolt', 'Bolt+Perm'])
     # main_caltech(methods=['Bolt+Perm', 'Bolt'])
 
     # imgs = md._load_caltech_train_imgs()
@@ -325,4 +370,5 @@ def main():
 
 
 if __name__ == '__main__':
+    np.set_printoptions(formatter={'float': lambda f: "{:.2f}".format(f)})
     main()
