@@ -116,8 +116,8 @@ def _compute_compression_metrics(ar):
             #     ar, elem_sz=elem_sz, shuffle=blosc.NOSHUFFLE)),
             'nbytes_blosc_byteshuf': len(_blosc_compress(
                 ar, elem_sz=elem_sz, shuffle=blosc.SHUFFLE)),
-            # 'nbytes_blosc_bitshuf': len(_blosc_compress(
-            #     ar, elem_sz=elem_sz, shuffle=blosc.BITSHUFFLE)),
+            'nbytes_blosc_bitshuf': len(_blosc_compress(
+                ar, elem_sz=elem_sz, shuffle=blosc.BITSHUFFLE)),
             'nbytes_zstd': len(_zstd_compress(ar))}
 
 
@@ -352,15 +352,17 @@ def main():
     # main_cifar10(methods=['GEHTBoltMatmul_CorrSamp'])
     # main_cifar10(methods=['GEHTBoltMatmul_CorrTopk'])
     # main_cifar100(methods=['GEHTBoltMatmul_CovTopk'])
-    # main_cifar100(methods='Bolt')
+    # main_cifar100(methods=['Bolt', 'Bolt+Perm'])
     # main_cifar10(methods=['Bolt', 'Exact'])
+    main_cifar10(methods=['Bolt'])
     # main_cifar10()
     # main_cifar100()
     # main_ecg()
     # main_ecg(methods=['Bolt+Perm', 'Bolt+CorrPerm', 'Bolt'])
     # main_ecg(methods=['PQ', 'Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Exact'])
-    main_ecg(methods=['Bolt', 'PQ', 'Exact'])
+    # main_ecg(methods=['Bolt', 'PQ', 'Exact'])
+    # main_caltech(methods=['Bolt', 'PQ', 'Exact'])
     # main_ecg(methods='Bolt')
     # main_ecg(methods=['Bolt', 'Bolt+Perm'])
     # main_caltech(methods=['Bolt+Perm', 'Bolt'])

@@ -271,13 +271,13 @@ class PQEncoder(object):
     def fit(self, X, Q=None, **preproc_kwargs):
         self.subvect_len = int(np.ceil(X.shape[1] / self.nsubvects))
         # print("orig X shape: ", X.shape)
-        print("initial X_train shape: ", X.shape)
-        print("ncodebooks:", self.nsubvects)
+        # print("initial X_train shape: ", X.shape)
+        # print("ncodebooks:", self.nsubvects)
         X = self._pad_ncols(X)
-        print("X_train shape after padding: ", X.shape)
-        print("nsubvects: ", self.nsubvects)
-        print("subvect_len: ", self.subvect_len)
-        print("------------------------")
+        # print("X_train shape after padding: ", X.shape)
+        # print("nsubvects: ", self.nsubvects)
+        # print("subvect_len: ", self.subvect_len)
+        # print("------------------------")
 
         if self.preproc == 'PQ':
             self.centroids = _learn_centroids(
@@ -349,7 +349,7 @@ class PQEncoder(object):
         # Q = ensure_num_cols_multiple_of(Q, self.subvect_len)
         Q = self._pad_ncols(Q)
 
-        print("Q shape after ensure_num_cols_multiple_of: ", Q.shape)
+        # print("Q shape after ensure_num_cols_multiple_of: ", Q.shape)
 
         if self.preproc == 'OPQ':
             Q = pq.opq_rotate(Q, self.R)
@@ -360,15 +360,8 @@ class PQEncoder(object):
 
         # print("len(self.perm):", len(self.perm))
         # print("len(set(self.perm)):", len(set(self.perm)))
-        print("Q shape: ", Q.shape)
+        # print("Q shape: ", Q.shape)
         # luts = []
-
-
-
-
-        # SELF: is concatenating these messing up the layout?
-        # I bet this is it because we rely on lut being in f order
-
 
         # luts = np.zeros((Q.shape[0], self.ncentroids, self.nsubvects))
         luts = np.zeros((Q.shape[0], self.nsubvects, self.ncentroids))
@@ -406,11 +399,11 @@ class PQEncoder(object):
 
         idxs = pq._encode_X_pq(X, codebooks=self.centroids)
 
-        # TODO rm
-        X_hat = pq.reconstruct_X_pq(idxs, self.centroids)
-        # err = compute_reconstruction_error(X_rotated, X_hat, subvect_len=subvect_len)
-        err = pq.compute_reconstruction_error(X, X_hat)
-        print("X reconstruction err: ", err)
+        # # TODO rm
+        # X_hat = pq.reconstruct_X_pq(idxs, self.centroids)
+        # # err = compute_reconstruction_error(X_rotated, X_hat, subvect_len=subvect_len)
+        # err = pq.compute_reconstruction_error(X, X_hat)
+        # print("X reconstruction err: ", err)
 
         # import sys; sys.exit()
 
@@ -449,8 +442,8 @@ class PQEncoder(object):
 
     #         plt.show()
 
-    # def dists_enc(self, X_enc, Q_luts, unquantize=True):
-    def dists_enc(self, X_enc, Q_luts, X, Q, unquantize=True): # TODO rm
+    # def dists_enc(self, X_enc, Q_luts, X, Q, unquantize=True): # TODO rm
+    def dists_enc(self, X_enc, Q_luts, unquantize=True):
         # this line has each element of X_enc index into the flattened
         # version of q's distances to the centroids; we had to add
         # offsets to each col of X_enc above for this to work
@@ -469,33 +462,32 @@ class PQEncoder(object):
         # for q in Q.T:
         #     print(q.reshape(8, 3))
 
-        X, Q = self._pad_ncols(X), self._pad_ncols(Q.T).T
-        true_prods = X @ Q
+        # X, Q = self._pad_ncols(X), self._pad_ncols(Q.T).T
+        # true_prods = X @ Q
         # print("offsets: ", self.offsets)
         # print("X shape, Q shape", X.shape, Q.shape)
 
         for i, lut in enumerate(Q_luts):
-            print("----- query ", i)
+            # print("----- query ", i)
             # print("lut {} has shape: {}".format(i, lut.shape))
             # flat_lut = np.asfortranarray(lut.T).ravel()
-            lut = np.ascontiguousarray(lut)
-            flat_lut = lut.ravel()
-            centroid_dists = flat_lut[X_enc.ravel()]
+            # lut = np.ascontiguousarray(lut)
+            centroid_dists = lut.ravel()[X_enc.ravel()]
             # centroid_dists = lut.T.ravel()[X_enc.ravel()]
             # print("centroid dists has shape: ", centroid_dists.shape)
             dists = centroid_dists.reshape(X_enc.shape).sum(axis=-1)
 
-            # # TODO rm
-            true_dists = true_prods[:, i]
-            diffs = true_dists - dists
-            mse = np.mean(diffs * diffs) / np.var(true_dists)
-            print("mse for query #{}: {:3g}".format(i, mse))
+            # # # TODO rm
+            # true_dists = true_prods[:, i]
+            # diffs = true_dists - dists
+            # mse = np.mean(diffs * diffs) / np.var(true_dists)
+            # print("mse for query #{}: {:3g}".format(i, mse))
             # print("variance of true dists / 1e3: ", np.var(true_dists) / 1e3)
             # print("variance of dists / 1e3: ", np.var(dists) / 1e3)
             # print("variance of diffs / 1e3: ", np.var(diffs) / 1e3)
 
-            assert np.sum(np.isnan(dists)) == 0
-            assert np.sum(np.isnan(true_dists)) == 0
+            # assert np.sum(np.isnan(dists)) == 0
+            # assert np.sum(np.isnan(true_dists)) == 0
 
             # print("min, max true dist / 1000:",
             #       np.min(true_dists) / 1e3, np.max(true_dists) / 1e3)
@@ -511,47 +503,47 @@ class PQEncoder(object):
             # TODO rm
             # alright, let's go subpace by subspace here...
             # if True:
-            if False:
-                q = Q[:, i]
-                # print("q: ", q)
-                # for n in [0]:
-                for n in np.random.randint(len(dists), size=2):
-                    x = X[n]
-                    x_enc = np.copy(X_enc[n])
-                    x_enc -= self.offsets
-                    # print("x_enc:", x_enc)
-                    true_prod = true_prods[n, i]
-                    prod_hat = 0
-                    true_subs_prods = np.zeros(self.nsubvects)
-                    subs_prods = np.zeros(self.nsubvects)
-                    quantize_errs = np.zeros(self.nsubvects)
-                    for m in range(self.nsubvects):
-                        idx = x_enc[m]
+            # if False:
+            #     q = Q[:, i]
+            #     # print("q: ", q)
+            #     # for n in [0]:
+            #     for n in np.random.randint(len(dists), size=2):
+            #         x = X[n]
+            #         x_enc = np.copy(X_enc[n])
+            #         x_enc -= self.offsets
+            #         # print("x_enc:", x_enc)
+            #         true_prod = true_prods[n, i]
+            #         prod_hat = 0
+            #         true_subs_prods = np.zeros(self.nsubvects)
+            #         subs_prods = np.zeros(self.nsubvects)
+            #         quantize_errs = np.zeros(self.nsubvects)
+            #         for m in range(self.nsubvects):
+            #             idx = x_enc[m]
 
-                        # compute estimated product in this subspace
-                        prod = lut[m, idx]
-                        prod_hat += prod
-                        subs_prods[m] = prod
+            #             # compute estimated product in this subspace
+            #             prod = lut[m, idx]
+            #             prod_hat += prod
+            #             subs_prods[m] = prod
 
-                        # compute true product in this subspace
-                        start_idx = m * self.subvect_len
-                        end_idx = start_idx + self.subvect_len
-                        x_subs = x[start_idx:end_idx]
-                        q_subs = q[start_idx:end_idx]
-                        true_subs_prods[m] = np.sum(x_subs * q_subs)
+            #             # compute true product in this subspace
+            #             start_idx = m * self.subvect_len
+            #             end_idx = start_idx + self.subvect_len
+            #             x_subs = x[start_idx:end_idx]
+            #             q_subs = q[start_idx:end_idx]
+            #             true_subs_prods[m] = np.sum(x_subs * q_subs)
 
-                        # compute quantization err
-                        centroid = self.centroids[idx, m]
-                        diffs = x_subs - centroid
-                        quantize_errs[m] = np.sum(diffs * diffs)
-                    # print("true prod, prod_hat", true_prod / 1000, prod_hat / 1000)
-                    # print("sum true prods, sum prods hat:",
-                    #       true_subs_prods.sum() / 1000, subs_prods.sum() / 1000)
-                    print("true dist, dist we computed: ",
-                          true_dists[n] / 1000, dists[n] / 1000)
-                    print("true_subs_prods: ", true_subs_prods / 1000)
-                    print("subs_prods_hat:  ", subs_prods / 1000)
-                    # print("quantize errs:", quantize_errs / 1000)
+            #             # compute quantization err
+            #             centroid = self.centroids[idx, m]
+            #             diffs = x_subs - centroid
+            #             quantize_errs[m] = np.sum(diffs * diffs)
+            #         # print("true prod, prod_hat", true_prod / 1000, prod_hat / 1000)
+            #         # print("sum true prods, sum prods hat:",
+            #         #       true_subs_prods.sum() / 1000, subs_prods.sum() / 1000)
+            #         print("true dist, dist we computed: ",
+            #               true_dists[n] / 1000, dists[n] / 1000)
+            #         print("true_subs_prods: ", true_subs_prods / 1000)
+            #         print("subs_prods_hat:  ", subs_prods / 1000)
+            #         # print("quantize errs:", quantize_errs / 1000)
 
             if self.quantize_lut and unquantize:
                 assert False  # make sure not accidentally quantizing for now
