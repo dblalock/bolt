@@ -8,6 +8,7 @@ import seaborn as sb
 
 from . import product_quantize as pq
 from . import subspaces as subs
+from . import clusterize
 from .utils import kmeans
 
 
@@ -250,13 +251,14 @@ class PQEncoder(object):
 
     def __init__(self, nsubvects, ncentroids=256,
                  elemwise_dist_func=dists_elemwise_dot,
-                 preproc='PQ', quantize_lut=False,
+                 preproc='PQ', quantize_lut=False, encode_algo=None,
                  **preproc_kwargs):
         self.nsubvects = nsubvects
         self.ncentroids = ncentroids
         self.elemwise_dist_func = elemwise_dist_func
         self.preproc = preproc
         self.quantize_lut = quantize_lut
+        self.encode_algo = encode_algo
         self.preproc_kwargs = preproc_kwargs
 
         self.code_bits = int(np.log2(self.ncentroids))
@@ -279,10 +281,11 @@ class PQEncoder(object):
         # print("subvect_len: ", self.subvect_len)
         # print("------------------------")
 
-        if self.preproc == 'PQ':
-            self.centroids = _learn_centroids(
-                X, self.ncentroids, self.nsubvects, self.subvect_len)
-        elif self.preproc == 'BOPQ':
+        self.centroids = None
+        # if self.preproc == 'PQ':
+        #     self.centroids = _learn_centroids(
+        #         X, self.ncentroids, self.nsubvects, self.subvect_len)
+        if self.preproc == 'BOPQ':
             self.centroids, _, self.rotations = pq.learn_bopq(
                 X, ncodebooks=self.nsubvects, codebook_bits=self.code_bits,
                 **self.preproc_kwargs)
@@ -300,11 +303,21 @@ class PQEncoder(object):
             # import sys; sys.exit()
 
             X = X[:, self.perm]
-            # just normal PQ after permuting
-            self.centroids = _learn_centroids(
-                X, self.ncentroids, self.nsubvects, self.subvect_len)
-        else:
-            raise ValueError("unrecognized preproc: '{}'".format(self.preproc))
+            # # just normal PQ after permuting
+            # self.centroids = _learn_centroids(
+            #     X, self.ncentroids, self.nsubvects, self.subvect_len)
+        # else:
+        #     raise ValueError("unrecognized preproc: '{}'".format(self.preproc))
+
+        if self.centroids is None:
+            if self.encode_algo == 'splits:':
+                self.splits_lists, self.centroids = \
+                    clusterize.learn_splits_in_subspaces(
+                        X, subvect_len=self.subvect_len,
+                        nsplits_per_subs=self.code_bits)
+            else:
+                self.centroids = _learn_centroids(
+                    X, self.ncentroids, self.nsubvects, self.subvect_len)
 
         if self.quantize_lut:  # TODO put this logic in separate function
             print("learning quantization...")
@@ -338,7 +351,7 @@ class PQEncoder(object):
                 '_quantize': self.quantize_lut}
 
     def encode_Q(self, Q):
-        was_1d = Q.ndim == 1
+        # was_1d = Q.ndim == 1
         Q = np.atleast_2d(Q)
         # if was_1d:
         #     Q = Q.reshape(1, -1)
@@ -397,7 +410,11 @@ class PQEncoder(object):
         elif self.preproc == 'GEHT':
             X = X[:, self.perm]
 
-        idxs = pq._encode_X_pq(X, codebooks=self.centroids)
+        if self.encode_algo == 'splits':
+            idxs = clusterize.encode_using_splits(
+                X, self.subvect_len, self.splits_lists)
+        else:
+            idxs = pq._encode_X_pq(X, codebooks=self.centroids)
 
         # # TODO rm
         # X_hat = pq.reconstruct_X_pq(idxs, self.centroids)

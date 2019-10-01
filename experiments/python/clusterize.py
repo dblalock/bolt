@@ -94,7 +94,7 @@ def _split_existing_buckets(buckets):
     return new_buckets
 
 
-def learn_splits(X, nsplits, verbose=2):
+def learn_splits_greedy(X, nsplits, verbose=2):
     N, D = X.shape
     assert nsplits <= D
 
@@ -202,6 +202,88 @@ def learn_splits(X, nsplits, verbose=2):
     return splits, total_loss
 
 
+def learn_splits(X, nsplits, **kwargs):
+    # indirect to particular func; will likely need to try something simpler
+    # for debugging and/or as experimental control
+    return learn_splits_greedy(X, nsplits, **kwargs)
+
+
+def assignments_from_splits(X, splits):
+    nsplits = len(splits)
+    indicators = np.empty((nsplits, len(X)), dtype=np.int)
+    for i, split in enumerate(splits):
+        indicators[i] = X[:, split.dim] > split.val
+
+    # compute assignments by treating indicators in a row as a binary num
+    scales = int(2 ** np.arange(nsplits))
+    return (indicators.T * scales).sum(axis=1)  # N x nsplits, sum rows
+
+
+def _centroids_from_assignments(X, assignments, ncentroids):
+    centroids = np.empty((ncentroids, X.shape[1]), dtype=X.dtype)
+    for c in range(ncentroids):
+        centroids[c] = X[assignments == c].mean(axis=0)
+    return centroids
+
+
+def centroids_from_splits(X, splits):
+    ncentroids = int(2 ** len(splits))
+    assignments = assignments_from_splits(X, splits)
+    return _centroids_from_assignments(X, assignments, ncentroids=ncentroids)
+
+
+def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
+                              return_centroids=True, verbose=2):
+    N, D = X.shape
+    splits_lists = []
+    nsubs = int(np.ceil(D) / subvect_len)
+
+    # stuff for sse stats
+    tot_sse = 0
+    X_bar = X - np.mean(X, axis=0)
+    col_sses = np.sum(X_bar * X_bar, axis=0) + 1e-14
+    tot_sse_using_mean = np.sum(col_sses)
+
+    if return_centroids:
+        ncentroids = int(2 ** nsplits_per_subs)
+        # this order seems weird, but matches _learn_centroids, etc; helps with
+        # eventual vectorized lookups
+        centroids = np.empty((ncentroids, nsubs, subvect_len), dtype=X.dtype)
+
+    for m in range(nsubs):
+        start_col = m * subvect_len
+        end_col = start_col + subvect_len
+        X_subs = X[:, start_col:end_col]
+        splits, sse = learn_splits(
+            X_subs, nsplits=nsplits_per_subs, verbose=(verbose - 1))
+        splits_lists.append(splits)
+        if return_centroids:
+            centroids[:, m, :] = centroids_from_splits(X_subs, splits)
+
+        tot_sse += sse
+        if verbose > 1:
+            print("learning splits: mse / var(X) in subs {}/{} = {:3g}".format(
+                m + 1, nsubs, (sse / N) / np.var(X_subs)))
+
+    print("-- total mse / var(X): {:.3g}".format(tot_sse / tot_sse_using_mean))
+    if return_centroids:
+        return splits_lists, centroids
+    return splits_lists
+
+
+def encode_using_splits(X, subvect_len, splits_lists):
+    N, D = X.shape
+    nsubs = int(np.ceil(D) / subvect_len)
+    X_enc = np.empty((X.shape[0], nsubs), dtype=np.int, order='f')
+    for m in range(nsubs):
+        start_col = m * subvect_len
+        end_col = start_col + subvect_len
+        X_subs = X[:, start_col:end_col]
+        X_enc[:, m] = assignments_from_splits(X_subs, splits_lists[m])
+
+    return np.ascontiguousarray(X_enc)
+
+
 def main():
     # np.random.seed(123)
     np.random.seed(1234)
@@ -209,7 +291,6 @@ def main():
     print("X:\n", X)
 
     splits, loss = learn_splits(X, 2)
-
 
     # print('loss: ', np.var(X, axis=0))
     print('final loss: ', loss)

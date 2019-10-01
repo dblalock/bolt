@@ -127,3 +127,10 @@ class GEHTBoltMatmul_CorrSamp(BoltMatmul):
     def _get_encoder_kwargs(self):
         return dict(
             preproc='GEHT', sample_how='importance', stats_mat='corr')
+
+
+class BoltGreedySplits(BoltMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(
+            preproc='PQ', encode_algo='splits')

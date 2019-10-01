@@ -25,6 +25,7 @@ METHOD_BOLT = 'Bolt'
 METHOD_OPQ = 'OPQ'
 METHOD_BOLT_PERM = 'Bolt+Perm'
 METHOD_BOLT_CORRPERM = 'Bolt+CorrPerm'
+METHOD_BOLT_SPLITS = 'BoltSplits'
 
 # these are for trying out different perm options
 METHOD_BOLT_GEHT_COV_TOPK = 'Bolt_CovTopk'
@@ -43,6 +44,7 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_OPQ: vq_amm.OPQMatmul,
     METHOD_BOLT_PERM: vq_amm.GEHTBoltMatmul_CovTopk,
     METHOD_BOLT_CORRPERM: vq_amm.GEHTBoltMatmul_CorrTopk,
+    METHOD_BOLT_SPLITS: vq_amm.BoltGreedySplits,
     METHOD_BOLT_GEHT_COV_TOPK: vq_amm.GEHTBoltMatmul_CovTopk,
     METHOD_BOLT_GEHT_COV_SAMP: vq_amm.GEHTBoltMatmul_CovSamp,
     METHOD_BOLT_GEHT_COR_TOPK: vq_amm.GEHTBoltMatmul_CorrTopk,
@@ -61,7 +63,8 @@ SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
                   METHOD_FD_AMM, METHOD_COOCCUR)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
-BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM, METHOD_BOLT_CORRPERM)
+BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM,
+                METHOD_BOLT_CORRPERM, METHOD_BOLT_SPLITS)
 VQ_METHODS = (METHOD_PQ,) + BOLT_METHODS
 NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
@@ -354,7 +357,8 @@ def main():
     # main_cifar100(methods=['GEHTBoltMatmul_CovTopk'])
     # main_cifar100(methods=['Bolt', 'Bolt+Perm'])
     # main_cifar10(methods=['Bolt', 'Exact'])
-    main_cifar10(methods=['Bolt'])
+    # main_cifar10(methods=['Bolt'])
+    main_cifar10(methods=['BoltSplits'])
     # main_cifar10()
     # main_cifar100()
     # main_ecg()

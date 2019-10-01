@@ -398,6 +398,7 @@ def test_svd_sketches():
 
 # ================================================================ FD-amm
 
+# TODO impl fast-FD, which zeros out half the entries
 def frequent_directions(A, d, variant=None):
     N, D = A.shape
     H = np.zeros((d, D))
@@ -440,7 +441,7 @@ def fd_amm_sketches(A, B, d):
     D = H[:, A.shape[0]:]  # d x M
     return C.T, D
 
-
+# TODO this is runtime for fast-fd, not FD
 def _nmultiplies_frequent_directions(N, D, d):
     niters = int(np.ceil(N / d))
     iter_svd_cost = _nmultiplies_svd(d, D)
