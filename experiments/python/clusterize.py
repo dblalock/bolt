@@ -3,6 +3,7 @@
 import copy
 import numpy as np
 
+from functools import reduce
 
 # def bucket_id_to_new_bucket_ids(old_id):
 #     i = 2 * old_id
@@ -10,24 +11,56 @@ import numpy as np
 
 
 class Bucket(object):
-    __slots__ = 'N sumX sumX2 point_ids'.split()
+    __slots__ = 'N D id sumX sumX2 point_ids'.split()
 
-    def __init__(self, D=None, sumX=None, sumX2=None, N=0, point_ids=None):
-        self.reset(D=D, sumX=sumX, sumX2=sumX2)
-        if point_ids is not None:
-            self.point_ids = set(point_ids)
-            if N > 0:
-                assert N == len(point_ids)
-            else:
-                N = len(point_ids)
-        self.N = int(N)
+    def __init__(self, D=None, N=0, sumX=None, sumX2=None, point_ids=None,
+                 bucket_id=0):
+        # self.reset(D=D, sumX=sumX, sumX2=sumX2)
+        # assert point_ids is not None
+        if point_ids is None:
+            assert N == 0
+            point_ids = set()
 
-    def reset(self, D=None, sumX=None, sumX2=None):
-        self.N = 0
-        self.point_ids = set()
-        assert (D is not None) or ((sumX is not None) and (sumX2 is not None))
-        self.sumX = np.zeros(D, dtype=np.float32) if sumX is None else sumX
-        self.sumX2 = np.zeros(D, dtype=np.float32) if sumX2 is None else sumX2
+        self.N = len(point_ids)
+        self.point_ids = set(point_ids)
+        self.id = bucket_id
+
+        # figure out D
+        if (D is None or D < 1) and (sumX is not None):
+            D = len(sumX)
+        elif (D is None or D < 1) and (sumX2 is not None):
+            D = len(sumX2)
+        assert D is not None
+        self.D = D
+
+        # figure out + sanity check stats arrays
+        self.sumX = np.zeros(D, dtype=np.float32) if (sumX is None) else sumX
+        self.sumX2 = np.zeros(D, dtype=np.float32) if (sumX2 is None) else sumX2 # noqa
+        # print("D: ", D)
+        # print("sumX type: ", type(sumX))
+        assert len(self.sumX) == D
+        assert len(self.sumX2) == D
+        self.sumX = np.asarray(self.sumX).astype(np.float32)
+        self.sumX2 = np.asarray(self.sumX2).astype(np.float32)
+
+        # if point_ids is not None:
+        #     self.point_ids = set(point_ids)
+        #     if N > 0:
+        #         assert N == len(point_ids)
+        #     else:
+        #         N = len(point_ids)
+        # self.N = int(N)
+
+        # print("created bucket with {} point ids".format(len(self.point_ids)))
+
+    # def reset(self, D=None, sumX=None, sumX2=None):
+    #     assert D is not None
+    #     self.D = D
+    #     self.N = 0
+    #     self.point_ids = set()
+    #     # assert (D is not None) or ((sumX is not None) and (sumX2 is not None))
+    #     self.sumX = np.zeros(D, dtype=np.float32) if sumX is None else sumX
+    #     self.sumX2 = np.zeros(D, dtype=np.float32) if sumX2 is None else sumX2
 
     def add_point(self, point, point_id=None):
         # TODO replace with more numerically stable updates if necessary
@@ -44,18 +77,67 @@ class Bucket(object):
         if point_id is not None:
             self.point_ids.remove(point_id)
 
+    def deepcopy(self, bucket_id=None):  # deep copy
+        bucket_id = self.id if bucket_id is None else bucket_id
+        return Bucket(
+            sumX=np.copy(self.sumX), sumX2=np.copy(self.sumX2),
+            point_ids=copy.deepcopy(self.point_ids), bucket_id=bucket_id)
+
+    def split(self, X=None, dim=None, val=None):
+        id0 = 2 * self.id
+        id1 = id0 + 1
+        if X is None or self.N < 2:  # copy of this bucket + an empty bucket
+            return (self.deepcopy(bucket_id=id0),
+                    Bucket(D=self.D, bucket_id=id1))
+        assert dim is not None
+        assert val is not None
+        assert self.point_ids is not None
+        my_idxs = np.array(list(self.point_ids))
+        # print("my_idxs shape, dtype", my_idxs.shape, my_idxs.dtype)
+        X = X[my_idxs]
+        mask = X[:, dim] < val
+        not_mask = ~mask
+        X0 = X[mask]
+        X1 = X[not_mask]
+        ids0 = my_idxs[mask]
+        ids1 = my_idxs[not_mask]
+
+        def create_bucket(points, ids, bucket_id):
+            sumX = points.sum(axis=0) if len(ids) else None
+            sumX2 = (points * points).sum(axis=0) if len(ids) else None
+            # return Bucket(N=len(ids), D=self.D, point_ids=ids,
+            return Bucket(D=self.D, point_ids=ids, sumX=sumX, sumX2=sumX2,
+                          bucket_id=bucket_id)
+
+        return create_bucket(X0, ids0, id0), create_bucket(X1, ids1, id1)
+
+    def col_means(self):
+        return self.sumX / max(1, self.N)
+
+    def col_variances(self, safe=False):
+        if self.N < 1:
+            return np.zeros(self.D, dtype=np.float32)
+        E_X2 = self.sumX2 / self.N
+        E_X = self.sumX / self.N
+        ret = E_X2 - (E_X * E_X)
+        return np.maximum(0, ret) if safe else ret
+
+    def col_sum_sqs(self):
+        return self.col_variances() * self.N
+
     @property
     def loss(self):
-        if self.N < 1:
-            return 0
+        # if self.N < 1:
+        #     return 0
 
         # # less stable version with one less divide and mul
         # return max(0, np.sum(self.sumX2 - (self.sumX * (self.sumX / self.N))))
 
         # more stable version, that also clamps variance at 0
-        expected_X = self.sumX / self.N
-        expected_X2 = self.sumX2 / self.N
-        return max(0, np.sum(expected_X2 - (expected_X * expected_X)) * self.N)
+        return max(0, np.sum(self.col_sum_sqs()))
+        # expected_X = self.sumX / self.N
+        # expected_X2 = self.sumX2 / self.N
+        # return max(0, np.sum(expected_X2 - (expected_X * expected_X)) * self.N)
 
 
 class PointInfo(object):
@@ -85,18 +167,26 @@ def _sort_and_append_orig_idx(x, ascending=True):
 
 
 def _split_existing_buckets(buckets):
-    new_buckets = []
-    D = len(buckets[0].sumX)
-    for bucket in buckets:
-        buck0 = copy.deepcopy(bucket)
-        buck1 = Bucket(D=D)
-        new_buckets.append((buck0, buck1))
-    return new_buckets
+    return [buck.split() for buck in buckets]
+    # new_buckets = []
+    # # D = len(buckets[0].sumX)
+    # for buck in buckets:
+    #     # buck0 = copy.deepcopy(bucket)
+    #     # buck0 = Bucket(N=buck.N, D=D, point_ids=copy.deepcopy(buck.point_ids),
+    #     #                sumX=np.copy(buck.sumX), sumX2=np.copy(buck.sumX2))
+    #     # buck0 = buck.copy()
+    #     # buck1 = Bucket(D=buckets[0].D)
+    #     new_buckets.append((buck0, buck1))
+    # return new_buckets
 
 
 def learn_splits_greedy(X, nsplits, verbose=2):
     N, D = X.shape
     assert nsplits <= D
+
+    # # improve numerical stability
+    # scale = np.std(X)
+    # X *= (1. / scale)
 
     # precompute sorted lists of values within each dimension,
     # along with which row they originally were so look can look
@@ -107,10 +197,12 @@ def learn_splits_greedy(X, nsplits, verbose=2):
         dim2sorted.append(sorted_with_idx)
 
     splits = []
-    buckets = [Bucket(N=X.shape[0], sumX=X.sum(axis=0),
-                      sumX2=(X * X).sum(axis=0), point_ids=np.arange(N))]
+    # buckets = [Bucket(N=N, sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
+    buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
+               point_ids=np.arange(N))]
 
-    all_point_infos = [PointInfo(data=row, bucket_id=0) for row in X]
+    # all_point_infos = [PointInfo(data=row, bucket_id=0) for row in X]
+    bucket_assignments = np.zeros(N, dtype=np.int)
 
     # Z = X - X.mean(axis=0)
     # total_loss = np.sum(Z * Z)
@@ -120,21 +212,47 @@ def learn_splits_greedy(X, nsplits, verbose=2):
     if verbose > 0:
         print("learn_splits(): initial loss: ", total_loss)
 
-    unused_dims = set(np.arange(X.shape[1]))
+    # unused_dims = set(np.arange(X.shape[1]))
+    all_dims = np.arange(D)
+
+    col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
 
     for s in range(nsplits):
-        if verbose > 2:
+        if verbose > 1:
             print("================================ finding split #:", s)
         best_split = Split(dim=-1, val=-np.inf, loss_change=0)
-        for d in unused_dims:
+        # for d in unused_dims:
+        # for d in all_dims:
+        # for d in all_dims[:2]:  # TODO rm
+
+        col_losses[:] = 0
+        for buck in buckets:
+            col_losses += buck.col_sum_sqs()
+        # try_dims = [np.argmax(col_losses)]
+        # try_dims = np.argsort(col_losses)[-nsplits:]
+        try_dims = np.argsort(col_losses)[-4:]
+        # for d in [dim]:  # TODO multiple dim options?
+        if verbose > 1:
+            print("trying dims: ", try_dims)
+            print("with losses: ", col_losses[try_dims])
+        for d in try_dims:
             vals_and_point_ids = dim2sorted[d]
             new_buckets = _split_existing_buckets(buckets)
             new_total_loss = total_loss
-            if verbose > 2:
+            if verbose > 1:
                 print("---------------------- dim = ", d)
-            for val, point_id in vals_and_point_ids:
-                info = all_point_infos[point_id]
-                point, bucket_id = info.data, info.bucket_id
+            # for i, (val, point_id) in enumerate(vals_and_point_ids):
+
+            # skip last point since that just puts everything in one bucket,
+            # which is the same as what we're starting out with
+            for val, point_id in vals_and_point_ids[:-1]:
+                # if verbose > 1:
+                #     print("i: {}/{}".format(i, len(vals_and_point_ids) - 1))
+
+                # info = all_point_infos[point_id]
+                # point, bucket_id = info.data, info.bucket_id
+                point = X[point_id]
+                bucket_id = bucket_assignments[point_id]
 
                 bucket0 = new_buckets[bucket_id][0]
                 bucket1 = new_buckets[bucket_id][1]
@@ -143,48 +261,64 @@ def learn_splits_greedy(X, nsplits, verbose=2):
                 bucket1.add_point(point, point_id=point_id)
 
                 new_loss = bucket0.loss + bucket1.loss
-                new_total_loss += new_loss - old_loss
+                new_total_loss -= old_loss  # sub old loss from these buckets
+                new_total_loss += new_loss  # add new loss from these buckets
                 loss_change = new_total_loss - total_loss
 
-                assert loss_change <= 1e-10  # should be nonincreasing
+                # if loss_change > .1:  # should be nonincreasing
+                #     print("got loss change: ", loss_change)
+                #     print("old total loss:", total_loss)
+                #     print("new total loss:", new_total_loss)
+                #     assert loss_change <= .1  # should be nonincreasing
 
-                if verbose > 2:
-                    print("-------- split point_id, val = ", point_id, val)
-                    print("bucket0 point ids, loss after update: ",
-                          bucket0.point_ids, bucket0.loss)
-                    print("bucket1 point ids, loss after update: ",
-                          bucket1.point_ids, bucket1.loss)
-                    print("loss change = {:.3f};\tnew_loss = {:.3f} ".format(
-                          loss_change, new_total_loss))
+                # # loss should be no worse than having new buckets unused
+                # assert loss_change <= .1
+
+                # if verbose > 2:
+                #     print("-------- split point_id, val = ", point_id, val)
+                #     print("bucket0 point ids, loss after update: ",
+                #           bucket0.point_ids, bucket0.loss)
+                #     print("bucket1 point ids, loss after update: ",
+                #           bucket1.point_ids, bucket1.loss)
+                #     print("loss change = {:.3f};\tnew_loss = {:.3f} ".format(
+                #           loss_change, new_total_loss))
 
                 if loss_change < best_split.loss_change:
                     best_split.dim = d
                     best_split.val = val
                     best_split.loss_change = loss_change
 
-        if verbose > 2:
+        if verbose > 1:
             print("---------------------- split on dim={}, val={:.3f} ".format(
                 best_split.dim, best_split.val))
 
         # we've identified the best split; now apply it
-        new_buckets = [Bucket(D=D) for _ in 1 + np.arange(2 * len(buckets))]
-        for i, info in enumerate(all_point_infos):
-            # determine which bucket this point should be in
-            data, bucket_id = info.data, info.bucket_id
-            new_bucket_id = 2 * bucket_id
-            if (data[best_split.dim] <= best_split.val):
-                new_bucket_id += 1
-            # update info for this point + stats for that bucket
-            info.bucket_id = new_bucket_id
-            new_buckets[new_bucket_id].add_point(data, point_id=i)
+        # new_buckets = [Bucket(D=D) for _ in 1 + np.arange(2 * len(buckets))]
+        # for i, info in enumerate(all_point_infos):
+        #     # determine which bucket this point should be in
+        #     data, bucket_id = info.data, info.bucket_id
+        #     new_bucket_id = 2 * bucket_id
+        #     if (data[best_split.dim] <= best_split.val):
+        #         new_bucket_id += 1
+        #     # update info for this point + stats for that bucket
+        #     info.bucket_id = new_bucket_id
+        #     new_buckets[new_bucket_id].add_point(data, point_id=i)
 
-            if verbose > 2:
-                print("applying split to point {}: {}".format(i, data))
-                print("goes in bucket ", new_bucket_id)
+        #     if verbose > 2:
+        #         print("applying split to point {}: {}".format(i, data))
+        #         print("goes in bucket ", new_bucket_id)
 
-        buckets = new_buckets
+        # buckets = new_buckets
+
+        buckets = [buck.split(X, dim=best_split.dim, val=best_split.val)
+                   for buck in buckets]
+        buckets = reduce(lambda b1, b2: b1 + b2, buckets)  # flatten pairs
+        for i, buck in enumerate(buckets):
+            ids = np.asarray(list(buck.point_ids), dtype=np.int)
+            bucket_assignments[ids] = i
+
         total_loss = sum([bucket.loss for bucket in buckets])
-        unused_dims.remove(best_split.dim)
+        # unused_dims.remove(best_split.dim)
         splits.append(best_split)
 
         if verbose > 1:
@@ -199,13 +333,91 @@ def learn_splits_greedy(X, nsplits, verbose=2):
                 print([list(bucket.sumX) for bucket in buckets])
                 print([list(bucket.sumX2) for bucket in buckets])
 
+    # for split in splits:
+    #     split.val *= scale  # undo preconditioning
+    # total_loss *= scale * scale
+
     return splits, total_loss
+
+
+def learn_splits_conditional(X, nsplits, dim_algo='greedy_var',
+                             split_algo='mean', **sink):
+    N, D = X.shape
+    assert nsplits <= D
+    # unused_dims = set(np.arange(X.shape[1]))
+    col_means = X.mean(axis=0)
+    # dims = np.arange(D)
+    used_mask = np.ones(D, dtype=np.float32)
+    splits = []
+    buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
+                      point_ids=np.arange(N))]
+    col_losses = np.zeros(D, dtype=np.float32)
+    for s in range(nsplits):
+        print("---- learning split {}/{}...".format(s + 1, nsplits))
+        print("current number of buckets: ", len(buckets))
+        # col_vars = X.var(axis=0)
+        col_losses[:] = 0
+        for buck in buckets:
+            col_losses += buck.col_sum_sqs()
+        col_losses *= used_mask
+
+        if dim_algo == 'greedy_var':
+            dim = np.argmax(col_losses)
+        used_mask[dim] = 0
+
+        if split_algo == 'mean':
+            val = col_means[dim]
+
+        new_buckets = []
+        for buck in buckets:
+            new_buckets += list(buck.split(X=X, dim=dim, val=val))
+        buckets = new_buckets
+
+        splits.append(Split(dim=dim, val=val))
+
+    return splits, -1
+
+
+# def learn_splits_simple(X, nsplits, dim_algo='randunif', split_algo='mean',
+# def learn_splits_simple(X, nsplits, dim_algo='greedy_var', split_algo='median',
+def learn_splits_simple(X, nsplits, dim_algo='greedy_var', split_algo='mean',
+                        **sink):
+    # unused_dims = set(np.arange(X.shape[1]))
+    unused_dims = list(np.arange(X.shape[1]))  # random.choice can't use set
+    col_means = X.mean(axis=0)
+    col_vars = X.var(axis=0)
+    col_medians = np.median(X, axis=0)
+    # overall_mean = np.mean(col_means)
+    # overall_median = np.median(col_medians)
+    # overall_var = X.var()
+
+    var_idxs_descending = np.argsort(col_vars)[::-1]
+
+    splits = []
+    for s in range(nsplits):
+        if dim_algo == 'randunif':
+            dim = np.random.choice(unused_dims)
+            unused_dims.remove(dim)
+        elif dim_algo == 'greedy_var':
+            dim = var_idxs_descending[s]
+
+        if split_algo == 'mean':
+            val = col_means[dim]
+        elif split_algo == 'median':
+            val = col_medians[dim]
+
+        splits.append(Split(dim=dim, val=val))
+
+    return splits, -1
 
 
 def learn_splits(X, nsplits, **kwargs):
     # indirect to particular func; will likely need to try something simpler
     # for debugging and/or as experimental control
-    return learn_splits_greedy(X, nsplits, **kwargs)
+    # return learn_splits_greedy(X, nsplits, **kwargs)
+    return learn_splits_greedy(X, nsplits) # TODO fwd kwargs
+    # return learn_splits_simple(X, nsplits, **kwargs)
+    # return learn_splits_conditional(X, nsplits, **kwargs)
 
 
 def assignments_from_splits(X, splits):
@@ -215,8 +427,9 @@ def assignments_from_splits(X, splits):
         indicators[i] = X[:, split.dim] > split.val
 
     # compute assignments by treating indicators in a row as a binary num
-    scales = int(2 ** np.arange(nsplits))
-    return (indicators.T * scales).sum(axis=1)  # N x nsplits, sum rows
+    # scales = (2 ** np.arange(nsplits)).astype(np.int)
+    scales = (1 << np.arange(nsplits)).astype(np.int)
+    return (indicators.T * scales).sum(axis=1).astype(np.int)
 
 
 def _centroids_from_assignments(X, assignments, ncentroids):
@@ -227,7 +440,7 @@ def _centroids_from_assignments(X, assignments, ncentroids):
 
 
 def centroids_from_splits(X, splits):
-    ncentroids = int(2 ** len(splits))
+    ncentroids = int(1 << len(splits))
     assignments = assignments_from_splits(X, splits)
     return _centroids_from_assignments(X, assignments, ncentroids=ncentroids)
 

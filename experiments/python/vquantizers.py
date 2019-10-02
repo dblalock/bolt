@@ -310,7 +310,7 @@ class PQEncoder(object):
         #     raise ValueError("unrecognized preproc: '{}'".format(self.preproc))
 
         if self.centroids is None:
-            if self.encode_algo == 'splits:':
+            if self.encode_algo == 'splits':
                 self.splits_lists, self.centroids = \
                     clusterize.learn_splits_in_subspaces(
                         X, subvect_len=self.subvect_len,
