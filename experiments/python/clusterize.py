@@ -146,7 +146,9 @@ class Bucket(object):
         # return max(0, np.sum(expected_X2 - (expected_X * expected_X)) * self.N)
 
 
-def optimal_split_val(X, dim, possible_vals=None):
+# def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
+def optimal_split_val(X, dim, possible_vals=None,
+                      return_possible_vals_losses=False):
     N, D = X.shape
     sort_idxs = np.argsort(X[:, dim])
     X_sort = X[sort_idxs]
@@ -182,7 +184,8 @@ def optimal_split_val(X, dim, possible_vals=None):
         best_idx = idxs[which_idx_idx]
         best_val = possible_vals[which_idx_idx]
 
-    return best_val, sses[best_idx]
+    ret = best_val, sses[best_idx]
+    return ret + (sses_for_idxs,) if return_possible_vals_losses else ret
 
 
 def evenly_spaced_quantiles(x, nquantiles):
@@ -240,19 +243,20 @@ class MultiSplit(object):
 
 
 def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
-                        try_nquantiles=16, verbose=2):
+                        try_nquantiles=16, return_centroids=True, verbose=3):
     N, D = X.shape
     max_vals_per_split = 1 << log2_max_vals_per_split
 
+    # initially, one big bucket with everything
     buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
                point_ids=np.arange(N))]
     total_loss = sum([bucket.loss for bucket in buckets])
 
     # values to try in each dim, after buckets no longer get to pick optimal
-    # ones
-    possible_splits = np.empty((D, try_nquantiles), dtype=X.dtype)
+    # ones; we try values that at evenly spaced quantiles
+    possible_split_vals = np.empty((D, try_nquantiles), dtype=X.dtype)
     for dim in range(D):
-        possible_splits[dim] = evenly_spaced_quantiles(
+        possible_split_vals[dim] = evenly_spaced_quantiles(
             X[:, dim], try_nquantiles)
 
     if verbose > 0:
@@ -260,46 +264,88 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
 
     splits = []
     for s in range(nsplits):
-        # best_split = Split(dim=-1, val=-np.inf, loss_change=0)
+        if verbose > 1:
+            print("================================ finding split #:", s)
+        for i, buck in enumerate(buckets):  # TODO rm sanity check
+            assert buck.id == i
+
+        nbuckets = len(buckets)
+
+        # compute number of bucket groups and size of each
+        ngroups = min(nbuckets, max_vals_per_split)
+        nbuckets_per_group = nbuckets // ngroups
+        assert nbuckets_per_group * ngroups == nbuckets  # sanity check
+
         try_dims = np.arange(D)  # TODO restrict to subset?
-        # best_loss = np.inf
-        # best_dim = -1
-        # best_split_vals = []
         losses = np.zeros(len(try_dims), dtype=X.dtype)
-        all_split_vals = np.copy(possible_splits)
+        all_split_vals = []  # vals chosen by each bucket/group for each dim
+
+        # determine for this dim what the best split vals are for each
+        # group and what the loss is when using these split vals
         for dim in try_dims:
-            # just let each bucket pick its optimal split val for this dim
-            if len(buckets) <= max_vals_per_split:
-                # total_loss = 0
-                split_vals = []
+            if verbose > 2:
+                print("---------------------- dim = ", dim)
+            # just let each bucket pick its optimal split val for this dim;
+            # special case of below where each "group" is one bucket, and
+            # instead of having to pick val from fixed set, can be anything
+            if nbuckets_per_group == 1:
+                split_vals = []  # each bucket contributes one split val
                 for buck in buckets:
                     val, loss = buck.optimal_split_val(X, dim)
                     losses[dim] += loss
                     split_vals.append(val)
-                all_split_vals[dim] = np.array(split_vals)
-            # buckets have to pick from fixed set of possible values
+                all_split_vals.append(split_vals)
+            # buckets have to pick from fixed set of possible values; each
+            # group of buckets (defined by common prefix) have to agree on
+            # one val, so we sum loss for each possible value across all
+            # buckets in the group, and then take val with lowest sum
             else:
-                for buck in buckets:
-                    val, loss = buck.optimal_split_val(
-                        X, dim, possible_vals=possible_splits[dim])
-                    losses[dim] += loss
-        best_dim = try_dims[np.argmin(losses)]
-        splits.append(MultiSplit(dim=best_dim, vals=possible_splits[dim]))
+                split_vals = []  # each group contributes one split val
+                losses = np.zeros_like(possible_split_vals[0])
+                for g in range(ngroups):
+                    start_idx = g * nbuckets_per_group
+                    end_idx = start_idx + nbuckets_per_group
+                    group_buckets = buckets[start_idx:end_idx]
 
+                    # compute loss for each possible split value, summed
+                    # across all buckets in this group; then choose best
+                    losses[:] = 0
+                    possible_vals = possible_split_vals[dim]
+                    for b, buck in enumerate(group_buckets):
+                        _, _, val_losses = optimal_split_val(
+                            X, dim, possible_vals=possible_vals,
+                            return_possible_vals_losses=True)
+                        losses += val_losses
+                    best_val_idx = np.argmin(losses)
+                    best_val = possible_vals[best_val_idx]
+                    best_loss = losses[best_val_idx]
+                    losses[dim] += best_loss
+                    split_vals.append(best_val)
+                all_split_vals.append(split_vals)
 
+        # determine best dim to split on, and pull out associated split
+        # vals for all buckets
+        best_tried_dim_idx = np.argmin(losses)
+        best_dim = try_dims[best_tried_dim_idx]
+        use_split_vals = all_split_vals[best_tried_dim_idx]
+        split = MultiSplit(dim=best_dim, vals=use_split_vals)
+        splits.append(split)
 
+        # apply this split to get next round of buckets
+        new_buckets = []
+        for i, buck in enumerate(buckets):
+            group_idx = i // nbuckets_per_group
+            val = use_split_vals[group_idx]
+            new_buckets += list(buck.split(X, dim=best_dim, val=val))
+        buckets = new_buckets
 
-
-
-
-        # SELF pick up here by actually applying splits and returning loss
-
-
-
-
-
-
-    return splits
+    # maybe return centroids in addition to set of MultiSplits and loss
+    loss = sum([bucket.loss for bucket in buckets])
+    if return_centroids:
+        centroids = np.vstack([buck.col_means() for buck in buckets])
+        assert centroids.shape == (len(buckets), X.shape[1])
+        return splits, loss, centroids
+    return splits, loss
 
 
 def learn_splits_greedy(X, nsplits, verbose=2):
@@ -515,14 +561,20 @@ def learn_splits_simple(X, nsplits, dim_algo='greedy_var', split_algo='mean',
     return splits, -1
 
 
-def learn_splits(X, nsplits, **kwargs):
+def learn_splits(X, nsplits, return_centroids=True, **kwargs):
     # indirect to particular func; will likely need to try something simpler
     # for debugging and/or as experimental control
     # return learn_splits_greedy(X, nsplits, **kwargs)
     # return learn_splits_simple(X, nsplits, **kwargs)
     # return learn_splits_conditional(X, nsplits, **kwargs)
     # return learn_splits_greedy(X, nsplits) # TODO fwd kwargs
-    return learn_splits_cooler(X, nsplits)
+    # splits, loss = learn_splits_greedy(X, nsplits)
+    # if return_centroids:
+    #     centroids = centroids_from_splits(X, splits)
+    #     return splits, loss, centroids
+    # return splits, loss
+
+    return learn_splits_cooler(X, nsplits, return_centroids=return_centroids)
 
 
 def assignments_from_splits(X, splits):
@@ -550,6 +602,9 @@ def centroids_from_splits(X, splits):
     return _centroids_from_assignments(X, assignments, ncentroids=ncentroids)
 
 
+# def centroids_from_multisplits(X, splits):
+#     pass
+
 def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
                               return_centroids=True, verbose=2):
     N, D = X.shape
@@ -572,11 +627,12 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
         start_col = m * subvect_len
         end_col = start_col + subvect_len
         X_subs = X[:, start_col:end_col]
-        splits, sse = learn_splits(
-            X_subs, nsplits=nsplits_per_subs, verbose=(verbose - 1))
+
+        splits, sse, subs_centroids = learn_splits(
+            X_subs, nsplits=nsplits_per_subs, verbose=(verbose - 1),
+            return_centroids=True)
+        centroids[:, m, :] = subs_centroids
         splits_lists.append(splits)
-        if return_centroids:
-            centroids[:, m, :] = centroids_from_splits(X_subs, splits)
 
         tot_sse += sse
         if verbose > 1:
