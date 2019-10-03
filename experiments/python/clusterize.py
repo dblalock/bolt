@@ -156,7 +156,7 @@ def optimal_split_val(X, dim, possible_vals=None):
     cumX_tail = np.cumsum(X_sort[::-1], axis=0)[::-1]
     cumX2_tail = np.cumsum(X_sort_sq[::-1], axis=0)[::-1]
 
-    all_counts = np.arange(1, N + 1)
+    all_counts = np.arange(1, N + 1).reshape(-1, 1)
     EX_head = cumX_head / all_counts            # E[X], starting from 0
     EX_tail = cumX_tail / all_counts[::-1]      # E[X], starting from N-1
     EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
@@ -166,19 +166,21 @@ def optimal_split_val(X, dim, possible_vals=None):
 
     sses = sses_head
     sses[:-1] += sses_tail[1:]  # sse of X_sort[:i] + sse of X_sort[i:]
+    sses = sses.sum(axis=1)
 
     if possible_vals is None or not len(possible_vals):  # can split anywhere
         best_idx = np.argmin(sses)
+        next_idx = min(N - 1, best_idx + 1)
+        best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
     else:  # have to choose one of the values in possible_vals
         sorted_col = X_sort[:, dim]
         idxs = np.searchsorted(sorted_col, possible_vals)
-        idxs = np.unique(idxs)
+        # idxs = np.unique(idxs)
         idxs = np.maximum(0, idxs - 1)  # searchsorted returns first idx larger
         sses_for_idxs = sses[idxs]
-        best_idx = idxs[np.argmin(sses_for_idxs)]
-
-    next_idx = min(N - 1, best_idx + 1)
-    best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
+        which_idx_idx = np.argmin(sses_for_idxs)
+        best_idx = idxs[which_idx_idx]
+        best_val = possible_vals[which_idx_idx]
 
     return best_val, sses[best_idx]
 
@@ -229,39 +231,75 @@ def _split_existing_buckets(buckets):
     # return new_buckets
 
 
+class MultiSplit(object):
+    __slots__ = 'dim vals'.split()
+
+    def __init__(self, dim, vals):
+        self.dim = dim
+        self.vals = vals
+
+
 def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
                         try_nquantiles=16, verbose=2):
     N, D = X.shape
     max_vals_per_split = 1 << log2_max_vals_per_split
 
-    splits = []
     buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
                point_ids=np.arange(N))]
     total_loss = sum([bucket.loss for bucket in buckets])
 
+    # values to try in each dim, after buckets no longer get to pick optimal
+    # ones
+    possible_splits = np.empty((D, try_nquantiles), dtype=X.dtype)
+    for dim in range(D):
+        possible_splits[dim] = evenly_spaced_quantiles(
+            X[:, dim], try_nquantiles)
+
     if verbose > 0:
         print("learn_splits(): initial loss: ", total_loss)
 
+    splits = []
     for s in range(nsplits):
         # best_split = Split(dim=-1, val=-np.inf, loss_change=0)
-        try_dims = np.arange(D)
-        best_loss = np.inf
-        best_dim = -1
+        try_dims = np.arange(D)  # TODO restrict to subset?
+        # best_loss = np.inf
+        # best_dim = -1
+        # best_split_vals = []
+        losses = np.zeros(len(try_dims), dtype=X.dtype)
+        all_split_vals = np.copy(possible_splits)
         for dim in try_dims:
             # just let each bucket pick its optimal split val for this dim
             if len(buckets) <= max_vals_per_split:
-                total_loss = 0
+                # total_loss = 0
                 split_vals = []
                 for buck in buckets:
                     val, loss = buck.optimal_split_val(X, dim)
-                    total_loss += loss
+                    losses[dim] += loss
                     split_vals.append(val)
-                continue
+                all_split_vals[dim] = np.array(split_vals)
+            # buckets have to pick from fixed set of possible values
+            else:
+                for buck in buckets:
+                    val, loss = buck.optimal_split_val(
+                        X, dim, possible_vals=possible_splits[dim])
+                    losses[dim] += loss
+        best_dim = try_dims[np.argmin(losses)]
+        splits.append(MultiSplit(dim=best_dim, vals=possible_splits[dim]))
 
-            # only let each of the
 
 
 
+
+
+
+        # SELF pick up here by actually applying splits and returning loss
+
+
+
+
+
+
+    return splits
 
 
 def learn_splits_greedy(X, nsplits, verbose=2):
@@ -481,9 +519,10 @@ def learn_splits(X, nsplits, **kwargs):
     # indirect to particular func; will likely need to try something simpler
     # for debugging and/or as experimental control
     # return learn_splits_greedy(X, nsplits, **kwargs)
-    return learn_splits_greedy(X, nsplits) # TODO fwd kwargs
     # return learn_splits_simple(X, nsplits, **kwargs)
     # return learn_splits_conditional(X, nsplits, **kwargs)
+    # return learn_splits_greedy(X, nsplits) # TODO fwd kwargs
+    return learn_splits_cooler(X, nsplits)
 
 
 def assignments_from_splits(X, splits):
