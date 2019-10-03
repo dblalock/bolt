@@ -10,17 +10,22 @@ KEY_NLOOKUPS = 'nlookups'
 
 class PQMatmul(amm.ApproxMatmul):
 
-    def __init__(self, ncodebooks):
+    def __init__(self, ncodebooks, ncentroids=None):
         self.ncodebooks = ncodebooks
+        self.ncentroids = (self._get_ncentroids() if ncentroids is None
+                           else ncentroids)
         self.enc = self._create_encoder(ncodebooks)
         self._reset()
 
     def _create_encoder(self, ncodebooks):  # to be overriden by subclasses
-        return vq.PQEncoder(nsubvects=ncodebooks,
+        return vq.PQEncoder(nsubvects=ncodebooks, ncentroids=self.ncentroids,
                             **self._get_encoder_kwargs())
 
     def _get_encoder_kwargs(self):  # to be overriden by subclasses
         return {}
+
+    def _get_ncentroids(self):
+        return 256
 
     def _reset(self):
         self.A_enc = None
@@ -57,9 +62,10 @@ class PQMatmul(amm.ApproxMatmul):
         # return d_hat
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        # data encoding and LUT costs
         nmuls = 0
-        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * 256   # enc cost
-        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * 256   # lut cost
+        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * self.ncentroids
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
         nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
@@ -71,20 +77,14 @@ class BoltMatmul(PQMatmul):
 
     def __init__(self, ncodebooks):
         self.ncodebooks = 2 * ncodebooks
+        self.ncentroids = 16
         self.enc = self._create_encoder(self.ncodebooks)
         self._reset()
 
     def _create_encoder(self, ncodebooks):
-        return vq.PQEncoder(nsubvects=ncodebooks, ncentroids=16,
+        return vq.PQEncoder(nsubvects=ncodebooks, ncentroids=self.ncentroids,
                             # TODO set quantize_lut=True after debug
                             **self._get_encoder_kwargs())
-
-    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        nmuls = 0
-        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * 16   # enc cost
-        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * 16   # lut cost
-        nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
-        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
 
 class OPQMatmul(PQMatmul):
@@ -93,12 +93,10 @@ class OPQMatmul(PQMatmul):
         return dict(preproc='OPQ')
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        nmuls = 0
-        nmuls += 0 if fixedA else A.shape[0] * A.shape[1] * 256   # enc cost
-        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * 256   # lut cost
-        nmuls += A.shape[0] * A.shape[1] * A.shape[1]  # OPQ rotation cost
-        nlookups = A.shape[0] * B.shape[1] * 2 * self.ncodebooks
-        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        rot_nmuls = A.shape[0] * A.shape[1] * A.shape[1]  # OPQ rotation cost
+        metrics[amm.KEY_NMULTIPLIES] += rot_nmuls
+        return metrics
 
 
 class GEHTBoltMatmul_CovTopk(BoltMatmul):
@@ -133,4 +131,17 @@ class BoltGreedySplits(BoltMatmul):
 
     def _get_encoder_kwargs(self):
         return dict(
+            # preproc='GEHT', encode_algo='splits')
             preproc='PQ', encode_algo='splits')
+
+
+class PQGreedySplits(PQMatmul):
+
+    def __init__(self, ncodebooks, ncentroids):
+        super().__init__(ncodebooks=ncodebooks, ncentroids=ncentroids)
+
+    def _get_encoder_kwargs(self):
+        return dict(encode_algo='splits')
+
+    def get_params(self):
+        return {'ncodebooks': self.ncodebooks, 'ncentroids': self.ncentroids}

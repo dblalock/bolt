@@ -269,21 +269,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                         print("got hparams: ")
                         pprint.pprint(hparams_dict)
 
-
-
-
-
-                # XXX REMOVE AFTER DEBUG
                 est = _fitted_est_for_hparams(
-                    method_id, hparams_dict, task.X_test, task.W_test)
-
-
-
-
-
-
-                # est = _fitted_est_for_hparams(
-                #     method_id, hparams_dict, task.X_train, task.W_train)
+                    method_id, hparams_dict, task.X_train, task.W_train)
                 try:
                     for trial in range(ntrials):
                         metrics = _eval_amm(

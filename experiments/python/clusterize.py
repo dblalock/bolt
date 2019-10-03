@@ -111,6 +111,12 @@ class Bucket(object):
 
         return create_bucket(X0, ids0, id0), create_bucket(X1, ids1, id1)
 
+    def optimal_split_val(self, X, dim, possible_vals=None):
+        if self.N < 2 or self.point_ids is None:
+            return 0, 0
+        my_idxs = np.array(list(self.point_ids))
+        return optimal_split_val(X[my_idxs], dim, possible_vals=possible_vals)
+
     def col_means(self):
         return self.sumX / max(1, self.N)
 
@@ -138,6 +144,49 @@ class Bucket(object):
         # expected_X = self.sumX / self.N
         # expected_X2 = self.sumX2 / self.N
         # return max(0, np.sum(expected_X2 - (expected_X * expected_X)) * self.N)
+
+
+def optimal_split_val(X, dim, possible_vals=None):
+    N, D = X.shape
+    sort_idxs = np.argsort(X[:, dim])
+    X_sort = X[sort_idxs]
+    X_sort_sq = X_sort * X_sort
+    cumX_head = np.cumsum(X_sort, axis=0)
+    cumX2_head = np.cumsum(X_sort_sq, axis=0)
+    cumX_tail = np.cumsum(X_sort[::-1], axis=0)[::-1]
+    cumX2_tail = np.cumsum(X_sort_sq[::-1], axis=0)[::-1]
+
+    all_counts = np.arange(1, N + 1)
+    EX_head = cumX_head / all_counts            # E[X], starting from 0
+    EX_tail = cumX_tail / all_counts[::-1]      # E[X], starting from N-1
+    EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
+    EX2_tail = cumX2_tail / all_counts[::-1]    # E[X^2], starting from N-1
+    sses_head = EX2_head - EX_head * EX_head    # sum of squares from 0
+    sses_tail = EX2_tail - EX_tail * EX_tail    # sum of squares from N-1
+
+    sses = sses_head
+    sses[:-1] += sses_tail[1:]  # sse of X_sort[:i] + sse of X_sort[i:]
+
+    if possible_vals is None or not len(possible_vals):  # can split anywhere
+        best_idx = np.argmin(sses)
+    else:  # have to choose one of the values in possible_vals
+        sorted_col = X_sort[:, dim]
+        idxs = np.searchsorted(sorted_col, possible_vals)
+        idxs = np.unique(idxs)
+        idxs = np.maximum(0, idxs - 1)  # searchsorted returns first idx larger
+        sses_for_idxs = sses[idxs]
+        best_idx = idxs[np.argmin(sses_for_idxs)]
+
+    next_idx = min(N - 1, best_idx + 1)
+    best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
+
+    return best_val, sses[best_idx]
+
+
+def evenly_spaced_quantiles(x, nquantiles):
+    n = nquantiles + 1.
+    fracs = np.arange(1, n) / n
+    return np.array([np.quantile(x, frac) for frac in fracs])
 
 
 class PointInfo(object):
@@ -180,6 +229,41 @@ def _split_existing_buckets(buckets):
     # return new_buckets
 
 
+def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
+                        try_nquantiles=16, verbose=2):
+    N, D = X.shape
+    max_vals_per_split = 1 << log2_max_vals_per_split
+
+    splits = []
+    buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
+               point_ids=np.arange(N))]
+    total_loss = sum([bucket.loss for bucket in buckets])
+
+    if verbose > 0:
+        print("learn_splits(): initial loss: ", total_loss)
+
+    for s in range(nsplits):
+        # best_split = Split(dim=-1, val=-np.inf, loss_change=0)
+        try_dims = np.arange(D)
+        best_loss = np.inf
+        best_dim = -1
+        for dim in try_dims:
+            # just let each bucket pick its optimal split val for this dim
+            if len(buckets) <= max_vals_per_split:
+                total_loss = 0
+                split_vals = []
+                for buck in buckets:
+                    val, loss = buck.optimal_split_val(X, dim)
+                    total_loss += loss
+                    split_vals.append(val)
+                continue
+
+            # only let each of the
+
+
+
+
+
 def learn_splits_greedy(X, nsplits, verbose=2):
     N, D = X.shape
     assert nsplits <= D
@@ -213,7 +297,7 @@ def learn_splits_greedy(X, nsplits, verbose=2):
         print("learn_splits(): initial loss: ", total_loss)
 
     # unused_dims = set(np.arange(X.shape[1]))
-    all_dims = np.arange(D)
+    # all_dims = np.arange(D)
 
     col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
 
@@ -239,7 +323,7 @@ def learn_splits_greedy(X, nsplits, verbose=2):
             vals_and_point_ids = dim2sorted[d]
             new_buckets = _split_existing_buckets(buckets)
             new_total_loss = total_loss
-            if verbose > 1:
+            if verbose > 2:
                 print("---------------------- dim = ", d)
             # for i, (val, point_id) in enumerate(vals_and_point_ids):
 
@@ -288,27 +372,9 @@ def learn_splits_greedy(X, nsplits, verbose=2):
                     best_split.val = val
                     best_split.loss_change = loss_change
 
-        if verbose > 1:
+        if verbose > 2:
             print("---------------------- split on dim={}, val={:.3f} ".format(
                 best_split.dim, best_split.val))
-
-        # we've identified the best split; now apply it
-        # new_buckets = [Bucket(D=D) for _ in 1 + np.arange(2 * len(buckets))]
-        # for i, info in enumerate(all_point_infos):
-        #     # determine which bucket this point should be in
-        #     data, bucket_id = info.data, info.bucket_id
-        #     new_bucket_id = 2 * bucket_id
-        #     if (data[best_split.dim] <= best_split.val):
-        #         new_bucket_id += 1
-        #     # update info for this point + stats for that bucket
-        #     info.bucket_id = new_bucket_id
-        #     new_buckets[new_bucket_id].add_point(data, point_id=i)
-
-        #     if verbose > 2:
-        #         print("applying split to point {}: {}".format(i, data))
-        #         print("goes in bucket ", new_bucket_id)
-
-        # buckets = new_buckets
 
         buckets = [buck.split(X, dim=best_split.dim, val=best_split.val)
                    for buck in buckets]
@@ -321,7 +387,7 @@ def learn_splits_greedy(X, nsplits, verbose=2):
         # unused_dims.remove(best_split.dim)
         splits.append(best_split)
 
-        if verbose > 1:
+        if verbose > 3:
             print('learn_splits(): new loss: {:.3f} from split at dim {}, '
                   'value {:.3f}'.format(
                     total_loss, best_split.dim, best_split.val))
