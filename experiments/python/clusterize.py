@@ -161,19 +161,23 @@ def optimal_split_val(X, dim, possible_vals=None,
     all_counts = np.arange(1, N + 1).reshape(-1, 1)
     EX_head = cumX_head / all_counts            # E[X], starting from 0
     EX_tail = cumX_tail / all_counts[::-1]      # E[X], starting from N-1
-    EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
-    EX2_tail = cumX2_tail / all_counts[::-1]    # E[X^2], starting from N-1
-    mses_head = EX2_head - (EX_head * EX_head)  # mses from 0
-    mses_tail = EX2_tail - (EX_tail * EX_tail)  # mses from N-1
-    sses_head = mses_head * all_counts          #
-    sses_tail = mses_tail * all_counts[::-1]
+    # EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
+    # EX2_tail = cumX2_tail / all_counts[::-1]    # E[X^2], starting from N-1
+    # mses_head = EX2_head - (EX_head * EX_head)  # mses from 0
+    # mses_tail = EX2_tail - (EX_tail * EX_tail)  # mses from N-1
+    # sses_head = mses_head * all_counts          #
+    # sses_tail = mses_tail * all_counts[::-1]
 
-    # TODO rm
-    mse_head_diffs = sses_head[1:] - sses_head[:-1]
-    # print("mse_head_diffs[:20]", mse_head_diffs[:20])
-    assert np.all(mse_head_diffs > -.1)  # should be nondecreasing
-    mse_tail_diffs = sses_tail[1:] - sses_tail[:-1]
-    assert np.all(mse_tail_diffs < .1)  # should be nonincreasing
+    # simpler equivalent of above; mse * N reduces to this
+    sses_head = cumX2_head - (cumX_head * EX_head)
+    sses_tail = cumX2_tail - (cumX_tail * EX_tail)
+
+    # # TODO rm
+    # mse_head_diffs = sses_head[1:] - sses_head[:-1]
+    # # print("mse_head_diffs[:20]", mse_head_diffs[:20])
+    # assert np.all(mse_head_diffs > -.1)  # should be nondecreasing
+    # mse_tail_diffs = sses_tail[1:] - sses_tail[:-1]
+    # assert np.all(mse_tail_diffs < .1)  # should be nonincreasing
 
     sses = sses_head
     sses[:-1] += sses_tail[1:]  # sse of X_sort[:i] + sse of X_sort[i:]
@@ -190,9 +194,7 @@ def optimal_split_val(X, dim, possible_vals=None,
         best_idx = np.argmin(sses)
         next_idx = min(N - 1, best_idx + 1)
         best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
-
         # print("best idx, N = ", best_idx, len(X))
-
     else:  # have to choose one of the values in possible_vals
         sorted_col = X_sort[:, dim]
         idxs = np.searchsorted(sorted_col, possible_vals)
