@@ -163,17 +163,36 @@ def optimal_split_val(X, dim, possible_vals=None,
     EX_tail = cumX_tail / all_counts[::-1]      # E[X], starting from N-1
     EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
     EX2_tail = cumX2_tail / all_counts[::-1]    # E[X^2], starting from N-1
-    sses_head = EX2_head - EX_head * EX_head    # sum of squares from 0
-    sses_tail = EX2_tail - EX_tail * EX_tail    # sum of squares from N-1
+    mses_head = EX2_head - (EX_head * EX_head)  # mses from 0
+    mses_tail = EX2_tail - (EX_tail * EX_tail)  # mses from N-1
+    sses_head = mses_head * all_counts          #
+    sses_tail = mses_tail * all_counts[::-1]
+
+    # TODO rm
+    mse_head_diffs = sses_head[1:] - sses_head[:-1]
+    # print("mse_head_diffs[:20]", mse_head_diffs[:20])
+    assert np.all(mse_head_diffs > -.1)  # should be nondecreasing
+    mse_tail_diffs = sses_tail[1:] - sses_tail[:-1]
+    assert np.all(mse_tail_diffs < .1)  # should be nonincreasing
 
     sses = sses_head
     sses[:-1] += sses_tail[1:]  # sse of X_sort[:i] + sse of X_sort[i:]
     sses = sses.sum(axis=1)
 
+    # # TODO rm
+    # E_X = X.mean(axis=0)
+    # E_X2 = (X * X).mean(axis=0)
+    # sse_true = np.sum(E_X2 - (E_X * E_X)) * N
+    # print("sses[0], sses[-1], true loss, np.sum(X.var(axis=0)) * N",
+    #       sses[0], sses[-1], sse_true, np.sum(X.var(axis=0)) * N)
+
     if possible_vals is None or not len(possible_vals):  # can split anywhere
         best_idx = np.argmin(sses)
         next_idx = min(N - 1, best_idx + 1)
         best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
+
+        # print("best idx, N = ", best_idx, len(X))
+
     else:  # have to choose one of the values in possible_vals
         sorted_col = X_sort[:, dim]
         idxs = np.searchsorted(sorted_col, possible_vals)
@@ -260,10 +279,16 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
             X[:, dim], try_nquantiles)
 
     if verbose > 0:
-        print("learn_splits(): initial loss: ", total_loss)
+        print("learn_splits_cooler(): initial loss: ", total_loss)
 
     splits = []
+    col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
     for s in range(nsplits):
+
+        if s >= 2:
+            print("exiting after two splits")
+            import sys; sys.exit()
+
         if verbose > 1:
             print("================================ finding split #:", s)
         for i, buck in enumerate(buckets):  # TODO rm sanity check
@@ -276,15 +301,24 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
         nbuckets_per_group = nbuckets // ngroups
         assert nbuckets_per_group * ngroups == nbuckets  # sanity check
 
-        try_dims = np.arange(D)  # TODO restrict to subset?
+        # pick out dims to consider splitting on
+        # try_dims = np.arange(D)  # TODO restrict to subset?
+        col_losses[:] = 0
+        for buck in buckets:
+            col_losses += buck.col_sum_sqs()
+        try_dims = np.argsort(col_losses)[-4:]
+        # try_dims = np.arange(D)  # TODO restrict to subset?
+
         losses = np.zeros(len(try_dims), dtype=X.dtype)
         all_split_vals = []  # vals chosen by each bucket/group for each dim
 
         # determine for this dim what the best split vals are for each
         # group and what the loss is when using these split vals
-        for dim in try_dims:
+        for d, dim in enumerate(try_dims):
             if verbose > 2:
-                print("---------------------- dim = ", dim)
+                # print("---------------------- dim = ", dim)
+                print("---------------------- dim = {}, ({:.5f}, {:.5f})".format(
+                    dim, np.min(X[:, dim]), np.max(X[:, dim])))
             # just let each bucket pick its optimal split val for this dim;
             # special case of below where each "group" is one bucket, and
             # instead of having to pick val from fixed set, can be anything
@@ -292,7 +326,7 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
                 split_vals = []  # each bucket contributes one split val
                 for buck in buckets:
                     val, loss = buck.optimal_split_val(X, dim)
-                    losses[dim] += loss
+                    losses[d] += loss
                     split_vals.append(val)
                 all_split_vals.append(split_vals)
             # buckets have to pick from fixed set of possible values; each
@@ -301,7 +335,7 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
             # buckets in the group, and then take val with lowest sum
             else:
                 split_vals = []  # each group contributes one split val
-                losses = np.zeros_like(possible_split_vals[0])
+                losses_for_vals = np.zeros_like(possible_split_vals[0])
                 for g in range(ngroups):
                     start_idx = g * nbuckets_per_group
                     end_idx = start_idx + nbuckets_per_group
@@ -309,17 +343,17 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
 
                     # compute loss for each possible split value, summed
                     # across all buckets in this group; then choose best
-                    losses[:] = 0
+                    losses_for_vals[:] = 0
                     possible_vals = possible_split_vals[dim]
                     for b, buck in enumerate(group_buckets):
                         _, _, val_losses = optimal_split_val(
                             X, dim, possible_vals=possible_vals,
                             return_possible_vals_losses=True)
-                        losses += val_losses
-                    best_val_idx = np.argmin(losses)
+                        losses_for_vals += val_losses
+                    best_val_idx = np.argmin(losses_for_vals)
                     best_val = possible_vals[best_val_idx]
                     best_loss = losses[best_val_idx]
-                    losses[dim] += best_loss
+                    losses[d] += best_loss
                     split_vals.append(best_val)
                 all_split_vals.append(split_vals)
 
@@ -339,8 +373,14 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
             new_buckets += list(buck.split(X, dim=best_dim, val=val))
         buckets = new_buckets
 
+        print("using dim, split_vals:", dim, use_split_vals)
+        print("bucket counts: ", [buck.N for buck in buckets])
+        print("loss from sse computation: ", losses[best_tried_dim_idx])
+        print("loss from buckets: ", sum([bucket.loss for bucket in buckets]))
+
     # maybe return centroids in addition to set of MultiSplits and loss
     loss = sum([bucket.loss for bucket in buckets])
+    print("learn_splits_cooler(): returning loss: ", loss)
     if return_centroids:
         centroids = np.vstack([buck.col_means() for buck in buckets])
         assert centroids.shape == (len(buckets), X.shape[1])
@@ -602,12 +642,16 @@ def centroids_from_splits(X, splits):
     return _centroids_from_assignments(X, assignments, ncentroids=ncentroids)
 
 
-# def centroids_from_multisplits(X, splits):
-#     pass
-
 def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
                               return_centroids=True, verbose=2):
     N, D = X.shape
+
+
+
+    N /= 100 # TODO rm after debug
+
+
+
     splits_lists = []
     nsubs = int(np.ceil(D) / subvect_len)
 
@@ -638,6 +682,9 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
         if verbose > 1:
             print("learning splits: mse / var(X) in subs {}/{} = {:3g}".format(
                 m + 1, nsubs, (sse / N) / np.var(X_subs)))
+
+        print("exiting after one subspace")
+        import sys; sys.exit()
 
     print("-- total mse / var(X): {:.3g}".format(tot_sse / tot_sse_using_mean))
     if return_centroids:
