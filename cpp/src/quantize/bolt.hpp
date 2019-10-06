@@ -346,8 +346,10 @@ void bolt_encode_centroids(const data_t* centroids, int ncols, data_t* out) {
  * @tparam NBytes Byte length of each code
  * @tparam _ Placeholder so that bolt_scan<M, false> always works (see
  *  overload of bolt_scan below)
+ * @tparam SignedLUTs Whether to store lookup table entries as int8_t instead
+ *  of uint8_t
  */
-template<int NBytes, bool _=false> // 2nd arg is so bolt<M, false> always works
+template<int NBytes, bool _=false, bool SignedLUTs=false> // 2nd arg is so bolt<M, false> always works
 inline void bolt_scan(const uint8_t* codes,
     const uint8_t* luts, uint8_t* dists_out, int64_t nblocks)
 {
@@ -388,8 +390,13 @@ inline void bolt_scan(const uint8_t* codes,
             auto dists_low = _mm256_shuffle_epi8(lut_low, x_low);
             auto dists_high = _mm256_shuffle_epi8(lut_high, x_high);
 
-            totals = _mm256_adds_epu8(totals, dists_low);
-            totals = _mm256_adds_epu8(totals, dists_high);
+            if (SignedLUTs) {
+                totals = _mm256_adds_epi8(totals, dists_low);
+                totals = _mm256_adds_epi8(totals, dists_high);
+            } else {
+                totals = _mm256_adds_epu8(totals, dists_low);
+                totals = _mm256_adds_epu8(totals, dists_high);
+            }
         }
         _mm256_stream_si256((__m256i*)dists_out, totals);
         dists_out += 32;
@@ -399,7 +406,7 @@ inline void bolt_scan(const uint8_t* codes,
 // overload of above with uint16_t dists_out (as used in the paper); also
 // has the option to immediately upcast uint8s from the LUTs to uint16_t, which
 // is also what we did in the paper. Bolt is even faster if we don't do this.
-template<int NBytes, bool NoOverflow=false>
+template<int NBytes, bool NoOverflow=false, bool SignedLUTs=false>
 inline void bolt_scan(const uint8_t* codes,
     const uint8_t* luts, uint16_t* dists_out, int64_t nblocks)
 {
@@ -461,7 +468,11 @@ inline void bolt_scan(const uint8_t* codes,
                 totals_odds = _mm256_adds_epu16(totals_odds, dists16_high_odds);
 
             } else { // add pairs as epu8s, then use pair sums as epu16s
-                auto dists = _mm256_adds_epu8(dists_low, dists_high);
+                if (SignedLUTs) {
+                    auto dists = _mm256_adds_epi8(dists_low, dists_high);
+                } else {
+                    auto dists = _mm256_adds_epu8(dists_low, dists_high);
+                }
                 auto dists16_evens = _mm256_and_si256(dists, low_8bits_mask);
                 auto dists16_odds = _mm256_srli_epi16(dists, 8);
 
@@ -471,7 +482,6 @@ inline void bolt_scan(const uint8_t* codes,
         }
 
         // unmix the interleaved 16bit dists and store them
-        // alright, this looks right when using the debug dists above
         auto tmp_low = _mm256_permute4x64_epi64(
                 totals_evens, _MM_SHUFFLE(3,1,2,0));
         auto tmp_high = _mm256_permute4x64_epi64(
