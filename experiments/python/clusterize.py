@@ -260,7 +260,7 @@ class MultiSplit(object):
 
     def __init__(self, dim, vals):
         self.dim = dim
-        self.vals = vals
+        self.vals = np.asarray(vals)
 
 
 def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
@@ -286,11 +286,9 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
     splits = []
     col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
     for s in range(nsplits):
-
-        if s >= 2:
-            print("exiting after two splits")
-            import sys; sys.exit()
-
+        # if s >= 2:
+        #     print("exiting after two splits")
+        #     import sys; sys.exit()
         if verbose > 1:
             print("================================ finding split #:", s)
         for i, buck in enumerate(buckets):  # TODO rm sanity check
@@ -308,7 +306,9 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
         col_losses[:] = 0
         for buck in buckets:
             col_losses += buck.col_sum_sqs()
-        try_dims = np.argsort(col_losses)[-4:]
+        try_dims = np.argsort(col_losses)[-8:]
+        # try_dims = np.argsort(col_losses)[-4:]
+        # try_dims = np.argsort(col_losses)[-2:]
         # try_dims = np.arange(D)  # TODO restrict to subset?
 
         losses = np.zeros(len(try_dims), dtype=X.dtype)
@@ -603,20 +603,26 @@ def learn_splits_simple(X, nsplits, dim_algo='greedy_var', split_algo='mean',
     return splits, -1
 
 
-def learn_splits(X, nsplits, return_centroids=True, **kwargs):
+def learn_splits(X, nsplits, return_centroids=True, algo='multisplits',
+                 **kwargs):
     # indirect to particular func; will likely need to try something simpler
     # for debugging and/or as experimental control
     # return learn_splits_greedy(X, nsplits, **kwargs)
     # return learn_splits_simple(X, nsplits, **kwargs)
     # return learn_splits_conditional(X, nsplits, **kwargs)
     # return learn_splits_greedy(X, nsplits) # TODO fwd kwargs
-    # splits, loss = learn_splits_greedy(X, nsplits)
-    # if return_centroids:
-    #     centroids = centroids_from_splits(X, splits)
-    #     return splits, loss, centroids
-    # return splits, loss
 
-    return learn_splits_cooler(X, nsplits, return_centroids=return_centroids)
+    if algo == 'multisplits':
+        return learn_splits_cooler(
+            X, nsplits, return_centroids=return_centroids)
+
+    if algo == 'splits':
+        splits, loss = learn_splits_greedy(X, nsplits)
+
+    if return_centroids:
+        centroids = centroids_from_splits(X, splits)
+        return splits, loss, centroids
+    return splits, loss
 
 
 def assignments_from_splits(X, splits):
@@ -629,6 +635,43 @@ def assignments_from_splits(X, splits):
     # scales = (2 ** np.arange(nsplits)).astype(np.int)
     scales = (1 << np.arange(nsplits)).astype(np.int)
     return (indicators.T * scales).sum(axis=1).astype(np.int)
+
+
+def assignments_from_multisplits(X, splits):
+    N, _ = X.shape
+    nsplits = len(splits)
+    # indicators = np.zeros((nsplits, len(X)), dtype=np.int)
+    assert len(splits) >= 1
+    # dim0 = splits[0].dim
+    # assert len(splits[0].vals) == 1  # only 1 initial split
+    # indicators[0] = X > splits[0].vals[0]
+
+    max_ngroups = len(splits[-1].vals)
+    nsplits_affecting_group_id = int(np.log2(max_ngroups))
+    assert 1 << nsplits_affecting_group_id == max_ngroups  # power of 2
+    # np.log2(max_nsplits)
+
+    # determine group ids for each point; this is the one that's annoying
+    # because the number of bits changes after split
+    group_ids = np.zeros(N, dtype=np.int)
+    for i in range(min(nsplits, nsplits_affecting_group_id)):
+        split = splits[i]
+        vals = split.vals[group_ids]
+        indicators = X[:, split.dim] > vals
+        group_ids = (group_ids * 2) + indicators
+
+    if nsplits <= nsplits_affecting_group_id:
+        return group_ids
+
+    # compute remaining bits
+    assignments = np.copy(group_ids)
+    for i in range(nsplits_affecting_group_id, nsplits):
+        split = splits[i]
+        vals = split.vals[group_ids]
+        indicators = X[:, split.dim] > vals
+        assignments = (assignments * 2) + indicators
+
+    return assignments
 
 
 def _centroids_from_assignments(X, assignments, ncentroids):
@@ -645,14 +688,11 @@ def centroids_from_splits(X, splits):
 
 
 def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
-                              return_centroids=True, verbose=2):
+                              return_centroids=True, algo='splits',
+                              verbose=2):
     N, D = X.shape
 
-
-
-    N /= 100 # TODO rm after debug
-
-
+    # N /= 100 # TODO rm after debug
 
     splits_lists = []
     nsubs = int(np.ceil(D) / subvect_len)
@@ -676,7 +716,7 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
 
         splits, sse, subs_centroids = learn_splits(
             X_subs, nsplits=nsplits_per_subs, verbose=(verbose - 1),
-            return_centroids=True)
+            return_centroids=True, algo=algo)
         centroids[:, m, :] = subs_centroids
         splits_lists.append(splits)
 
@@ -685,8 +725,8 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
             print("learning splits: mse / var(X) in subs {}/{} = {:3g}".format(
                 m + 1, nsubs, (sse / N) / np.var(X_subs)))
 
-        print("exiting after one subspace")
-        import sys; sys.exit()
+        # print("exiting after one subspace")
+        # import sys; sys.exit()
 
     print("-- total mse / var(X): {:.3g}".format(tot_sse / tot_sse_using_mean))
     if return_centroids:
@@ -694,7 +734,7 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
     return splits_lists
 
 
-def encode_using_splits(X, subvect_len, splits_lists):
+def encode_using_splits(X, subvect_len, splits_lists, split_type='single'):
     N, D = X.shape
     nsubs = int(np.ceil(D) / subvect_len)
     X_enc = np.empty((X.shape[0], nsubs), dtype=np.int, order='f')
@@ -702,7 +742,10 @@ def encode_using_splits(X, subvect_len, splits_lists):
         start_col = m * subvect_len
         end_col = start_col + subvect_len
         X_subs = X[:, start_col:end_col]
-        X_enc[:, m] = assignments_from_splits(X_subs, splits_lists[m])
+        if split_type == 'single':
+            X_enc[:, m] = assignments_from_splits(X_subs, splits_lists[m])
+        elif split_type == 'multi':
+            X_enc[:, m] = assignments_from_multisplits(X_subs, splits_lists[m])
 
     return np.ascontiguousarray(X_enc)
 

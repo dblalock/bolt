@@ -132,7 +132,8 @@ class BoltGreedySplits(BoltMatmul):
     def _get_encoder_kwargs(self):
         return dict(
             # preproc='GEHT', encode_algo='splits')
-            preproc='PQ', encode_algo='splits')
+            # preproc='PQ', encode_algo='splits')
+            preproc='PQ', encode_algo='multisplits')
 
 
 class PQGreedySplits(PQMatmul):
