@@ -127,22 +127,70 @@ class GEHTBoltMatmul_CorrSamp(BoltMatmul):
             preproc='GEHT', sample_how='importance', stats_mat='corr')
 
 
-class BoltGreedySplits(BoltMatmul):
+class BoltSplits(BoltMatmul):
 
     def _get_encoder_kwargs(self):
         return dict(
-            # preproc='GEHT', encode_algo='splits')
-            # preproc='PQ', encode_algo='splits')
-            preproc='PQ', encode_algo='multisplits')
+            preproc='PQ', encode_algo='splits')
 
 
-class PQGreedySplits(PQMatmul):
+class BoltMultiSplits(BoltMatmul):
 
-    def __init__(self, ncodebooks, ncentroids):
+    def _get_encoder_kwargs(self):
+        return dict(encode_algo='multisplits')
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        metrics[amm.KEY_NMULTIPLIES] = 0
+        return metrics
+
+
+class BoltPermMultiSplits(BoltMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(preproc='GEHT', encode_algo='multisplits')
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        metrics[amm.KEY_NMULTIPLIES] = 0
+        return metrics
+
+
+class PQPerm(PQMatmul):
+
+    def _get_encoder_kwargs(self):
+        return dict(preproc='GEHT')
+
+
+class PQMultiSplits(PQMatmul):
+
+    def __init__(self, ncodebooks, ncentroids=256):
         super().__init__(ncodebooks=ncodebooks, ncentroids=ncentroids)
 
     def _get_encoder_kwargs(self):
-        return dict(encode_algo='splits')
+        return dict(encode_algo='multisplits')
 
     def get_params(self):
         return {'ncodebooks': self.ncodebooks, 'ncentroids': self.ncentroids}
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        metrics[amm.KEY_NMULTIPLIES] = 0
+        return metrics
+
+
+class PQPermMultiSplits(PQMatmul):
+
+    def __init__(self, ncodebooks, ncentroids=256):
+        super().__init__(ncodebooks=ncodebooks, ncentroids=ncentroids)
+
+    def _get_encoder_kwargs(self):
+        return dict(preproc='GEHT', encode_algo='multisplits')
+
+    def get_params(self):
+        return {'ncodebooks': self.ncodebooks, 'ncentroids': self.ncentroids}
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        metrics[amm.KEY_NMULTIPLIES] = 0
+        return metrics

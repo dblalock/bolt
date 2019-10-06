@@ -20,12 +20,17 @@ METHOD_SKETCH_SQ_SAMPLE = 'SketchSqSample'
 METHOD_SVD = 'SVD'
 METHOD_FD_AMM = 'FD-AMM'
 METHOD_COOCCUR = 'CooccurSketch'
-METHOD_PQ = 'PQ'
-METHOD_BOLT = 'Bolt'
 METHOD_OPQ = 'OPQ'
+METHOD_BOLT = 'Bolt'
 METHOD_BOLT_PERM = 'Bolt+Perm'
 METHOD_BOLT_CORRPERM = 'Bolt+CorrPerm'
 METHOD_BOLT_SPLITS = 'BoltSplits'
+METHOD_BOLT_MULTISPLITS = 'Bolt+MultiSplits'
+METHOD_BOLT_PERM_MULTISPLITS = 'Bolt+Perm+MultiSplits'
+METHOD_PQ = 'PQ'
+METHOD_PQ_PERM = 'PQ+Perm'
+METHOD_PQ_MULTISPLITS = 'PQ+MultiSplits'
+METHOD_PQ_PERM_MULTISPLITS = 'PQ+Perm+MultiSplits'
 
 # these are for trying out different perm options
 METHOD_BOLT_GEHT_COV_TOPK = 'Bolt_CovTopk'
@@ -42,13 +47,18 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_PQ: vq_amm.PQMatmul,
     METHOD_BOLT: vq_amm.BoltMatmul,
     METHOD_OPQ: vq_amm.OPQMatmul,
-    METHOD_BOLT_PERM: vq_amm.GEHTBoltMatmul_CovTopk,
     METHOD_BOLT_CORRPERM: vq_amm.GEHTBoltMatmul_CorrTopk,
-    METHOD_BOLT_SPLITS: vq_amm.BoltGreedySplits,
     METHOD_BOLT_GEHT_COV_TOPK: vq_amm.GEHTBoltMatmul_CovTopk,
     METHOD_BOLT_GEHT_COV_SAMP: vq_amm.GEHTBoltMatmul_CovSamp,
     METHOD_BOLT_GEHT_COR_TOPK: vq_amm.GEHTBoltMatmul_CorrTopk,
     METHOD_BOLT_GEHT_COR_SAMP: vq_amm.GEHTBoltMatmul_CorrSamp,
+    METHOD_BOLT_PERM: vq_amm.GEHTBoltMatmul_CovTopk,
+    METHOD_BOLT_SPLITS: vq_amm.BoltSplits,
+    METHOD_BOLT_MULTISPLITS: vq_amm.BoltMultiSplits,
+    METHOD_BOLT_PERM_MULTISPLITS: vq_amm.BoltPermMultiSplits,
+    METHOD_PQ_PERM: vq_amm.PQPerm,
+    METHOD_PQ_MULTISPLITS: vq_amm.PQMultiSplits,
+    METHOD_PQ_PERM_MULTISPLITS: vq_amm.PQPermMultiSplits,
 }
 _ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
 _ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE),  # always terrible results
@@ -64,8 +74,11 @@ SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
 BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM,
-                METHOD_BOLT_CORRPERM, METHOD_BOLT_SPLITS)
-VQ_METHODS = (METHOD_PQ,) + BOLT_METHODS
+                METHOD_BOLT_CORRPERM, METHOD_BOLT_SPLITS,
+                METHOD_BOLT_MULTISPLITS, METHOD_BOLT_PERM_MULTISPLITS)
+PQ_METHODS = (METHOD_PQ, METHOD_PQ_PERM, METHOD_PQ_MULTISPLITS,
+              METHOD_PQ_PERM_MULTISPLITS)
+VQ_METHODS = PQ_METHODS + BOLT_METHODS
 NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
@@ -345,7 +358,11 @@ def main():
     # main_cifar100(methods=['Bolt', 'Bolt+Perm'])
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['Bolt'])
-    main_cifar10(methods=['BoltSplits', 'Bolt'])
+    # main_cifar10(methods=['BoltSplits', 'Bolt', 'PQSplits', 'PQ'])
+    # main_cifar10(methods=['PQ+Ours', 'PQ'])
+    # main_cifar10(methods=['PQ+MultiSplits', 'PQ+Perm+MultiSplits', 'PQ+Perm', 'PQ', 'Bolt'])  # noqa
+    # main_cifar10(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
+    main_cifar100(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
     # main_cifar10(methods=['BoltSplits'])
     # main_cifar100(methods=['BoltSplits'])
     # main_cifar100(methods=['Bolt', 'BoltSplits'])
@@ -366,5 +383,6 @@ def main():
 
 
 if __name__ == '__main__':
-    np.set_printoptions(formatter={'float': lambda f: "{:.2f}".format(f)})
+    np.set_printoptions(formatter={'float': lambda f: "{:.2f}".format(f)},
+                        linewidth=100)
     main()
