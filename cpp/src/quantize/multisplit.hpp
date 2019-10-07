@@ -23,7 +23,7 @@
 namespace {
 
 void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
-    const int* splitdims, const int8_t* splitvals,
+    const uint32_t* splitdims, const int8_t* splitvals,
     const float* scales, const float* offsets,
     int ncodebooks, int splits_per_codebook, uint8_t* out)
 {
@@ -67,9 +67,9 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                 // map -1 -> 1; 0 stays the same
                 auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
                 // OR in new low bit by adding
-                codes = _mm256_add_epi8(codes_so_far, masks_0_or_1);
+                codes = _mm256_add_epi8(codes, masks_0_or_1);
 
-                _mm256_store_si256((__m256i*)out_ptr, codes);
+                _mm256_storeu_si256((__m256i*)out_ptr, codes);
                 out_ptr += block_rows;
                 x_ptr += block_rows;
             }
@@ -78,9 +78,8 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     }
 }
 
-// template<int GroupIdNumBits=4>
 void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
-    const int* splitdims, const int8_t* all_splitvals,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
     const float* scales, const float* offsets,
     int ncodebooks, int splits_per_codebook, uint8_t* out)
 {
@@ -118,6 +117,7 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
             auto voffsets = _mm256_set1_ps(offsets[split_idx]);
 
             // iterate through this col of X
+            // printf("splitdim: %d\n", splitdim);
             auto x_col_start = X + (nrows * splitdim);  // X colmajor contiguous
             auto x_ptr = x_col_start;
             auto out_ptr = out_col_start;
@@ -139,13 +139,14 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                     // map -1 -> 1; 0 stays the same
                     auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
                     // OR in new low bit by adding
-                    codes = _mm256_add_epi8(codes_so_far, masks_0_or_1);
+                    codes = _mm256_add_epi8(codes, masks_0_or_1);
 
-                    _mm256_store_si256((__m256i*)out_ptr, codes);
+                    _mm256_storeu_si256((__m256i*)out_ptr, codes);
                     out_ptr += block_rows;
                     x_ptr += block_rows;
                 }
             } else {  // group_id is no longer in the low 4 bits
+                // assert(false); // TODO rm
                 int shift_amount = (s + 1) - low_bits_used_in_shuffle;
                 for (int b = 0; b < nblocks; b++) { // for each block
                     auto x_i8 = load_4xf32_as_32xepi8_or_epu8<true>(
@@ -159,7 +160,7 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                     // zero out the upper bits regardless (which is necessary
                     // since vpshufb will return 0, instead of the value at
                     // the associated index, if the MSB of the index is 1)
-                    auto group_ids =  _mm256_slli_epi16(
+                    auto group_ids =  _mm256_srli_epi16(
                         codes_so_far, shift_amount);
                     group_ids = _mm256_and_si256(group_ids, low_4bits_mask);
                     auto vsplitvals = _mm256_shuffle_epi8(
@@ -168,9 +169,9 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                     auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
                     auto codes = _mm256_add_epi8(codes_so_far, codes_so_far);
                     auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
-                    codes = _mm256_add_epi8(codes_so_far, masks_0_or_1);
+                    codes = _mm256_add_epi8(codes, masks_0_or_1);
 
-                    _mm256_store_si256((__m256i*)out_ptr, codes);
+                    _mm256_storeu_si256((__m256i*)out_ptr, codes);
                     out_ptr += block_rows;
                     x_ptr += block_rows;
                 }
