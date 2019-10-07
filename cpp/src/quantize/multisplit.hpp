@@ -78,19 +78,21 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     }
 }
 
-template<int GroupIdNumBits=4>
-void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
+// template<int GroupIdNumBits=4>
+void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     const int* splitdims, const int8_t* all_splitvals,
     const float* scales, const float* offsets,
     int ncodebooks, int splits_per_codebook, uint8_t* out)
 {
     static const int low_bits_used_in_shuffle = 4;
-    static_assert(GroupIdNumBits <= low_bits_used_in_shuffle,
-        "Can vectorize at most 16 groups");
-    static constexpr int vals_per_split = 1 << GroupIdNumBits; // usually 16
+    static const int group_id_nbits = low_bits_used_in_shuffle;
+    // static_assert(GroupIdNumBits <= low_bits_used_in_shuffle,
+    //     "Can vectorize at most 16 groups");
     static constexpr int block_rows = 32;
-    const int64_t nblocks = ceil(nrows / (double)block_rows);
     static const __m256i low_4bits_mask = _mm256_set1_epi8(0x0F);
+    const int64_t nblocks = ceil(nrows / (double)block_rows);
+    const int vals_per_split = 1 << group_id_nbits; // usually 16
+    assert(group_id_nbits <= low_bits_used_in_shuffle);
     assert(splits_per_codebook <= 8); // code assumes we don't overflow bytes
     assert(nrows % block_rows == 0); // TODO remove this constraint
 
@@ -151,7 +153,7 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                     auto codes_so_far = load_si256i(out_ptr);
 
                     // this is the part that's different from the above loop;
-                    // we could just have in if statement in the previous one,
+                    // we could just have an if statement in the previous one,
                     // but not a great idea in the hot loop; note that the
                     // size of the words we shift doesn't matter since we
                     // zero out the upper bits regardless (which is necessary
