@@ -516,13 +516,10 @@ inline void bolt_scan_unpacked_colmajor(const uint8_t* codes,
     static constexpr int block_rows = 32;
     const int64_t nrows = nblocks * block_rows;
 
-    for (int m = 0; m < ncodebooks; m++) {
-        // zero out this column of the output to use as workmem
-        auto out_col_start = out + (m * nrows);
-        for (int64_t i = 0; i < nrows; i++) {
-            out_col_start[i] = 0;
-        }
+    // zero output to use as workmem
+    for (int64_t i = 0; i < nrows; i++) { out[i] = 0; }
 
+    for (int m = 0; m < ncodebooks; m++) {
         // load lut for this subspace
         auto lut_ptr = luts + (m * lut_sz);
         auto vlut = _mm256_broadcastsi128_si256(
@@ -531,7 +528,7 @@ inline void bolt_scan_unpacked_colmajor(const uint8_t* codes,
         // iterate thru this whole column of codes
         auto codes_col_start = codes + (nrows * m);  // colmajor contiguous
         auto codes_ptr = codes_col_start;
-        auto out_ptr = out_col_start;
+        auto out_ptr = out;
         for (int64_t b = 0; b < nblocks; b++) {
             auto vcodes = load_si256i(codes_ptr);
             auto dists_so_far_0 = load_si256i(out_ptr);
@@ -557,6 +554,187 @@ inline void bolt_scan_unpacked_colmajor(const uint8_t* codes,
             _mm256_store_si256((__m256i*)out_ptr, new_dists0);
             _mm256_store_si256((__m256i*)(out_ptr + 16), new_dists1);
             codes_ptr += block_rows;
+            out_ptr += block_rows;
+        }
+    }
+}
+
+template<int UpcastEvery=4, bool SignedLUTs=true>
+inline void bolt_scan_unpacked_colmajor_tile4(const uint8_t* codes,
+    int64_t nblocks, int ncodebooks, const uint8_t* luts, int16_t* out)
+{
+    static_assert(SignedLUTs, "Unsigned luts not implemented yet");
+    static constexpr int lut_sz = 16;
+    static constexpr int block_rows = 32;
+    static constexpr int tile_sz = 4;
+    const int64_t nrows = nblocks * block_rows;
+    assert(ncodebooks % tile_sz == 0); // otherwise tiling gets nasty
+
+    auto ntiles = ncodebooks / tile_sz;
+
+    // zero output to use as workmem
+    for (int64_t i = 0; i < nrows; i++) { out[i] = 0; }
+
+    // for (int m = 0; m < ncodebooks; m++) {
+    for (int t = 0; t < ntiles; t++) {
+        auto m0 = t * tile_sz;
+        auto m1 = m0 + 1;
+        auto m2 = m0 + 2;
+        auto m3 = m0 + 3;
+
+        // load lut for this subspace
+        auto lut_ptr0 = luts + (m0 * lut_sz);
+        auto lut_ptr1 = luts + (m1 * lut_sz);
+        auto lut_ptr2 = luts + (m2 * lut_sz);
+        auto lut_ptr3 = luts + (m3 * lut_sz);
+        auto vlut0 = _mm256_broadcastsi128_si256(load_si128i(lut_ptr0));
+        auto vlut1 = _mm256_broadcastsi128_si256(load_si128i(lut_ptr1));
+        auto vlut2 = _mm256_broadcastsi128_si256(load_si128i(lut_ptr2));
+        auto vlut3 = _mm256_broadcastsi128_si256(load_si128i(lut_ptr3));
+
+        // iterate thru tile_sz columns of codes at once
+        auto codes_ptr0 = codes + (nrows * m0);
+        auto codes_ptr1 = codes + (nrows * m1);
+        auto codes_ptr2 = codes + (nrows * m2);
+        auto codes_ptr3 = codes + (nrows * m3);
+        auto out_ptr = out;
+        for (int64_t b = 0; b < nblocks; b++) {
+            auto vcodes0 = load_si256i(codes_ptr0);
+            auto vcodes1 = load_si256i(codes_ptr1);
+            auto vcodes2 = load_si256i(codes_ptr2);
+            auto vcodes3 = load_si256i(codes_ptr3);
+            auto dists_so_far_0_15 = load_si256i(out_ptr);
+            auto dists_so_far_16_31 = load_si256i(out_ptr + 16);
+
+            auto dists0 = _mm256_shuffle_epi8(vlut0, vcodes0);
+            auto dists1 = _mm256_shuffle_epi8(vlut1, vcodes1);
+            auto dists2 = _mm256_shuffle_epi8(vlut2, vcodes2);
+            auto dists3 = _mm256_shuffle_epi8(vlut3, vcodes3);
+
+            auto dists_0_15 = _mm256_undefined_si256();
+            auto dists_16_31 = _mm256_undefined_si256();
+            if (SignedLUTs) {
+                if (UpcastEvery == 4) {
+                    // add all four, and only then upcast to 16b
+                    auto dists01 = _mm256_adds_epi8(dists0, dists1);
+                    auto dists23 = _mm256_adds_epi8(dists2, dists3);
+                    auto dists = _mm256_adds_epi8(dists01, dists23);
+                    dists_0_15 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists, 0));
+                    dists_16_31 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists, 1));
+                } else if (UpcastEvery == 2) {
+                    // pairwise sums, then upcast to 16 bits
+                    auto dists01 = _mm256_adds_epi8(dists0, dists1);
+                    auto dists23 = _mm256_adds_epi8(dists2, dists3);
+
+                    auto dists01_0 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists01, 0));
+                    auto dists01_1 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists01, 1));
+                    auto dists23_0 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists23, 0));
+                    auto dists23_1 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists23, 1));
+
+                    dists_0_15 = _mm256_adds_epi16(dists01_0, dists23_0);
+                    dists_16_31 = _mm256_adds_epi16(dists01_1, dists23_1);
+                } else if (UpcastEvery == 1) {
+                    // convert everything to 16 bits immediately
+                    auto dists0_0 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists0, 0));
+                    auto dists0_1 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists0, 1));
+                    auto dists1_0 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists1, 0));
+                    auto dists1_1 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists1, 1));
+                    auto dists2_0 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists2, 0));
+                    auto dists2_1 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists2, 1));
+                    auto dists3_0 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists3, 0));
+                    auto dists3_1 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(dists3, 1));
+
+                    auto dists01_0 = _mm256_adds_epi16(dists0_0, dists1_0);
+                    auto dists01_1 = _mm256_adds_epi16(dists0_1, dists1_1);
+                    auto dists23_0 = _mm256_adds_epi16(dists2_0, dists3_0);
+                    auto dists23_1 = _mm256_adds_epi16(dists2_1, dists3_1);
+                    dists_0_15 = _mm256_adds_epi16(dists01_0, dists23_0);
+                    dists_16_31 = _mm256_adds_epi16(dists01_1, dists23_1);
+                }
+            } else {
+                if (UpcastEvery == 4) {
+                    // add all four, and only then upcast to 16b
+                    auto dists01 = _mm256_adds_epu8(dists0, dists1);
+                    auto dists23 = _mm256_adds_epu8(dists2, dists3);
+                    auto dists = _mm256_adds_epu8(dists01, dists23);
+                    dists_0_15 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists, 0));
+                    dists_16_31 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists, 1));
+                } else if (UpcastEvery == 2) {
+                    // pairwise sums, then upcast to 16 bits
+                    auto dists01 = _mm256_adds_epu8(dists0, dists1);
+                    auto dists23 = _mm256_adds_epu8(dists2, dists3);
+
+                    auto dists01_0 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists01, 0));
+                    auto dists01_1 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists01, 1));
+                    auto dists23_0 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists23, 0));
+                    auto dists23_1 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists23, 1));
+
+                    dists_0_15 = _mm256_adds_epi16(dists01_0, dists23_0);
+                    dists_16_31 = _mm256_adds_epi16(dists01_1, dists23_1);
+                } else if (UpcastEvery == 1) {
+                    // convert everything to 16 bits immediately
+                    auto dists0_0 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists0, 0));
+                    auto dists0_1 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists0, 1));
+                    auto dists1_0 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists1, 0));
+                    auto dists1_1 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists1, 1));
+                    auto dists2_0 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists2, 0));
+                    auto dists2_1 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists2, 1));
+                    auto dists3_0 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists3, 0));
+                    auto dists3_1 = _mm256_cvtepu8_epi16(
+                        _mm256_extracti128_si256(dists3, 1));
+
+                    auto dists01_0 = _mm256_adds_epi16(dists0_0, dists1_0);
+                    auto dists01_1 = _mm256_adds_epi16(dists0_1, dists1_1);
+                    auto dists23_0 = _mm256_adds_epi16(dists2_0, dists3_0);
+                    auto dists23_1 = _mm256_adds_epi16(dists2_1, dists3_1);
+                    dists_0_15 = _mm256_adds_epi16(dists01_0, dists23_0);
+                    dists_16_31 = _mm256_adds_epi16(dists01_1, dists23_1);
+                }
+            }
+
+            auto new_dists_0_15 = _mm256_undefined_si256();
+            auto new_dists_16_31 = _mm256_undefined_si256();
+            if (SignedLUTs) {
+                new_dists_0_15 = _mm256_adds_epi16(dists_0_15, dists_so_far_0_15);
+                new_dists_16_31 = _mm256_adds_epi16(dists_16_31, dists_so_far_16_31);
+            } else {
+                new_dists_0_15 = _mm256_adds_epu16(dists_0_15, dists_so_far_0_15);
+                new_dists_16_31 = _mm256_adds_epu16(dists_16_31, dists_so_far_16_31);
+            }
+
+            _mm256_store_si256((__m256i*)out_ptr, new_dists_0_15);
+            _mm256_store_si256((__m256i*)(out_ptr + 16), new_dists_16_31);
+            codes_ptr0 += block_rows;
+            codes_ptr1 += block_rows;
+            codes_ptr2 += block_rows;
+            codes_ptr3 += block_rows;
             out_ptr += block_rows;
         }
     }
