@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72A5A650234BC43100E4E256 /* profile_amm.cpp */; };
 		72DE646D1E5F74ED009B5E61 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64621E5F74BB009B5E61 /* main.cpp */; };
 		72DE646E1E5F74F3009B5E61 /* profile_bolt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64641E5F74BB009B5E61 /* profile_bolt.cpp */; };
 		72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64651E5F74BB009B5E61 /* profile_multicodebook.cpp */; };
@@ -30,6 +31,7 @@
 
 /* Begin PBXFileReference section */
 		72A5A64F234A8E4A00E4E256 /* multisplit.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multisplit.hpp; sourceTree = "<group>"; };
+		72A5A650234BC43100E4E256 /* profile_amm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_amm.cpp; sourceTree = "<group>"; };
 		72DE62DB1E5F7467009B5E61 /* Bolt */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Bolt; sourceTree = BUILT_PRODUCTS_DIR; };
 		72DE62E81E5F74BB009B5E61 /* Cholesky */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cholesky; sourceTree = "<group>"; };
 		72DE62E91E5F74BB009B5E61 /* CholmodSupport */ = {isa = PBXFileReference; lastKnownFileType = text; path = CholmodSupport; sourceTree = "<group>"; };
@@ -1123,6 +1125,7 @@
 			isa = PBXGroup;
 			children = (
 				72DE64641E5F74BB009B5E61 /* profile_bolt.cpp */,
+				72A5A650234BC43100E4E256 /* profile_amm.cpp */,
 				72DE64651E5F74BB009B5E61 /* profile_multicodebook.cpp */,
 				72DE64661E5F74BB009B5E61 /* profile_pq.cpp */,
 				72DE64671E5F74BB009B5E61 /* test_bolt.cpp */,
@@ -1201,6 +1204,7 @@
 				72DE64711E5F74F3009B5E61 /* test_bolt.cpp in Sources */,
 				72DE64701E5F74F3009B5E61 /* profile_pq.cpp in Sources */,
 				72DE64721E5F74F8009B5E61 /* bolt.cpp in Sources */,
+				72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */,
 				72DE646E1E5F74F3009B5E61 /* profile_bolt.cpp in Sources */,
 				72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */,
 				72DE646D1E5F74ED009B5E61 /* main.cpp in Sources */,
