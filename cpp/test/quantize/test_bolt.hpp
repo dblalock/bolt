@@ -2,10 +2,12 @@
 #ifdef BLAZE
     #include "test/external/catch.hpp"
     #include "src/quantize/bolt.hpp"
+    #include "src/quantize/multisplit.hpp"
     #include "src/utils/eigen_utils.hpp"
 #else
     #include "catch.hpp"
     #include "bolt.hpp"
+    #include "multisplit.hpp"
     #include "eigen_utils.hpp"
 #endif
 

@@ -29,6 +29,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		72A5A64F234A8E4A00E4E256 /* multisplit.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multisplit.hpp; sourceTree = "<group>"; };
 		72DE62DB1E5F7467009B5E61 /* Bolt */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Bolt; sourceTree = BUILT_PRODUCTS_DIR; };
 		72DE62E81E5F74BB009B5E61 /* Cholesky */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cholesky; sourceTree = "<group>"; };
 		72DE62E91E5F74BB009B5E61 /* CholmodSupport */ = {isa = PBXFileReference; lastKnownFileType = text; path = CholmodSupport; sourceTree = "<group>"; };
@@ -1077,6 +1078,7 @@
 			children = (
 				72DE64531E5F74BB009B5E61 /* bolt.cpp */,
 				72DE64541E5F74BB009B5E61 /* bolt.hpp */,
+				72A5A64F234A8E4A00E4E256 /* multisplit.hpp */,
 				72DE64551E5F74BB009B5E61 /* multi_codebook.hpp */,
 				72DE64561E5F74BB009B5E61 /* product_quantize.hpp */,
 			);

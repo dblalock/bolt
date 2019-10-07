@@ -462,22 +462,32 @@ inline void bolt_scan(const uint8_t* codes,
                 auto dists16_high_evens = _mm256_and_si256(dists_high, low_8bits_mask);
                 auto dists16_high_odds = _mm256_srli_epi16(dists_high, 8);
 
-                totals_evens = _mm256_adds_epu16(totals_evens, dists16_low_evens);
-                totals_evens = _mm256_adds_epu16(totals_evens, dists16_high_evens);
-                totals_odds = _mm256_adds_epu16(totals_odds, dists16_low_odds);
-                totals_odds = _mm256_adds_epu16(totals_odds, dists16_high_odds);
+                if (SignedLUTs) {
+                    totals_evens = _mm256_adds_epi16(totals_evens, dists16_low_evens);
+                    totals_evens = _mm256_adds_epi16(totals_evens, dists16_high_evens);
+                    totals_odds = _mm256_adds_epi16(totals_odds, dists16_low_odds);
+                    totals_odds = _mm256_adds_epi16(totals_odds, dists16_high_odds);
+                } else {
+                    totals_evens = _mm256_adds_epu16(totals_evens, dists16_low_evens);
+                    totals_evens = _mm256_adds_epu16(totals_evens, dists16_high_evens);
+                    totals_odds = _mm256_adds_epu16(totals_odds, dists16_low_odds);
+                    totals_odds = _mm256_adds_epu16(totals_odds, dists16_high_odds);
+                }
 
             } else { // add pairs as epu8s, then use pair sums as epu16s
                 if (SignedLUTs) {
                     auto dists = _mm256_adds_epi8(dists_low, dists_high);
+                    auto dists16_evens = _mm256_and_si256(dists, low_8bits_mask);
+                    auto dists16_odds = _mm256_srli_epi16(dists, 8);
+                    totals_evens = _mm256_adds_epi16(totals_evens, dists16_evens);
+                    totals_odds = _mm256_adds_epi16(totals_odds, dists16_odds);
                 } else {
                     auto dists = _mm256_adds_epu8(dists_low, dists_high);
+                    auto dists16_evens = _mm256_and_si256(dists, low_8bits_mask);
+                    auto dists16_odds = _mm256_srli_epi16(dists, 8);
+                    totals_evens = _mm256_adds_epu16(totals_evens, dists16_evens);
+                    totals_odds = _mm256_adds_epu16(totals_odds, dists16_odds);
                 }
-                auto dists16_evens = _mm256_and_si256(dists, low_8bits_mask);
-                auto dists16_odds = _mm256_srli_epi16(dists, 8);
-
-                totals_evens = _mm256_adds_epu16(totals_evens, dists16_evens);
-                totals_odds = _mm256_adds_epu16(totals_odds, dists16_odds);
             }
         }
 
@@ -492,6 +502,63 @@ inline void bolt_scan(const uint8_t* codes,
         dists_out += 16;
         _mm256_stream_si256((__m256i*)dists_out, dists_out_1);
         dists_out += 16;
+    }
+}
+
+// like the above, but we assume that codes are in colmajor order
+// TODO version of this that uses packed 4b codes? along with packing func?
+// TODO version of this that doesn't immediately upcast to u16?
+template<bool NoOverflow=false, bool SignedLUTs=false>
+inline void bolt_scan_unpacked_colmajor(const uint8_t* codes,
+    int64_t nblocks, int ncodebooks, const uint8_t* luts, int16_t* out)
+{
+    static constexpr int lut_sz = 16;
+    static constexpr int block_rows = 32;
+    const int64_t nrows = nblocks * block_rows;
+
+    for (int m = 0; m < ncodebooks; m++) {
+        // zero out this column of the output to use as workmem
+        auto out_col_start = out + (m * nrows);
+        for (int64_t i = 0; i < nrows; i++) {
+            out_col_start[i] = 0;
+        }
+
+        // load lut for this subspace
+        auto lut_ptr = luts + (m * lut_sz);
+        auto vlut = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)lut_ptr));
+
+        // iterate thru this whole column of codes
+        auto codes_col_start = codes + (nrows * m);  // colmajor contiguous
+        auto codes_ptr = codes_col_start;
+        auto out_ptr = out_col_start;
+        for (int64_t b = 0; b < nblocks; b++) {
+            auto vcodes = load_si256i(codes_ptr);
+            auto dists_so_far_0 = load_si256i(out_ptr);
+            auto dists_so_far_1 = load_si256i(out_ptr + 16);
+
+            auto dists = _mm256_shuffle_epi8(vlut, vcodes);
+
+            auto dists0 = _mm256_cvtepi8_epi16(
+                _mm256_extracti128_si256(dists, 0));
+            auto dists1 = _mm256_cvtepi8_epi16(
+                _mm256_extracti128_si256(dists, 1));
+
+            auto new_dists0 = _mm256_undefined_si256();
+            auto new_dists1 = _mm256_undefined_si256();
+            if (SignedLUTs) {
+                new_dists0 = _mm256_adds_epi16(dists0, dists_so_far_0);
+                new_dists1 = _mm256_adds_epi16(dists1, dists_so_far_1);
+            } else {
+                new_dists0 = _mm256_adds_epu16(dists0, dists_so_far_0);
+                new_dists1 = _mm256_adds_epu16(dists1, dists_so_far_1);
+            }
+
+            _mm256_store_si256((__m256i*)out_ptr, new_dists0);
+            _mm256_store_si256((__m256i*)(out_ptr + 16), new_dists1);
+            codes_ptr += block_rows;
+            out_ptr += block_rows;
+        }
     }
 }
 
