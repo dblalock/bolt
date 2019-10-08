@@ -25,11 +25,11 @@ namespace {
 void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* splitvals,
     const float* scales, const float* offsets,
-    int ncodebooks, int splits_per_codebook, uint8_t* out)
+    int ncodebooks, int nsplits_per_codebook, uint8_t* out)
 {
     static constexpr int block_rows = 32;
     const int64_t nblocks = ceil(nrows / (double)block_rows);
-    assert(splits_per_codebook <= 8); // code assumes we don't overflow bytes
+    assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
     assert(nrows % block_rows == 0); // TODO remove this constraint
 
     int split_idx = 0;
@@ -41,7 +41,7 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
             out_col_start[i] = 0;
         }
 
-        for (int s = 0; s < splits_per_codebook; s++) {
+        for (int s = 0; s < nsplits_per_codebook; s++) {
             auto splitdim = splitdims[split_idx];
             auto splitval = splitvals[split_idx];
             auto splitvals_i8 = _mm256_set1_epi8(splitval);
@@ -81,7 +81,7 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
 void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const float* scales, const float* offsets,
-    int ncodebooks, int splits_per_codebook, uint8_t* out)
+    int ncodebooks, int nsplits_per_codebook, uint8_t* out)
 {
     static const int low_bits_used_in_shuffle = 4;
     static const int group_id_nbits = low_bits_used_in_shuffle;
@@ -92,7 +92,7 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     const int64_t nblocks = ceil(nrows / (double)block_rows);
     const int vals_per_split = 1 << group_id_nbits; // usually 16
     assert(group_id_nbits <= low_bits_used_in_shuffle);
-    assert(splits_per_codebook <= 8); // code assumes we don't overflow bytes
+    assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
     assert(nrows % block_rows == 0); // TODO remove this constraint
 
     int split_idx = 0;
@@ -104,7 +104,7 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
             out_col_start[i] = 0;
         }
 
-        for (int s = 0; s < splits_per_codebook; s++) {
+        for (int s = 0; s < nsplits_per_codebook; s++) {
             auto splitdim = splitdims[split_idx];
             auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
 
@@ -117,7 +117,7 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
             auto voffsets = _mm256_set1_ps(offsets[split_idx]);
 
             // iterate through this col of X
-            // printf("splitdim: %d\n", splitdim);
+             // printf("splitdim: %d\n", splitdim);
             auto x_col_start = X + (nrows * splitdim);  // X colmajor contiguous
             auto x_ptr = x_col_start;
             auto out_ptr = out_col_start;

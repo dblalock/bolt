@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <math.h>
+#include <type_traits>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
 
 #ifdef BLAZE
@@ -559,14 +560,45 @@ inline void bolt_scan_unpacked_colmajor(const uint8_t* codes,
     }
 }
 
-template<int UpcastEvery=4, bool SignedLUTs=true>
-inline void bolt_scan_unpacked_colmajor_tile4(const uint8_t* codes,
-    int64_t nblocks, int ncodebooks, const uint8_t* luts, int16_t* out)
+// for looking at assembly: https://godbolt.org/z/PEjpiz
+// .LBB0_7:                                #   Parent Loop BB0_6 Depth=1
+//         vmovdqa ymm5, ymmword ptr [rdi + rcx]
+//         vmovdqa ymm6, ymmword ptr [rdx + rcx]
+//         vpsrlw  ymm7, ymm5, 4
+//         vpsrlw  ymm8, ymm6, 4
+//         vpand   ymm5, ymm5, ymm0
+//         vpshufb ymm5, ymm1, ymm5
+//         vpand   ymm7, ymm7, ymm0
+//         vpshufb ymm7, ymm2, ymm7
+//         vpaddsb ymm5, ymm5, ymm7
+//         vpand   ymm6, ymm6, ymm0
+//         vpshufb ymm6, ymm4, ymm6
+//         vpand   ymm7, ymm8, ymm0
+//         vpshufb ymm7, ymm3, ymm7
+//         vpaddsb ymm6, ymm6, ymm7
+//         vpaddsb ymm5, ymm5, ymm6
+//         vpmovsxbw       ymm6, xmm5
+//         vextracti128    xmm5, ymm5, 1
+//         vpmovsxbw       ymm5, xmm5
+//         vpaddsw ymm6, ymm6, ymmword ptr [rbx + 2*rcx]
+//         vpaddsw ymm5, ymm5, ymmword ptr [rbx + 2*rcx + 32]
+//         vmovdqa ymmword ptr [rbx + 2*rcx], ymm6
+//         vmovdqa ymmword ptr [rbx + 2*rcx + 32], ymm5
+//         add     rcx, 32
+//         dec     rax
+//         jne     .LBB0_7
+template<int UpcastEvery=4, bool Packed=false, typename LutT=uint8_t>
+inline void bolt_scan_colmajor_tile4(const uint8_t* codes,
+    int64_t nblocks, int ncodebooks, const LutT* luts, int16_t* out)
 {
-    static_assert(SignedLUTs, "Unsigned luts not implemented yet");
+    static const bool SignedLUTs = std::is_signed<LutT>::value;
+    // static const bool SignedLUTs = false; // TODO rm
+    static_assert(sizeof(LutT) == 1, "Lookup table entries must be 1 byte!");
+    static constexpr int codes_per_byte = Packed ? 2 : 1;
     static constexpr int lut_sz = 16;
     static constexpr int block_rows = 32;
     static constexpr int tile_sz = 4;
+    // static const __m256i low_4bits_mask = _mm256_set1_epi8(0x0F);
     const int64_t nrows = nblocks * block_rows;
     assert(ncodebooks % tile_sz == 0); // otherwise tiling gets nasty
 
@@ -593,18 +625,43 @@ inline void bolt_scan_unpacked_colmajor_tile4(const uint8_t* codes,
         auto vlut3 = _mm256_broadcastsi128_si256(load_si128i(lut_ptr3));
 
         // iterate thru tile_sz columns of codes at once
-        auto codes_ptr0 = codes + (nrows * m0);
-        auto codes_ptr1 = codes + (nrows * m1);
-        auto codes_ptr2 = codes + (nrows * m2);
-        auto codes_ptr3 = codes + (nrows * m3);
+
+        auto codes_ptr0 = codes + (nrows * (m0 / codes_per_byte));
+        auto codes_ptr1 = codes + (nrows * (m1 / codes_per_byte));
+        auto codes_ptr2 = codes + (nrows * (m2 / codes_per_byte));
+        auto codes_ptr3 = codes + (nrows * (m3 / codes_per_byte));
         auto out_ptr = out;
+        auto low_4bits_mask = _mm256_set1_epi8(0x0F);
         for (int64_t b = 0; b < nblocks; b++) {
-            auto vcodes0 = load_si256i(codes_ptr0);
-            auto vcodes1 = load_si256i(codes_ptr1);
-            auto vcodes2 = load_si256i(codes_ptr2);
-            auto vcodes3 = load_si256i(codes_ptr3);
+            auto vcodes0 = _mm256_undefined_si256();
+            auto vcodes1 = _mm256_undefined_si256();
+            auto vcodes2 = _mm256_undefined_si256();
+            auto vcodes3 = _mm256_undefined_si256();
+            if (Packed) {
+                // just ignore codes_ptr 1 and 3; they'll point to the
+                // same indices as 0 and 2 since we do integer division
+                // auto vcodes01 = stream_load_si256i(codes_ptr0);
+                // auto vcodes23 = stream_load_si256i(codes_ptr2);
+                auto vcodes01 = load_si256i(codes_ptr0);
+                auto vcodes23 = load_si256i(codes_ptr2);
+
+                vcodes0 = _mm256_and_si256(vcodes01, low_4bits_mask);
+                vcodes1 = _mm256_and_si256(
+                    _mm256_srli_epi16(vcodes01, 4), low_4bits_mask);
+                vcodes2 = _mm256_and_si256(vcodes23, low_4bits_mask);
+                vcodes3 = _mm256_and_si256(
+                    _mm256_srli_epi16(vcodes23, 4), low_4bits_mask);
+            } else {
+                vcodes0 = load_si256i(codes_ptr0);
+                vcodes1 = load_si256i(codes_ptr1);
+                vcodes2 = load_si256i(codes_ptr2);
+                vcodes3 = load_si256i(codes_ptr3);
+            }
+
             auto dists_so_far_0_15 = load_si256i(out_ptr);
             auto dists_so_far_16_31 = load_si256i(out_ptr + 16);
+            // volatile __m256i dists_so_far_0_15 = load_si256i(out_ptr);
+            // volatile __m256i dists_so_far_16_31 = load_si256i(out_ptr + 16);
 
             auto dists0 = _mm256_shuffle_epi8(vlut0, vcodes0);
             auto dists1 = _mm256_shuffle_epi8(vlut1, vcodes1);
@@ -729,6 +786,7 @@ inline void bolt_scan_unpacked_colmajor_tile4(const uint8_t* codes,
                 new_dists_16_31 = _mm256_adds_epu16(dists_16_31, dists_so_far_16_31);
             }
 
+            // _mm256_stream_si256 is way slower factor of (4.5 / 3.4)
             _mm256_store_si256((__m256i*)out_ptr, new_dists_0_15);
             _mm256_store_si256((__m256i*)(out_ptr + 16), new_dists_16_31);
             codes_ptr0 += block_rows;
@@ -739,6 +797,20 @@ inline void bolt_scan_unpacked_colmajor_tile4(const uint8_t* codes,
         }
     }
 }
+
+template<int UpcastEvery=4, typename LutT=uint8_t>
+inline void _bolt_scan_colmajor_tile4_packed(const uint8_t* codes,
+    int64_t nblocks, int ncodebooks, const LutT* luts, int16_t* out)
+{
+    bolt_scan_colmajor_tile4<UpcastEvery, true>(
+        codes, nblocks, ncodebooks, luts, out);
+}
+
+
+// TODO impl boltscan_colmajor_tile8_packed; same idea as tile4, but with
+// 8 dims at once instead of 4
+// TODO impl encode funcs that just spit out encodings in regular bolt format
+
 
 } // anon namespace
 #endif // __BOLT_HPP
