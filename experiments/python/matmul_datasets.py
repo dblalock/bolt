@@ -84,6 +84,9 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
     X = windows.reshape(windows.shape[0], -1)[:-1]
     Y = data[window_len:]
 
+    # TODO rm
+    # Y[1:] = Y[1:] - Y[:-1]  # predict differences, not raw values
+
     N = len(X)
     if N_train < data.shape[1]:
         N_train = N // 2  # TODO more flexible train/test split

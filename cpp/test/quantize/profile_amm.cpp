@@ -30,7 +30,7 @@
     #include "memory.hpp"
 #endif
 
-static constexpr int kNreps = 3;
+static constexpr int kNreps = 5;
 // static constexpr int kNreps = 1;
 static constexpr int kNtrials = 5;
 
@@ -258,7 +258,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     ColMatrix<int16_t> out_mat(N, out_ncols);
 
     std::string msg = string_with_format(
-        "amm multisplit; N, D, M, ncodebooks: %6d, %3d, %3d, %2d, \t",
+        "amm multisplit N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
@@ -275,7 +275,7 @@ void _run_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
 
 void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
     // using MatrixT = ColMatrix<float>;
-    using MatrixT = RowMatrix<float>; // faster for small batches, else slower
+    using MatrixT = ColMatrix<float>; // faster for small batches, else slower
 
     // create random data
     MatrixT X(N, D);
@@ -289,16 +289,16 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
     // printf("N, D, M: %6d, %3d, %3d, \t", N, D, M);
 
     // time it
-    std::string msg = string_with_format("matmul N, D, M: %6d, %3d, %3d, \t",
+    std::string msg = string_with_format("matmul N, D, M: %6d, %3d, %3d \t",
         N, D, M);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out.data(), N * M,
+        out.data(), out.size(),
         _run_matmul(X, W, out));
 }
 
 TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][profile]") {
     // _profile_multisplit(128 * 1000, 64, 32, 4);
-    std::vector<int> ncodebooks {4, 8, 16, 32};
+    std::vector<int> ncodebooks {4, 8, 16, 32, 64};
     // std::vector<int> ncodebooks {4};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
@@ -312,13 +312,40 @@ TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][profile]") {
     }
 }
 
-TEST_CASE("amm exact matmul", "[amm][profile]") {
-    _profile_matmul(10000, 512, 10);    // cifar10
-    _profile_matmul(10000, 512, 100);   // cifar100
-    _profile_matmul(57593, 24, 3);      // ecg
-    _profile_matmul(115193, 24, 3);     // ecg
-    _profile_matmul(230393, 24, 3);     // ecg
-    _profile_matmul(49284, 27, 2);      // caltech
+TEST_CASE("amm exact matmul", "[amm][exact][profile]") {
+    int N, M;
+    std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 27, 32, 48, 64};
+    
+    N = 10000; M = 10;          // cifar10
+    for (auto d : dvals) {
+        _profile_matmul(N, d, M);
+    }
+    _profile_matmul(N, 512, M);
+    
+    N = 10000; M = 100;         // cifar100
+    for (auto d : dvals) {
+        _profile_matmul(N, d, M);
+    }
+    _profile_matmul(N, 512, M);
+    
+    M = 3;                      // ecg
+    std::vector<int> ecg_nvals {57593, 115193, 230393};
+    for (auto n : ecg_nvals) {
+        for (auto d : dvals) {
+            _profile_matmul(n, d, M);
+        }
+    }
+    
+    N = 49284; M = 2;           // caltech
+    for (auto d : dvals) {
+        _profile_matmul(N, d, M);
+    }
+    
+//    _profile_matmul(10000, 512, 100);   // cifar100
+//    _profile_matmul(57593, 24, 3);      // ecg
+//    _profile_matmul(115193, 24, 3);     // ecg
+//    _profile_matmul(230393, 24, 3);     // ecg
+//    _profile_matmul(49284, 27, 2);      // caltech
 }
 
 // TEST_CASE("amm profile bolt scan colmajor tile4", "[amm][bolt][profile]") {

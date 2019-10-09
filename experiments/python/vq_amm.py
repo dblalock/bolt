@@ -76,7 +76,7 @@ class PQMatmul(amm.ApproxMatmul):
 class BoltMatmul(PQMatmul):
 
     def __init__(self, ncodebooks):
-        self.ncodebooks = 2 * ncodebooks
+        self.ncodebooks = ncodebooks
         self.ncentroids = 16
         self.enc = self._create_encoder(self.ncodebooks)
         self._reset()
@@ -133,6 +133,13 @@ class BoltSplits(BoltMatmul):
         return dict(
             preproc='PQ', encode_algo='splits')
 
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        nmuls = 0
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
+        metrics[amm.KEY_NMULTIPLIES] = nmuls
+        return metrics
+
 
 class BoltMultiSplits(BoltMatmul):
 
@@ -141,7 +148,9 @@ class BoltMultiSplits(BoltMatmul):
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
-        metrics[amm.KEY_NMULTIPLIES] = 0
+        nmuls = 0
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
+        metrics[amm.KEY_NMULTIPLIES] = nmuls
         return metrics
 
 
@@ -152,7 +161,9 @@ class BoltPermMultiSplits(BoltMatmul):
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
-        metrics[amm.KEY_NMULTIPLIES] = 0
+        nmuls = 0
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
+        metrics[amm.KEY_NMULTIPLIES] = nmuls
         return metrics
 
 
@@ -160,6 +171,13 @@ class PQPerm(PQMatmul):
 
     def _get_encoder_kwargs(self):
         return dict(preproc='GEHT')
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
+        nmuls = 0
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
+        metrics[amm.KEY_NMULTIPLIES] = nmuls
+        return metrics
 
 
 class PQMultiSplits(PQMatmul):
@@ -175,7 +193,9 @@ class PQMultiSplits(PQMatmul):
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
-        metrics[amm.KEY_NMULTIPLIES] = 0
+        nmuls = 0
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
+        metrics[amm.KEY_NMULTIPLIES] = nmuls
         return metrics
 
 
@@ -192,5 +212,7 @@ class PQPermMultiSplits(PQMatmul):
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         metrics = super().get_speed_metrics(A, B, fixedA=fixedA, fixedB=fixedB)
-        metrics[amm.KEY_NMULTIPLIES] = 0
+        nmuls = 0
+        nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
+        metrics[amm.KEY_NMULTIPLIES] = nmuls
         return metrics

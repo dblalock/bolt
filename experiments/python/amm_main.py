@@ -38,6 +38,10 @@ METHOD_BOLT_GEHT_COV_SAMP = 'Bolt_CovSamp'
 METHOD_BOLT_GEHT_COR_TOPK = 'Bolt_CorTopk'
 METHOD_BOLT_GEHT_COR_SAMP = 'Bolt_CorSamp'
 
+DEFAULT_METHODS = (METHOD_EXACT, METHOD_SVD, METHOD_FD_AMM,
+                   METHOD_COOCCUR, METHOD_PQ, METHOD_BOLT,
+                   METHOD_BOLT_MULTISPLITS)
+
 _METHOD_TO_ESTIMATOR = {
     METHOD_EXACT: amm.ExactMatMul,
     METHOD_SKETCH_SQ_SAMPLE: amm.SketchSqSample,
@@ -215,16 +219,16 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
 
 def _hparams_for_method(method_id):
     if method_id in SKETCH_METHODS:
-        dvals = [2, 4, 6, 8, 12, 16, 24, 32, 64]  # d=1 undef for fd methods
+        dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
         # dvals = [4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
     if method_id in VQ_METHODS:
-        # mvals = [1, 2, 4, 8, 16, 32]
+        mvals = [1, 2, 4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [16] # TODO rm after debug
-        mvals = [8] # TODO rm after debug
+        # mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
         return [{'ncodebooks': m} for m in mvals]
@@ -260,7 +264,7 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks, methods=None, saveas=None, ntasks=None,
           verbose=2, limit_ntasks=2, compression_metrics=False):
-    methods = _ALL_METHODS if methods is None else methods
+    methods = DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
         methods = [methods]
     independent_vars = _get_all_independent_vars()
@@ -316,7 +320,7 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 limit_ntasks=1, compression_metrics=True)
+                 limit_ntasks=10, compression_metrics=True)
 
 
 def main_caltech(methods=None, saveas='caltech'):
@@ -362,13 +366,14 @@ def main():
     # main_cifar10(methods=['PQ+Ours', 'PQ'])
     # main_cifar10(methods=['PQ+MultiSplits', 'PQ+Perm+MultiSplits', 'PQ+Perm', 'PQ', 'Bolt'])  # noqa
     # main_cifar10(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
-    main_cifar100(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
+    # main_cifar100(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
     # main_cifar10(methods=['BoltSplits'])
     # main_cifar100(methods=['BoltSplits'])
     # main_cifar100(methods=['Bolt', 'BoltSplits'])
     # main_cifar10()
     # main_cifar100()
     # main_ecg()
+    main_caltech()
     # main_ecg(methods=['Bolt+Perm', 'Bolt+CorrPerm', 'Bolt'])
     # main_ecg(methods=['PQ', 'Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Exact'])
