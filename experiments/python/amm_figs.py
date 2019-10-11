@@ -87,6 +87,7 @@ def _clean_results_df(df, default_D=None):
     matmul_latencies, matmul_thruputs = res.load_matmul_times_for_n_d_m()
     multisplit_latencies, multisplit_thruputs = \
         res.load_multisplit_times_for_n_d_m()
+    bolt_latencies, bolt_thruputs = res.load_bolt_times_for_n_d_m()
     # row_dicts = []
     all_latencies = []
     all_thruputs = []
@@ -98,17 +99,23 @@ def _clean_results_df(df, default_D=None):
     for _, row in df.iterrows():
         # row = dict(*row)
         N, D, M = [int(row[k]) for k in ('N', 'D', 'M')]
-        method = row['Method']
+        method = row['Method'].lower()
         # if 'split' in method.lower():
         # print("using method: ", method)
-        if method.lower() in ('bolt', 'ours'):
+        if method in ('bolt', 'ours'):
             ncodebooks = int(row['ncodebooks'])
-            N = N - (N % 32)  # TODO rm hack after gone in cpp code
+            # N = N - (N % 32)  # TODO rm hack after gone in cpp code
             key = (N, D, M, ncodebooks)
-            latencies = multisplit_latencies[key]
-            thruputs = multisplit_thruputs[key]
+            if method == 'ours':
+                latencies = multisplit_latencies[key]
+                thruputs = multisplit_thruputs[key]
+            elif method == 'bolt':
+                latencies = bolt_latencies[key]
+                thruputs = bolt_thruputs[key]
             all_latencies.append(np.mean(latencies))
             all_thruputs.append(np.mean(thruputs))
+            # all_latencies.append(np.median(latencies))
+            # all_thruputs.append(np.median(thruputs))
         else:
             d = int(row['d'])
             key = (N, d, M)
@@ -160,9 +167,15 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
     # for df in dfs:
     if x_metric in ('Latency', 'Throughput'):
         # TODO get results for PQ + Bolt
-        df10 = df10.loc[~df10['method'].isin(['PQ', 'Bolt'])]
+        # df10 = df10.loc[~df10['method'].isin(['PQ', 'Bolt'])]
+        include_methods = ('Bolt+MultiSplits', 'Bolt', 'Exact')
+        # print("uniq methods: ", df10['method'].unique())
+        # df10 = df10.loc[~df10['method'].isin(['PQ'])]
+        df10 = df10.loc[df10['method'].isin(include_methods)]
         df10 = df10.loc[~(df10['ncodebooks'] < 4)]
-        df100 = df100.loc[~df100['method'].isin(['PQ', 'Bolt'])]
+        # df100 = df100.loc[~df100['method'].isin(['PQ', 'Bolt'])]
+        # df100 = df100.loc[~df100['method'].isin(['PQ'])]
+        df100 = df100.loc[df100['method'].isin(include_methods)]
         df100 = df100.loc[~(df100['ncodebooks'] < 4)]
 
     df10 = _clean_results_df(df10, default_D=512)

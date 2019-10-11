@@ -506,6 +506,15 @@ inline void bolt_scan(const uint8_t* codes,
     }
 }
 
+// wrapper func so we can pass bolt_scan with immediate upcasting into
+// our profiling macro (which can't deal with comma-separated template args)
+template<int NBytes, bool SignedLUTs=false>
+inline void bolt_scan_safe(const uint8_t* codes,
+    const uint8_t* luts, uint16_t* dists_out, int64_t nblocks)
+{
+    bolt_scan<NBytes, true, SignedLUTs>(codes, luts, dists_out, nblocks);
+}
+
 // like the above, but we assume that codes are in colmajor order
 // TODO version of this that uses packed 4b codes? along with packing func?
 // TODO version of this that doesn't immediately upcast to u16?
@@ -799,7 +808,7 @@ inline void bolt_scan_colmajor_tile4(const uint8_t* codes,
 }
 
 template<int UpcastEvery=4, typename LutT=uint8_t>
-inline void _bolt_scan_colmajor_tile4_packed(const uint8_t* codes,
+inline void bolt_scan_colmajor_tile4_packed(const uint8_t* codes,
     int64_t nblocks, int ncodebooks, const LutT* luts, int16_t* out)
 {
     bolt_scan_colmajor_tile4<UpcastEvery, true>(

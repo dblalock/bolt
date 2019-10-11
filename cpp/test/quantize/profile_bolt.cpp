@@ -74,51 +74,52 @@ TEST_CASE("bolt encoding speed", "[bolt][mcq][profile]") {
 
 
 TEST_CASE("bolt lut encoding speed", "[bolt][mcq][profile]") {
-   static constexpr int nrows = nrows_lut;
+    static constexpr int nrows = nrows_lut;
 
-   ColMatrix<float> centroids(ncentroids, ncols);
-   centroids.setRandom();
-   RowMatrix<float> Q(nrows, ncols);
-   Q.setRandom();
-   ColMatrix<uint8_t> lut_out(ncentroids, ncodebooks);
-   RowVector<float> offsets(ncols);
-   offsets.setRandom();
-   float scaleby = 3; // arbitrary number
+    ColMatrix<float> centroids(ncentroids, ncols);
+    centroids.setRandom();
+    RowMatrix<float> Q(nrows, ncols);
+    Q.setRandom();
+    ColMatrix<uint8_t> lut_out(ncentroids, ncodebooks);
+    RowVector<float> offsets(ncols);
+    offsets.setRandom();
+    float scaleby = 3; // arbitrary number
 
-   REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt encode lut", kNtrials,
-      lut_out.data(), lut_data_sz, nrows,
-      bolt_lut<M>(Q.row(i).data(), ncols, centroids.data(),
-                  offsets.data(), scaleby, lut_out.data()));
+    REPEATED_PROFILE_DIST_COMPUTATION_LOOP(kNreps, "bolt encode lut", kNtrials,
+        lut_out.data(), lut_data_sz, nrows,
+        bolt_lut<M>(Q.row(i).data(), ncols, centroids.data(),
+            offsets.data(), scaleby, lut_out.data()));
 }
 
 TEST_CASE("bolt scan speed", "[bolt][mcq][profile]") {
-   static constexpr int nblocks = nblocks_scan;
-   static constexpr int nrows = nblocks_scan * 32;
+    static constexpr int nblocks = nblocks_scan;
+    static constexpr int nrows = nblocks_scan * 32;
 
-   // create random codes from in [0, 15]
-   ColMatrix<uint8_t> codes(nrows, ncodebooks);
-   codes.setRandom();
-   codes = codes.array() / 16;
+    // create random codes in [0, 15]
+    ColMatrix<uint8_t> codes(nrows, ncodebooks);
+    codes.setRandom();
+    codes = codes.array() / 16;
 
-   // create random luts
-   ColMatrix<uint8_t> luts(ncentroids, ncodebooks);
-   luts.setRandom();
-   luts = luts.array() / (2 * M); // make max lut value small
+    // create random luts
+    ColMatrix<uint8_t> luts(ncentroids, ncodebooks);
+    luts.setRandom();
+    luts = luts.array() / (2 * M); // make max lut value small
 
-   // do the scan to compute the distances
-   RowVector<uint8_t> dists_u8(nrows);
-   RowVector<uint16_t> dists_u16(nrows);
-   RowVector<uint16_t> dists_u16_safe(nrows);
+    // do the scan to compute the distances
+    RowVector<uint8_t> dists_u8(nrows);
+    RowVector<uint16_t> dists_u16(nrows);
+    RowVector<uint16_t> dists_u16_safe(nrows);
 
-   REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint8", kNtrials,
-       dists_u8.data(), nrows,
-       bolt_scan<M>(codes.data(), luts.data(), dists_u8.data(), nblocks));
-   REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16", kNtrials,
-       dists_u16.data(), nrows,
-       bolt_scan<M>(codes.data(), luts.data(), dists_u16.data(), nblocks));
-   REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16 safe", kNtrials,
-       dists_u16_safe.data(), nrows,
-       bolt_scan<M>(codes.data(), luts.data(), dists_u16_safe.data(), nblocks));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint8", kNtrials,
+        dists_u8.data(), nrows,
+        bolt_scan<M>(codes.data(), luts.data(), dists_u8.data(), nblocks));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16", kNtrials,
+        dists_u16.data(), nrows,
+        bolt_scan<M>(codes.data(), luts.data(), dists_u16.data(), nblocks));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16 safe", kNtrials,
+        dists_u16_safe.data(), nrows,
+        bolt_scan<(M, true)>(
+            codes.data(), luts.data(), dists_u16_safe.data(), nblocks));
 }
 
 template<int M, bool Safe=false, class dist_t=void>

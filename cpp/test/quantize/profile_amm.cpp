@@ -179,15 +179,15 @@ TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][mcq][profile]") {
     //         luts.data(), dists_u16_colmajor_tile4.data()));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1 packed", kNtrials,
         dists_u16_colmajor_tile4.data(), nrows,
-        _bolt_scan_colmajor_tile4_packed<1>(codes.data(), nblocks, ncodebooks,
+        bolt_scan_colmajor_tile4_packed<1>(codes.data(), nblocks, ncodebooks,
             luts.data(), dists_u16_colmajor_tile4.data()));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2 packed", kNtrials,
         dists_u16_colmajor_tile4.data(), nrows,
-        _bolt_scan_colmajor_tile4_packed<2>(codes.data(), nblocks, ncodebooks,
+        bolt_scan_colmajor_tile4_packed<2>(codes.data(), nblocks, ncodebooks,
             luts.data(), dists_u16_colmajor_tile4.data()));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4 packed", kNtrials,
         dists_u16_colmajor_tile4.data(), nrows,
-        _bolt_scan_colmajor_tile4_packed<4>(codes.data(), nblocks, ncodebooks,
+        bolt_scan_colmajor_tile4_packed<4>(codes.data(), nblocks, ncodebooks,
             luts.data(), dists_u16_colmajor_tile4.data()));
 }
 
@@ -205,10 +205,118 @@ void _amm_multisplit(const float* X, int64_t nrows, int ncols,
     auto out_ptr = out_mat;
     auto lut_ptr = luts;
     for (int i = 0; i < out_ncols; i++) {
-        _bolt_scan_colmajor_tile4_packed<4>(out_enc, nblocks, ncodebooks,
+        bolt_scan_colmajor_tile4_packed<4>(out_enc, nblocks, ncodebooks,
             luts, out_ptr);
         out_ptr += nrows;
         lut_ptr += 16 * ncodebooks;
+    }
+}
+
+template<int M, bool Safe=false, class dist_t=void>
+void _bolt_query(const uint8_t* codes, int nblocks,
+    const float* q, int ncols,
+    const float* centroids,
+    uint8_t* lut_out, dist_t* dists_out)
+{
+    bolt_lut<M>(q, ncols, centroids, lut_out);
+    bolt_scan<M, Safe>(codes, lut_out, dists_out, nblocks);
+}
+
+template<int ncodebooks>
+void _amm_bolt(const float* Q, int nrows, int ncols, const float* centroids,
+               uint8_t* lut_out, uint16_t* dists_out,
+               const uint8_t* codes, int nblocks)
+{
+    // in contrast to multisplit, this precomputes encodings and computes
+    // new LUTs when a query comes in, instead of the reverse
+    static constexpr int M = ncodebooks / 2;
+    auto q_ptr = Q;
+    auto dists_ptr = dists_out;
+    for (int i = 0; i < nrows; i++) {  // rows in query matrix, not codes
+        _bolt_query<M, true>(
+            codes, nblocks, q_ptr, ncols, centroids, lut_out, dists_ptr);
+        q_ptr += ncols;
+        dists_ptr += nblocks * 32;
+    }
+}
+
+template<int ncodebooks>
+void _template_profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M) {
+    static const int ncentroids = 16;
+    auto orig_M = M;
+    auto orig_D = D;
+
+    auto nblocks = (M + 31) / 32;
+    M = 32 * nblocks;
+    if (D % ncodebooks) {  // ensure that ncodebooks evenly divides D
+        D += (ncodebooks - (D % ncodebooks));
+    }
+
+    // stuff for LUT creation
+    ColMatrix<float> centroids(ncentroids, D);
+    centroids.setRandom();
+    RowMatrix<float> Q(N, D);
+    Q.setRandom();
+    ColMatrix<uint8_t> lut_out(ncentroids, ncodebooks);
+    RowVector<float> offsets(D);
+    offsets.setRandom();
+    float scaleby = 3; // arbitrary number
+
+    // additional stuff for distance computation
+
+    ColMatrix<uint8_t> codes(M, ncodebooks / 2);
+    codes.setRandom();
+    ColMatrix<uint16_t> dists_u16(N, M);
+
+    std::string msg = string_with_format(
+        "amm bolt N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        N, orig_D, orig_M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        dists_u16.data(), dists_u16.size(),
+        _amm_bolt<ncodebooks>(Q.data(), N, D, centroids.data(), lut_out.data(),
+                  dists_u16.data(), codes.data(), nblocks));
+}
+
+void _profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
+    if (ncodebooks > D) { return; }
+    switch(ncodebooks) {
+        case 2: _template_profile_bolt_amm<2>(N, D, M); break;
+        case 4: _template_profile_bolt_amm<4>(N, D, M); break;
+        case 8: _template_profile_bolt_amm<8>(N, D, M); break;
+        case 16: _template_profile_bolt_amm<16>(N, D, M); break;
+        case 32: _template_profile_bolt_amm<32>(N, D, M); break;
+        case 64: _template_profile_bolt_amm<64>(N, D, M); break;
+        default: break;
+    }
+}
+// template<int ncodebooks>
+// void _amm_bolt(const float* X, int64_t nrows, int ncols,
+//                const float* centroids, uint8_t* out_enc, const uint8_t* luts,
+//                uint16_t* out_mat, int out_ncols)
+// {
+//     static constexpr int M = ncodebooks / 2;
+//     bolt_encode<M>(X, nrows, ncols, centroids, out_enc);
+//     auto nblocks = nrows / 32;
+//     auto out_ptr = out_mat;
+//     auto lut_ptr = luts;
+//     for (int i = 0; i < out_ncols; i++) {
+//         bolt_scan_colmajor_tile4_packed<4>(out_enc, nblocks, ncodebooks,
+//             luts, out_ptr);
+//         out_ptr += nrows;
+//         lut_ptr += 16 * ncodebooks;
+//     }
+// }
+
+TEST_CASE("amm lut+scan bolt", "[amm][bolt][profile]") {
+    std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+    for (auto c  : ncodebooks) {
+        printf("ncodebooks = %d\n", c);
+        _profile_bolt_amm(10000, 512, 10, c);     // cifar10
+        _profile_bolt_amm(10000, 512, 100, c);    // cifar100
+        _profile_bolt_amm(57593, 24, 3, c);       // ecg
+        _profile_bolt_amm(115193, 24, 3, c);      // ecg
+        _profile_bolt_amm(230393, 24, 3, c);      // ecg
+        _profile_bolt_amm(49284, 27, 2, c);       // caltech
     }
 }
 
@@ -223,8 +331,11 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     int group_id_nbits = 4;
     int max_ngroups = 1 << group_id_nbits;
 
+    auto orig_N = N;
+
     if (N % 32 > 0) {
-        N -= (N % 32);  // TODO better way of dealing with block size needs
+        // TODO better way of dealing with block size needs
+        N += (32 - (N % 32));
     }
     assert(N % 32 == 0);
     // if (D % ncodebooks > 0) { // TODO rm need for even multiple?
@@ -259,41 +370,13 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
     std::string msg = string_with_format(
         "amm multisplit N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        N, D, M, ncodebooks);
+        orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
         _amm_multisplit(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, nsplits_per_codebook,
             codes.data(), luts.data(), out_mat.data(), out_ncols));
-}
-
-template<class MatrixT1, class MatrixT2, class MatrixT3>
-void _run_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
-   out.noalias() = X * Q;
-}
-
-void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
-    // using MatrixT = ColMatrix<float>;
-    using MatrixT = ColMatrix<float>; // faster for small batches, else slower
-
-    // create random data
-    MatrixT X(N, D);
-    X.setRandom();
-    MatrixT W(D, M);
-    W.setRandom();
-
-    // create output matrix to avoid malloc
-    MatrixT out(N, M);
-
-    // printf("N, D, M: %6d, %3d, %3d, \t", N, D, M);
-
-    // time it
-    std::string msg = string_with_format("matmul N, D, M: %6d, %3d, %3d \t",
-        N, D, M);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out.data(), out.size(),
-        _run_matmul(X, W, out));
 }
 
 TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][profile]") {
@@ -312,22 +395,59 @@ TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][profile]") {
     }
 }
 
+template<class MatrixT1, class MatrixT2, class MatrixT3>
+void _run_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
+   out.noalias() = X * Q;
+}
+
+void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
+    // using MatrixT = ColMatrix<float>;
+    using MatrixT = ColMatrix<float>; // faster for small batches, else slower
+
+    auto orig_N = N;
+    auto orig_D = D;
+    if (N % 32 > 0) {  // match padding that other algos get
+        N += (32 - (N % 32));
+    }
+    if ((D % 8 > 0) && (D > 16)) {
+        D += (8 - (D % 8));
+    }
+
+    // create random data
+    MatrixT X(N, D);
+    X.setRandom();
+    MatrixT W(D, M);
+    W.setRandom();
+
+    // create output matrix to avoid malloc
+    MatrixT out(N, M);
+
+    // printf("N, D, M: %6d, %3d, %3d, \t", N, D, M);
+
+    // time it
+    std::string msg = string_with_format("matmul N, D, M: %6d, %3d, %3d \t",
+        orig_N, orig_D, M);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        _run_matmul(X, W, out));
+}
+
 TEST_CASE("amm exact matmul", "[amm][exact][profile]") {
     int N, M;
     std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 27, 32, 48, 64};
-    
+
     N = 10000; M = 10;          // cifar10
     for (auto d : dvals) {
         _profile_matmul(N, d, M);
     }
     _profile_matmul(N, 512, M);
-    
+
     N = 10000; M = 100;         // cifar100
     for (auto d : dvals) {
         _profile_matmul(N, d, M);
     }
     _profile_matmul(N, 512, M);
-    
+
     M = 3;                      // ecg
     std::vector<int> ecg_nvals {57593, 115193, 230393};
     for (auto n : ecg_nvals) {
@@ -335,12 +455,12 @@ TEST_CASE("amm exact matmul", "[amm][exact][profile]") {
             _profile_matmul(n, d, M);
         }
     }
-    
+
     N = 49284; M = 2;           // caltech
     for (auto d : dvals) {
         _profile_matmul(N, d, M);
     }
-    
+
 //    _profile_matmul(10000, 512, 100);   // cifar100
 //    _profile_matmul(57593, 24, 3);      // ecg
 //    _profile_matmul(115193, 24, 3);     // ecg
