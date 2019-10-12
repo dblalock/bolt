@@ -9,6 +9,9 @@
 #ifndef __AVX_UTILS_HPP
 #define __AVX_UTILS_HPP
 
+// #include <stdio.h> // TODO rm
+#include "debug_utils.hpp"
+
 #include "immintrin.h"
 
 static_assert(__AVX2__, "AVX 2 is required! Try --march=native or -mavx2");
@@ -147,23 +150,23 @@ static inline __m256i load_4xf32_as_32xepi8_or_epu8(
 }
 
 
-// assumes N % 32 == 0, D % NReadCols == 0, M >= 2
+// assumes N % 8 == 0, D % NReadCols == 0, M >= 2
 template<int NReadCols, int NWriteCols>
-static inline void _sgemm_colmajor_narrow_padded(
+static inline void sgemm_colmajor_narrow_padded(
     const float* A, const float *B, int N, int D, int M, float* out)
 {
     static const int packet_sz = 8;
-    int nblocks_N = N / 32;
-    int nstripes_D = D / NWriteCols;
+    int nblocks_N = N / packet_sz;
+    int nstripes_D = D / NReadCols;
     int nstripes_M = M / NWriteCols;
 
     int in_cols[NReadCols];
-    int out_cols[NWriteCols];
+    // int out_cols[NWriteCols];
     const float* a_col_starts[NReadCols];
     const float* b_col_starts[NWriteCols];
     float* out_col_starts[NWriteCols];
     const float* a_col_ptrs[NReadCols];
-    const float* b_col_ptrs[NWriteCols];
+//    const float* b_col_ptrs[NWriteCols];
     float* out_col_ptrs[NWriteCols];
     // __m256 a_subs[NReadCols];
     __m256 b_subs[NReadCols * NWriteCols];
@@ -173,30 +176,48 @@ static inline void _sgemm_colmajor_narrow_padded(
     for (int i = 0; i < NReadCols * NWriteCols; i++) {
         b_subs[i] = _mm256_undefined_ps();
     }
-    for (int i = 0; i < N * D; i++) { out[i] = 0; }  // zero output
+    for (int i = 0; i < N * M; i++) { out[i] = 0; }  // zero output
 
-    for (int m = 0; m < NWriteCols; m++) { // for each group of output cols
-        for (int j = 0; j < nstripes_D; j++) { // for each group of input cols
+    // return; // TODO rm d
+
+    for (int m = 0; m < nstripes_M; m++) { // for each group of output cols
+        // printf("m = %d\n", m);
+        // set output col start ptrs and current ptrs for simplicity
+        for (int mm = 0; mm < NWriteCols; mm++) {
+            auto out_col = m * NWriteCols + mm;
+            // printf("out_col = %d\n", out_col);
+            // out_cols[mm] = out_col;
+            b_col_starts[mm] = B + (D * out_col);
+            out_col_starts[mm] = out + (N * out_col);
+            // b_col_ptrs[mm] = b_col_starts[mm];
+            // printf("b col start: %d\n", pretty_ptr(b_col_starts[mm]));
+            // printf("val in b col start: %f\n", *(b_col_starts[mm]));
+        }
+
+        // for each group of input cols
+        for (int j = 0; j < nstripes_D; j++) {
+            // printf("j (in col group): %d\n", j);
             // set col start ptrs and current ptrs for simplicity
             for (int jj = 0; jj < NReadCols; jj++) {
-                in_cols[jj] = j * NReadCols + jj;
-                a_col_starts[jj] = A + in_cols[jj] * N;
+                auto in_col = j * NReadCols + jj;
+                // printf("in col: %d\n", in_col);
+                in_cols[jj] = in_col;
+                a_col_starts[jj] = A + in_col * N;
                 a_col_ptrs[jj] = a_col_starts[jj];
             }
             for (int mm = 0; mm < NWriteCols; mm++) {
-                auto out_col = m * NWriteCols + mm;
-                out_cols[mm] = out_col;
-                b_col_starts[mm] = B + D * out_col;
-                out_col_starts[mm] = out + N * out_col;
                 // b_col_ptrs[mm] = b_col_starts[mm];
                 out_col_ptrs[mm] = out_col_starts[mm];
             }
 
             // load up coeffs for this group of input dims, for all out cols
             for (int jj = 0; jj < NReadCols; jj++) {
+                auto b_row = in_cols[jj];
+                // printf("b row: %d\n", b_row);
                 for (int mm = 0; mm < NWriteCols; mm++) {
-                    auto b_row = in_cols[jj];
-                    auto bval = *(b_col_starts[mm] + b_row);
+                    float bval = *(b_col_starts[mm] + b_row);
+                    // printf("b col start val: %f\n", *(b_col_starts[mm]));
+                    // printf("b val: %f\n", bval);
                     b_subs[jj * NWriteCols + mm] = _mm256_set1_ps(bval);
                 }
             }
@@ -222,9 +243,8 @@ static inline void _sgemm_colmajor_narrow_padded(
                 }
                 // write back partial sums and increment output
                 for (int mm = 0; mm < NWriteCols; mm++) {
-                    auto out_ptr = out_col_ptrs[mm];
-                    __m256 sum = sums[mm];
-                    sums[mm] = _mm256_store_ps(out_ptr, sum);
+                    float* out_ptr = out_col_ptrs[mm];
+                    _mm256_store_ps(out_ptr, sums[mm]);
                     out_col_ptrs[mm] += packet_sz;
                 }
             }
@@ -232,10 +252,10 @@ static inline void _sgemm_colmajor_narrow_padded(
     }
 }
 
-static inline void sgemm_colmajor_narrow_padded(
+static inline void sgemm_colmajor_narrow_padded_default(
     const float* A, const float *B, int N, int D, int M, float* out)
 {
-    _sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
+    sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
 }
 
 } // anon namespace
