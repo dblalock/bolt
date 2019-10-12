@@ -99,7 +99,8 @@ void _test_sgemm_colmajor_many(std::vector<int> Ns, std::vector<int> Ds,
 
 TEST_CASE("sgemm colmajor", "[utils]") {
     // _test_sgemm_colmajor<-1, -1>(1, 5, 1, true);
-    _test_sgemm_colmajor<-1, -1>(1, 1, 7, true);
+    // _test_sgemm_colmajor<-1, -1>(1, 1, 7, true);
+    // _test_sgemm_colmajor<-1, -1>(1, 4, 5, true);
     // int N = 256 + 8;
     // // int N = 256 * 2;
     // int D = 4;
@@ -145,14 +146,15 @@ TEST_CASE("sgemm colmajor", "[utils]") {
         ivec Ms {3, 6, 9};
         _test_sgemm_colmajor_many<3, 3>(Ns, Ds, Ms);
     }
-    // SECTION("brute force many shapes") {
-    //     for (int n = 1; n < 40; n++) {
-    //         for (int d = 1; d < 40; d++) {
-    //             for (int m = 0; m < 40; m++) {
-    //                 _test_sgemm_colmajor<-1, -1>(n, d, m, true);
-    //             }
-    //         }
-    //     }
-    // }
+    SECTION("brute force many shapes") {
+        for (int n = 1; n <= 512; n = (n * 3) - 1) {
+            printf("brute force sgemm test, n = %d...\n", n);
+            for (int d = 1; d < 20; d++) {
+                for (int m = 0; m < 20; m++) {
+                    _test_sgemm_colmajor<-1, -1>(n, d, m);
+                }
+            }
+        }
+    }
 }
 

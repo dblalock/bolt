@@ -82,18 +82,18 @@ void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
                     A_coltail, B_rowtail, N, 1, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
             return;
         case 20:  // two trailing input dims
-            sgemm_colmajor_narrow_padded<2, 3>(A_coltail, B_rowtail, N, 2, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
+            sgemm_colmajor_narrow_padded<2, 3>(A_coltail, B_rowtail, N, D_tail, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
             return;
         case 30: // three trailing input dims
-            sgemm_colmajor_narrow_padded<3, 3>(A_coltail, B_rowtail, N, 3, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
+            sgemm_colmajor_narrow_padded<3, 3>(A_coltail, B_rowtail, N, D_tail, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
             return;
         case 1: // one trailing output dim
             sgemm_colmajor_narrow_padded<4, 1>(
-                A, B_coltail, N, D_round, 1, out_coltail, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
+                A, B_coltail, N, D_round, M_tail, out_coltail, false, A_col_stride, B_col_stride, out_col_stride);
             return;
         case 2: // two trailing output dims
             sgemm_colmajor_narrow_padded<4, 2>(
-                A, B_coltail, N, D_round, 2, out_coltail, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
+                A, B_coltail, N, D_round, M_tail, out_coltail, false, A_col_stride, B_col_stride, out_col_stride);
             return;
 
         // now the tricky cases: trailing input *and* output dims
