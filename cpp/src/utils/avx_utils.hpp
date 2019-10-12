@@ -14,6 +14,13 @@
 
 #include "immintrin.h"
 
+#ifndef MAX
+    #define MAX(x, y) ((x) < (y) ? (y) : (x))
+#endif
+#ifndef MIN
+    #define MIN(x, y) ((x) > (y) ? (y) : (x))
+#endif
+
 static_assert(__AVX2__, "AVX 2 is required! Try --march=native or -mavx2");
 
 namespace {
@@ -162,20 +169,40 @@ static inline __m256i load_4xf32_as_32xepi8_or_epu8(
 template<int NReadCols, int NWriteCols>
 static inline void sgemm_colmajor_narrow_padded(
     const float* A, const float *B, int N, int D, int M, float* out,
-    bool add_to_output=false, int nrows_per_block=256)
+    bool add_to_output=false, int A_col_stride=-1,
+    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_block=256)
 {
     static const int packet_sz = 8;
+    if (MIN(N, MIN(D, M)) < 1) { return; } // nothing to do
+    // static const int L1_cache_sz_elems = (1 << 32) / sizeof(A[0]);
+    // if (nrows_per_block < packet_sz) {
+    //     auto max_in_rows_in_L1 = L1_cache_sz_elems / (D + M);
+    //     // round down to multiple of 8;
+    //     nrows_per_block = (max_in_rows_in_L1 >> 3) << 3;
+    //     nrows_per_block = nrows_per_block < 32 ? 32 : nrows_per_block;
+    // }
+    // PRINT_VAR(nrows_per_block); // always 32
+
+    // printf("------------------------\n");
+    // PRINT_VAR(NReadCols);
+    // PRINT_VAR(NWriteCols);
+    // PRINT_VAR(N);
+    // PRINT_VAR(D);
+    // PRINT_VAR(M);
+    // // PRINT_VAR(A_col_stride);
+    // // PRINT_VAR(B_col_stride);64
+    // // PRINT_VAR(out_col_stride);
+    // // printf("-----------\n");
 
     // stuff for tiling nrows
     int nblocks_N = (N + nrows_per_block - 1) / nrows_per_block;
     auto N_orig = N;
     N = N < nrows_per_block ? N : nrows_per_block; // *after* setting strides
     auto A_orig = A;
-//    auto B_orig = B;
     auto out_orig = out;
-    auto A_col_stride = N_orig;
-    auto B_col_stride = D;
-    auto out_col_stride = N_orig;
+    A_col_stride = A_col_stride     >= 1 ? A_col_stride   : N_orig;
+    B_col_stride = B_col_stride     >= 1 ? B_col_stride   : D;
+    out_col_stride = out_col_stride >= 1 ? out_col_stride : N_orig;
 
     // costants derived from matrix / tiling sizes
     int nstripes_D = D / NReadCols;
@@ -198,15 +225,8 @@ static inline void sgemm_colmajor_narrow_padded(
         for (int i = 0; i < N_orig * M; i++) { out[i] = 0; }
     }
 
-    // PRINT_VAR(pretty_ptr(B));
-    // PRINT_VAR(B_col_stride);
-
-    // for (int n = 0; n < 1; n++) {
     for (int n = 0; n < nblocks_N; n++) {
-        // printf("nblocks_N: %d\n", nblocks_N);
-        // // setup pointers for this block of rows
         A = A_orig + (n * nrows_per_block);
-//        B = B_orig + (n * nrows_per_block);
         out = out_orig + (n * nrows_per_block);
         if (n == (nblocks_N - 1)) { // handle last block
             auto N_done_so_far = n * nrows_per_block;
@@ -271,6 +291,7 @@ static inline void sgemm_colmajor_narrow_padded(
                     for (int mm = 0; mm < NWriteCols; mm++) {
                         auto out_ptr = out_col_ptrs[mm];
                         sums[mm] = _mm256_load_ps(out_ptr);
+                        // __builtin_prefetch(out_ptr + packet_sz);
                     }
                     // load input from each col, and update partial sums for
                     // each output
@@ -293,48 +314,50 @@ static inline void sgemm_colmajor_narrow_padded(
                         // if (n > 0) {
                         //     PRINT_VAR(pretty_ptr(out_col_ptrs[mm]) / 4);
                         // }
+                        // printf("writing stuff from main loop!\n");
                     }
                 }
             }
         }
     }
-}
+    auto N_tail = N % packet_sz;
+    if (N_tail ==  0) { return; }
 
-// N has to be a multiple of 8; better if D a multiple of 3 or 4, M a multiple
-// of 2 or 3
-static inline void sgemm_colmajor_narrow_padded_default(
-    const float* A, const float *B, int N, int D, int M, float* out)
-{
-    // assert(D % 4 == 0);
-    // assert(M % 2 == 0);
-    // sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
+    // // PRINT_VAR(N);
+    // // PRINT_VAR(D);
+    // // PRINT_VAR(M);
+    // PRINT_VAR(N_tail);
+    // PRINT_VAR(A_col_stride);
+    // PRINT_VAR(B_col_stride);
+    // PRINT_VAR(out_col_stride);
+    // PRINT_VAR(N - N_tail);
 
-    auto D_multiple_of_4 = D % 4 == 0;
-    auto D_multiple_of_3 = D % 3 == 0;
-    auto D_multiple_of_2 = D % 2 == 0;
-    auto M_multiple_of_3 = M % 3 == 0;
-    auto M_multiple_of_2 = M % 2 == 0;
+    // PRINT_VAR(*A);
+    // PRINT_VAR(*B);
+    // PRINT_VAR(*out);
 
-    if (D_multiple_of_4 && M_multiple_of_3) {
-        sgemm_colmajor_narrow_padded<4, 3>(A, B, N, D, M, out);
-    } else if (D_multiple_of_4 && M_multiple_of_2) {
-        sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
-    } else if (D_multiple_of_3 && M_multiple_of_3) {
-        sgemm_colmajor_narrow_padded<3, 3>(A, B, N, D, M, out);
-    } else if (D_multiple_of_3 && M_multiple_of_2) {
-        sgemm_colmajor_narrow_padded<3, 2>(A, B, N, D, M, out);
-    } else if (D_multiple_of_2 && M_multiple_of_3) {
-        sgemm_colmajor_narrow_padded<2, 3>(A, B, N, D, M, out);
-    } else if (D_multiple_of_2 && M_multiple_of_2 ) {
-        sgemm_colmajor_narrow_padded<2, 2>(A, B, N, D, M, out);
-    } else {
-        // figure out logic for how to tile stuff if we really want to make
-        // this function generic
-        assert(false); // D must be a multiple of 2, 3, or 4, and M must be a multiple of 2 or 3
+    // if N doesn't evenly divide number of packets, just naive matmul
+    // TODO vectorize this also if M or D is large enough
+    A = A + (N - N_tail);
+    out = out + (N - N_tail);
+    for (int m = 0; m < M; m++) { // for each output column
+        for (int i = 0; i < N_tail; i++) { // for each input/output row
+            auto sum = add_to_output ? out[i + m * out_col_stride] : 0;
+            for (int d = 0; d < D; d++) { // for each A col / B row
+                auto a = A[i + (d * A_col_stride)];
+                auto b = B[d + (m * B_col_stride)];
+                sum += a * b;
+                // printf("m, i, d -> a x b = sum:\t%d, %d, %d -> %f x %f = %f\n", m, i, d, a, b, sum);
+            }
+            out[i + m * out_col_stride] = sum;
+        }
     }
 }
 
 } // anon namespace
+
+void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
+                    float* out);
 
 #endif // __AVX_UTILS_HPP
 

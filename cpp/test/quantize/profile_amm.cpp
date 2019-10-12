@@ -403,7 +403,7 @@ void _run_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
 template<class MatrixT1, class MatrixT2, class MatrixT3>
 void _run_our_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
     // not actually faster than the eigen one
-    sgemm_colmajor_narrow_padded_default(
+    sgemm_colmajor(
         X.data(), Q.data(), X.rows(), X.cols(), Q.cols(), out.data());
 }
 
@@ -418,12 +418,12 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
     auto orig_N = N;
     auto orig_D = D;
     auto orig_M = M;
-    if (N % 8 > 0) {  // match padding that other algos get
-        N += (8 - (N % 8));
-    }
-    if ((D % 4 > 0) && (D > 16)) {
-        D += (4 - (D % 4));
-    }
+    // if (N % 8 > 0) {  // match padding that other algos get
+    //     N += (8 - (N % 8));
+    // }
+    // if ((D % 4 > 0) && (D > 16)) {
+    //     D += (4 - (D % 4));
+    // }
     // auto target_factor = 2;
     // if ((M % target_factor > 0) && (M > target_factor)) {
     //     M += (target_factor - (M % target_factor));
