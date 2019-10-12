@@ -46,8 +46,8 @@
 	}
 
 	template<typename P>
-	inline int32_t pretty_ptr(P ptr) {
-		return (((int64_t)ptr) << 40) >> 40;
+	inline uint32_t pretty_ptr(P ptr) {
+		return (((uint64_t)ptr) << 40) >> 40;
 	}
 
 

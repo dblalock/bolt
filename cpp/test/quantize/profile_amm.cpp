@@ -400,18 +400,34 @@ void _run_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
    out.noalias() = X * Q;
 }
 
+template<class MatrixT1, class MatrixT2, class MatrixT3>
+void _run_our_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
+    // not actually faster than the eigen one
+    sgemm_colmajor_narrow_padded_default(
+        X.data(), Q.data(), X.rows(), X.cols(), Q.cols(), out.data());
+}
+
 void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
     // using MatrixT = ColMatrix<float>;
     using MatrixT = ColMatrix<float>; // faster for small batches, else slower
 
+    // N = 1024; // TODO rm
+    // N = 2048; // TODO rm
+    // N = 4096; // TODO rm
+
     auto orig_N = N;
     auto orig_D = D;
-    if (N % 32 > 0) {  // match padding that other algos get
-        N += (32 - (N % 32));
+    auto orig_M = M;
+    if (N % 8 > 0) {  // match padding that other algos get
+        N += (8 - (N % 8));
     }
-    if ((D % 8 > 0) && (D > 16)) {
-        D += (8 - (D % 8));
+    if ((D % 4 > 0) && (D > 16)) {
+        D += (4 - (D % 4));
     }
+    // auto target_factor = 2;
+    // if ((M % target_factor > 0) && (M > target_factor)) {
+    //     M += (target_factor - (M % target_factor));
+    // }
 
     // create random data
     MatrixT X(N, D);
@@ -425,11 +441,20 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
     // printf("N, D, M: %6d, %3d, %3d, \t", N, D, M);
 
     // time it
-    std::string msg = string_with_format("matmul N, D, M: %6d, %3d, %3d \t",
-        orig_N, orig_D, M);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out.data(), out.size(),
-        _run_matmul(X, W, out));
+    {
+        std::string msg = string_with_format("blas matmul N, D, M: %6d, %3d, %3d \t",
+            orig_N, orig_D, orig_M);
+        REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+            out.data(), out.size(),
+            _run_matmul(X, W, out));
+    }
+    {
+        std::string msg = string_with_format("our  matmul N, D, M: %6d, %3d, %3d \t",
+            orig_N, orig_D, orig_M);
+        REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+            out.data(), out.size(),
+            _run_our_matmul(X, W, out));
+    }
 }
 
 TEST_CASE("amm exact matmul", "[amm][exact][profile]") {

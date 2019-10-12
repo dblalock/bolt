@@ -151,111 +151,187 @@ static inline __m256i load_4xf32_as_32xepi8_or_epu8(
 
 
 // assumes N % 8 == 0, D % NReadCols == 0, M >= 2
+// gorgeous inner loop with <4, 3>: https://godbolt.org/z/lROnpg
+//  -search for vfmadd231ps to get to inner loop
+//  -also works with both number less then or equal to these vals, but not
+//  otherwise
+//      -4, 4 starts spilling registers
+//      -anything >4 starts adding a bunch of register increments between the
+//      fmas instead of fully unrolling (which might be fine cuz of
+//      superscalar execution, but who knows)
 template<int NReadCols, int NWriteCols>
 static inline void sgemm_colmajor_narrow_padded(
-    const float* A, const float *B, int N, int D, int M, float* out)
+    const float* A, const float *B, int N, int D, int M, float* out,
+    bool add_to_output=false, int nrows_per_block=256)
 {
     static const int packet_sz = 8;
-    int nblocks_N = N / packet_sz;
+
+    // stuff for tiling nrows
+    int nblocks_N = (N + nrows_per_block - 1) / nrows_per_block;
+    auto N_orig = N;
+    N = N < nrows_per_block ? N : nrows_per_block; // *after* setting strides
+    auto A_orig = A;
+//    auto B_orig = B;
+    auto out_orig = out;
+    auto A_col_stride = N_orig;
+    auto B_col_stride = D;
+    auto out_col_stride = N_orig;
+
+    // costants derived from matrix / tiling sizes
     int nstripes_D = D / NReadCols;
     int nstripes_M = M / NWriteCols;
 
+    // arrays that will all get unrolled and not really exist
     int in_cols[NReadCols];
-    // int out_cols[NWriteCols];
     const float* a_col_starts[NReadCols];
     const float* b_col_starts[NWriteCols];
     float* out_col_starts[NWriteCols];
     const float* a_col_ptrs[NReadCols];
-//    const float* b_col_ptrs[NWriteCols];
     float* out_col_ptrs[NWriteCols];
-    // __m256 a_subs[NReadCols];
     __m256 b_subs[NReadCols * NWriteCols];
-    // for (int i = 0; i < NReadCols; i++) {
-    //     a_subs[i] = _mm256_undefined_ps();
-    // }
     for (int i = 0; i < NReadCols * NWriteCols; i++) {
         b_subs[i] = _mm256_undefined_ps();
     }
-    for (int i = 0; i < N * M; i++) { out[i] = 0; }  // zero output
 
-    // return; // TODO rm d
+    // zero output buffer
+    if (!add_to_output) {
+        for (int i = 0; i < N_orig * M; i++) { out[i] = 0; }
+    }
 
-    for (int m = 0; m < nstripes_M; m++) { // for each group of output cols
-        // printf("m = %d\n", m);
-        // set output col start ptrs and current ptrs for simplicity
-        for (int mm = 0; mm < NWriteCols; mm++) {
-            auto out_col = m * NWriteCols + mm;
-            // printf("out_col = %d\n", out_col);
-            // out_cols[mm] = out_col;
-            b_col_starts[mm] = B + (D * out_col);
-            out_col_starts[mm] = out + (N * out_col);
-            // b_col_ptrs[mm] = b_col_starts[mm];
-            // printf("b col start: %d\n", pretty_ptr(b_col_starts[mm]));
-            // printf("val in b col start: %f\n", *(b_col_starts[mm]));
+    // PRINT_VAR(pretty_ptr(B));
+    // PRINT_VAR(B_col_stride);
+
+    // for (int n = 0; n < 1; n++) {
+    for (int n = 0; n < nblocks_N; n++) {
+        // printf("nblocks_N: %d\n", nblocks_N);
+        // // setup pointers for this block of rows
+        A = A_orig + (n * nrows_per_block);
+//        B = B_orig + (n * nrows_per_block);
+        out = out_orig + (n * nrows_per_block);
+        if (n == (nblocks_N - 1)) { // handle last block
+            auto N_done_so_far = n * nrows_per_block;
+            N = N_orig - N_done_so_far;
         }
+        // printf("N for this block: %d\n", N);
+        // N = N_orig; // TODO uncomment above and rm this
 
-        // for each group of input cols
-        for (int j = 0; j < nstripes_D; j++) {
-            // printf("j (in col group): %d\n", j);
-            // set col start ptrs and current ptrs for simplicity
-            for (int jj = 0; jj < NReadCols; jj++) {
-                auto in_col = j * NReadCols + jj;
-                // printf("in col: %d\n", in_col);
-                in_cols[jj] = in_col;
-                a_col_starts[jj] = A + in_col * N;
-                a_col_ptrs[jj] = a_col_starts[jj];
-            }
+        int nstripes_N = N / packet_sz;
+
+        // PRINT_VAR(n * nrows_per_block);
+        // PRINT_VAR(N);
+        // PRINT_VAR(nstripes_N);
+
+        // main loop to matmul a block of rows in A with B
+        for (int m = 0; m < nstripes_M; m++) { // for each group of output cols
+            // printf("m = %d\n", m);
+            // set output col start ptrs and current ptrs for simplicity
+
             for (int mm = 0; mm < NWriteCols; mm++) {
-                // b_col_ptrs[mm] = b_col_starts[mm];
-                out_col_ptrs[mm] = out_col_starts[mm];
+                auto out_col = m * NWriteCols + mm;
+                b_col_starts[mm] = B + (B_col_stride * out_col);
+                out_col_starts[mm] = out + (out_col_stride * out_col);
+                // printf("out_col_starts[mm] = ")
+                // PRINT_VAR(pretty_ptr(out_col_starts[mm]));
+                // PRINT_VAR(pretty_ptr(b_col_starts[mm]));
             }
 
-            // load up coeffs for this group of input dims, for all out cols
-            for (int jj = 0; jj < NReadCols; jj++) {
-                auto b_row = in_cols[jj];
-                // printf("b row: %d\n", b_row);
-                for (int mm = 0; mm < NWriteCols; mm++) {
-                    float bval = *(b_col_starts[mm] + b_row);
-                    // printf("b col start val: %f\n", *(b_col_starts[mm]));
-                    // printf("b val: %f\n", bval);
-                    b_subs[jj * NWriteCols + mm] = _mm256_set1_ps(bval);
+            // for each group of input cols
+            for (int j = 0; j < nstripes_D; j++) {
+                // printf("j (in col group): %d\n", j);
+                // set col start ptrs and current ptrs for simplicity
+                for (int jj = 0; jj < NReadCols; jj++) {
+                    auto in_col = j * NReadCols + jj;
+                    // printf("in col: %d\n", in_col);
+                    in_cols[jj] = in_col;
+                    a_col_starts[jj] = A + (A_col_stride * in_col);
+                    a_col_ptrs[jj] = a_col_starts[jj];
+                    // PRINT_VAR(pretty_ptr(a_col_ptrs[jj]) / 4);
                 }
-            }
-
-            for (int b = 0; b < nblocks_N; b++) {   // for each block of rows
-                // load up sums-so-far from current output
-                __m256 sums[NWriteCols];
                 for (int mm = 0; mm < NWriteCols; mm++) {
-                    auto out_ptr = out_col_ptrs[mm];
-                    sums[mm] = _mm256_load_ps(out_ptr);
+                    // b_col_ptrs[mm] = b_col_starts[mm];
+                    out_col_ptrs[mm] = out_col_starts[mm];
+                    // PRINT_VAR(pretty_ptr(out_col_ptrs[mm]) / 4);
                 }
-                // load input from each col, and update partial sums for
-                // each output
-                for (int jj = 0; jj < NReadCols; jj++) {  // for each in col
-                    auto a_ptr = a_col_ptrs[jj];
-                    auto avec = _mm256_load_ps(a_ptr);
-                    a_col_ptrs[jj] += packet_sz;
 
-                    for (int mm = 0; mm < NWriteCols; mm++) { // each out col
-                        auto bvec = b_subs[jj * NWriteCols + mm];
-                        sums[mm] = fma(avec, bvec, sums[mm]);
+                // load up coeffs for this group of input dims, for all out cols
+                for (int jj = 0; jj < NReadCols; jj++) {
+                    auto b_row = in_cols[jj];
+                    // printf("b row: %d\n", b_row);
+                    for (int mm = 0; mm < NWriteCols; mm++) {
+                        float bval = *(b_col_starts[mm] + b_row);
+                        // printf("b col start val: %f\n", *(b_col_starts[mm]));
+                        // printf("b val: %f\n", bval);
+                        b_subs[jj * NWriteCols + mm] = _mm256_set1_ps(bval);
                     }
                 }
-                // write back partial sums and increment output
-                for (int mm = 0; mm < NWriteCols; mm++) {
-                    float* out_ptr = out_col_ptrs[mm];
-                    _mm256_store_ps(out_ptr, sums[mm]);
-                    out_col_ptrs[mm] += packet_sz;
+
+                for (int b = 0; b < nstripes_N; b++) {   // for each 8 rows
+                    // load up sums-so-far from current output
+                    __m256 sums[NWriteCols];
+                    for (int mm = 0; mm < NWriteCols; mm++) {
+                        auto out_ptr = out_col_ptrs[mm];
+                        sums[mm] = _mm256_load_ps(out_ptr);
+                    }
+                    // load input from each col, and update partial sums for
+                    // each output
+                    for (int jj = 0; jj < NReadCols; jj++) {  // for each in col
+                        auto a_ptr = a_col_ptrs[jj];
+                        auto avec = _mm256_load_ps(a_ptr);
+                        a_col_ptrs[jj] += packet_sz;
+
+                        for (int mm = 0; mm < NWriteCols; mm++) { // each out col
+                            auto bvec = b_subs[jj * NWriteCols + mm];
+                            sums[mm] = fma(avec, bvec, sums[mm]);
+                        }
+                    }
+                    // write back partial sums and increment output
+                    // if (n > 0) { PRINT_VAR(b); }
+                    for (int mm = 0; mm < NWriteCols; mm++) {
+                        float* out_ptr = out_col_ptrs[mm];
+                        _mm256_store_ps(out_ptr, sums[mm]);
+                        out_col_ptrs[mm] += packet_sz;
+                        // if (n > 0) {
+                        //     PRINT_VAR(pretty_ptr(out_col_ptrs[mm]) / 4);
+                        // }
+                    }
                 }
             }
         }
     }
 }
 
+// N has to be a multiple of 8; better if D a multiple of 3 or 4, M a multiple
+// of 2 or 3
 static inline void sgemm_colmajor_narrow_padded_default(
     const float* A, const float *B, int N, int D, int M, float* out)
 {
-    sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
+    // assert(D % 4 == 0);
+    // assert(M % 2 == 0);
+    // sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
+
+    auto D_multiple_of_4 = D % 4 == 0;
+    auto D_multiple_of_3 = D % 3 == 0;
+    auto D_multiple_of_2 = D % 2 == 0;
+    auto M_multiple_of_3 = M % 3 == 0;
+    auto M_multiple_of_2 = M % 2 == 0;
+
+    if (D_multiple_of_4 && M_multiple_of_3) {
+        sgemm_colmajor_narrow_padded<4, 3>(A, B, N, D, M, out);
+    } else if (D_multiple_of_4 && M_multiple_of_2) {
+        sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out);
+    } else if (D_multiple_of_3 && M_multiple_of_3) {
+        sgemm_colmajor_narrow_padded<3, 3>(A, B, N, D, M, out);
+    } else if (D_multiple_of_3 && M_multiple_of_2) {
+        sgemm_colmajor_narrow_padded<3, 2>(A, B, N, D, M, out);
+    } else if (D_multiple_of_2 && M_multiple_of_3) {
+        sgemm_colmajor_narrow_padded<2, 3>(A, B, N, D, M, out);
+    } else if (D_multiple_of_2 && M_multiple_of_2 ) {
+        sgemm_colmajor_narrow_padded<2, 2>(A, B, N, D, M, out);
+    } else {
+        // figure out logic for how to tile stuff if we really want to make
+        // this function generic
+        assert(false); // D must be a multiple of 2, 3, or 4, and M must be a multiple of 2 or 3
+    }
 }
 
 } // anon namespace
