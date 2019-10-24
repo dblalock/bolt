@@ -404,7 +404,7 @@ template<class MatrixT1, class MatrixT2, class MatrixT3>
 void _run_our_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
     // not actually faster than the eigen one
     sgemm_colmajor(
-        X.data(), Q.data(), X.rows(), X.cols(), Q.cols(), out.data());
+        X.data(), Q.data(), (int)X.rows(), (int)X.cols(), Q.cols(), out.data());
 }
 
 void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {

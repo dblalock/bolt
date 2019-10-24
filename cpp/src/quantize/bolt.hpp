@@ -15,6 +15,8 @@
 #include <type_traits>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
 
+#include "debug_utils.hpp" // TODO rm
+
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
 #else
@@ -332,6 +334,18 @@ void bolt_encode_centroids(const data_t* centroids, int ncols, data_t* out) {
     }
 }
 
+
+// https://godbolt.org/z/wCQQoY
+// inner loop gets unrolled, but here's what repeats:
+//      vmovdqa     ymm4, YMMWORD PTR [rsp+128]
+//      vpaddusb    ymm1, ymm0, ymm1
+//      vpsrlw      ymm0, ymm2, 4
+//      vpand       ymm2, ymm2, ymm3
+//      vpshufb     ymm2, ymm4, ymm2
+//      vmovdqa     ymm4, YMMWORD PTR [rsp+96]
+//      vpand       ymm0, ymm3, ymm0
+//      vpaddusb    ymm1, ymm1, ymm2
+//      vpshufb     ymm0, ymm4, ymm0
 /**
  * @brief Compute distances for an array of codes using a given LUT
  *
@@ -404,6 +418,23 @@ inline void bolt_scan(const uint8_t* codes,
     }
 }
 
+// https://godbolt.org/z/MIxYFF
+// unrolls the whole inner loop since NBytes is a const; basically just repeats
+// this block a bunch of times (note that that 16b insts are from the prev iter;
+// it puts the load into ymm3 way before ymm3 is used):
+//      vmovdqa     ymm3, YMMWORD PTR [rsp+288]
+//      vpaddusb    ymm15, ymm14, ymm15
+//      vpsrlw      ymm14, ymm15, 8
+//      vpand       ymm15, ymm15, YMMWORD PTR <stuff>::low_8bits_mask[rip]
+//      vpaddusw    ymm13, ymm13, ymm14
+//      vmovntdqa   ymm14, YMMWORD PTR [rbx-320]
+//      vpaddusw    ymm1, ymm1, ymm15
+//      vpsrlw      ymm15, ymm14, 4
+//      vpand       ymm14, ymm14, ymm0
+//      vpshufb     ymm14, ymm3, ymm14
+//      vpand       ymm15, ymm0, ymm15
+//      vmovdqa     ymm3, YMMWORD PTR [rsp+256]
+//      vpshufb     ymm15, ymm3, ymm15
 // overload of above with uint16_t dists_out (as used in the paper); also
 // has the option to immediately upcast uint8s from the LUTs to uint16_t, which
 // is also what we did in the paper. Bolt is even faster if we don't do this.
@@ -456,7 +487,7 @@ inline void bolt_scan(const uint8_t* codes,
             // 32 uint8s to a pair of uint16s by masking the low 8 bits to
             // get the even-numbered uint8s as the first vector of uint16s,
             // and shifting down by 8 bits to get the odd-numbered ones as
-            // the second vector or uint16s
+            // the second vector of uint16s
             if (NoOverflow) { // convert to epu16s before doing any adds
                 auto dists16_low_evens = _mm256_and_si256(dists_low, low_8bits_mask);
                 auto dists16_low_odds = _mm256_srli_epi16(dists_low, 8);
@@ -815,6 +846,155 @@ inline void bolt_scan_colmajor_tile4_packed(const uint8_t* codes,
         codes, nblocks, ncodebooks, luts, out);
 }
 
+/** 4 cols of 4b codes in the low 4 bits -> 1 col, twice as
+ * long, of packed 4b codes in a particular layout.
+ *
+ * Layout is from the Quicker-ADC paper, and is basically designed
+ * so that each 16B LUT is one lane of a ymm register; this is
+ * better than broadcasting it to both lanes because you can fit
+ * more LUTs in registers at once, and so either compute bigger
+ * chunks of one output sum (many codebooks) or multiple outputs
+ * at once (fewer codebooks). I.e., less register pressure, so do
+ * more compute per read, and fewer writes.
+ *
+ * 0a   0b   0c   0d
+ * 0a   0b   0c   0d
+ * 0a   0b   0c   0d
+ * 0a   0b   0c   0d
+ * 0e   0f   0g   0h
+ * 0e   0f   0g   0h
+ * 0e   0f   0g   0h
+ * 0e   0f   0g   0h
+ *
+ * -> packing
+ *
+ * ac
+ * ac
+ * ac
+ * ac
+ * eg
+ * eg
+ * eg
+ * eg
+ *
+ * bd
+ * bd
+ * bd
+ * bd
+ * fh
+ * fh
+ * fh
+ * fh
+ *
+ * -> perms
+ *
+ * ac
+ * ac
+ * ac
+ * ac
+ * bd
+ * bd
+ * bd
+ * bd
+ *
+ * eg
+ * eg
+ * eg
+ * eg
+ * fh
+ * fh
+ * fh
+ * fh
+ */
+inline void zip4_4b_colmajor(const uint8_t* codes_in, uint32_t ncodebooks,
+                             int64_t nblocks, uint8_t* codes_out)
+{
+    static constexpr int in_block_sz = 32;      // read 32 codes at once
+    static constexpr int out_block_sz = 64;     // 32 x 4 cols -> 64 rows
+    static constexpr int ncodebooks_per_group = 4;
+    assert(ncodebooks % ncodebooks_per_group == 0);
+    int ncolgroups = ncodebooks / ncodebooks_per_group;
+
+    auto in_col_stride = in_block_sz * nblocks;
+    auto out_col_stride = out_block_sz * nblocks;
+
+    // PRINT_VAR(ncolgroups);
+    // PRINT_VAR(in_col_stride);
+    // PRINT_VAR(out_col_stride);
+
+    for (int c = 0; c < ncolgroups; c++) {
+        // initialize col starts
+        // for (int cc = 0; cc < ncodebooks_per_group; cc++) {
+        //     auto col = initial_col + cc;
+        //     in_col_ptrs[cc] = codes_in + col * in_col_stride;
+        // }
+        auto initial_col = c * ncodebooks_per_group;
+        auto initial_col_ptr = codes_in + (initial_col * in_col_stride);
+        auto out_col_ptr = codes_out + (c * out_col_stride);
+        // for each block
+        for (int b = 0; b < nblocks; b++) {
+            // okay, forget being generic here; load from all 4 cols
+            auto initial_col = c * ncodebooks_per_group;
+            auto x0 = load_si256i(initial_col_ptr + 0 * in_col_stride);
+            auto x1 = load_si256i(initial_col_ptr + 1 * in_col_stride);
+            auto x2 = load_si256i(initial_col_ptr + 2 * in_col_stride);
+            auto x3 = load_si256i(initial_col_ptr + 3 * in_col_stride);
+            initial_col_ptr += 32;
+
+            // pack bits
+            auto x02 = _mm256_or_si256(x0, _mm256_slli_epi16(x2, 4));
+            auto x13 = _mm256_or_si256(x1, _mm256_slli_epi16(x3, 4));
+
+            // put lower 128b lanes together and higher 128b lanes together;
+            // this corresponds to having y0 store 4 codebooks of codes for
+            // rows 0-15, and y1 store same 4 codebooks of codes for rows 16-31
+            auto y0 = _mm256_permute2x128_si256(x02, x13, 0 | (2 << 4));
+            auto y1 = _mm256_permute2x128_si256(x02, x13, 1 | (3 << 4));
+
+            // printf("y0: \n");
+            // dump_m256i(y0);
+
+            _mm256_store_si256((__m256i*)out_col_ptr, y0);
+            out_col_ptr += 32;
+            _mm256_store_si256((__m256i*)out_col_ptr, y1);
+            out_col_ptr += 32;
+        }
+    }
+}
+
+// just pack low 4b from 2 cols into one col by using upper 8b; note that
+// we assume that upper 4b are originally 0
+inline void zip2_4b_colmajor(const uint8_t* codes_in, uint32_t ncodebooks,
+                             int64_t nblocks, uint8_t* codes_out)
+{
+    static constexpr int in_block_sz = 32;      // read 32 codes at once
+    static constexpr int out_block_sz = 32;     // 32 x 4 cols -> 64 rows
+    static constexpr int ncodebooks_per_group = 2;
+    assert(ncodebooks % ncodebooks_per_group == 0);
+    int ncolgroups = ncodebooks / ncodebooks_per_group;
+
+    auto in_col_stride = in_block_sz * nblocks;
+    auto out_col_stride = out_block_sz * nblocks;
+
+    for (int c = 0; c < ncolgroups; c++) {
+        // initialize col starts
+        auto initial_col = c * ncodebooks_per_group;
+        auto initial_col_ptr = codes_in + (initial_col * in_col_stride);
+        auto out_col_ptr = codes_out + (c * out_col_stride);
+        // for each block
+        for (int b = 0; b < nblocks; b++) {
+            auto initial_col = c * ncodebooks_per_group;
+            auto x0 = load_si256i(initial_col_ptr + 0 * in_col_stride);
+            auto x1 = load_si256i(initial_col_ptr + 1 * in_col_stride);
+            initial_col_ptr += 32;
+
+            // pack bits and store result
+            auto x01 = _mm256_or_si256(x0, _mm256_slli_epi16(x1, 4));
+            _mm256_store_si256((__m256i*)out_col_ptr, x01);
+            out_col_ptr += 32;
+        }
+    }
+}
 
 // TODO impl boltscan_colmajor_tile8_packed; same idea as tile4, but with
 // 8 dims at once instead of 4

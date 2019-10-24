@@ -82,7 +82,7 @@ void check_lut(const RowMatrix<float>& centroids_rowmajor,
 void _compute_lut(const float* q, int len, int nbytes,
                 const RowMatrix<float>& centroids, const RowVector<float>& offsets,
                 float scaleby, ColMatrix<uint8_t>& lut_out) {
-    
+
     // ColMatrix<uint8_t>
     auto ncodebooks = 2 * nbytes;
     auto ncentroids = 16;
@@ -113,7 +113,7 @@ void check_offset_scaled_lut(const RowVector<float>& q, int nbytes,
     ColMatrix<uint8_t> lut_true(lut.rows(), lut.cols());
     _compute_lut(q.data(), (int)q.size(), nbytes, encoded_centroids,
                offsets, scaleby, lut_true);
-    
+
 //    std::cout << "lut_true:\n" << lut_true.cast<uint16_t>() << "\n";
 //    std::cout << "---- lut:\n";
 //    std::cout << lut.cast<uint16_t>() << "\n";
@@ -129,7 +129,7 @@ void check_offset_scaled_lut(const RowVector<float>& q, int nbytes,
         }
     }
 }
-                             
+
 
 TEST_CASE("bolt_lut_l2", "[mcq][bolt]") {
     // create centroids with predictable patterns; note that we have to
@@ -176,19 +176,19 @@ TEST_CASE("bolt_lut_l2", "[mcq][bolt]") {
         enc.set_centroids(centroids_rowmajor.data(), centroids_rowmajor.rows(),
                           centroids_rowmajor.cols());
         RowVector<float> offsets(2 * M);
-        
+
         offsets.setZero();
         float scaleby = 1.0;
         enc.set_offsets(offsets.data(), (int)offsets.size());
         enc.set_scale(scaleby);
-        
+
         SECTION("0 offset, scale = 1") {
             enc.lut_l2(q);
             auto lut = enc.get_lut(); // TODO func that returns it directly
             check_lut(centroids_rowmajor, q, lut);
             check_offset_scaled_lut(q, M, enc.centroids(), offsets, scaleby, lut);
         }
-        
+
 //        enc.set_offsets(offsets.data(), (int)offsets.size());
         SECTION("0 offset, scale = 2") {
             scaleby = 2.0;
@@ -196,7 +196,7 @@ TEST_CASE("bolt_lut_l2", "[mcq][bolt]") {
             enc.lut_l2(q);
             check_offset_scaled_lut(q, M, enc.centroids(), offsets, scaleby, enc.get_lut());
         }
-        
+
         SECTION("random query, centroids, and offsets; scale = .7") {
             q.setRandom();
             RowVector<float> tmp(q);
@@ -224,7 +224,7 @@ void check_encoding(int nrows, const ColMatrix<uint8_t>& encoding_out) {
     // instead of letting column-major indexing handle everything for us
     size_t nrows_out = encoding_out.rows();
     REQUIRE(nrows_out == 32);
-    
+
     for (int i = 0; i < nrows; i++) {
         for(int m = 0; m < 2 * M; m++) {
             // indices are packed into upper and lower 4 bits
@@ -277,7 +277,7 @@ TEST_CASE("bolt_encode", "[mcq][bolt]") {
                        encoding_out.data());
 
         check_encoding(nrows, encoding_out);
-        
+
         SECTION("wrapper") {
             BoltEncoder enc(M);
             RowMatrix<float> centroids_rowmajor =
@@ -290,7 +290,7 @@ TEST_CASE("bolt_encode", "[mcq][bolt]") {
 //            PRINTLN_VAR(enc.codes().cast<int>());
             RowMatrix<uint8_t> codes_rowmajor(enc.codes());
             Map<ColMatrix<uint8_t> > codes_colmajor(codes_rowmajor.data(), 32, M);
-            
+
             check_encoding(nrows, codes_colmajor);
         }
     }
@@ -345,7 +345,65 @@ TEST_CASE("bolt_scan", "[mcq][bolt]") {
         // just replace safe dists16, since this is what wrapper uses
         check_bolt_scan(dists_u8.data(), dists_u16.data(), dists.data(),
                     luts, codes, M, nblocks);
-        
+
 //        printf("checked bolt wrapper scan\n");  // TODO rm
+    }
+}
+
+TEST_CASE("bolt_zip", "[mcq][bolt][utils]") {
+    int nblocks = 1;
+    int block_sz = 32;
+    int N = block_sz * nblocks;
+    int D = 4;
+    ColMatrix<uint8_t> codes_in(N, D);
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < D; j++) {
+            codes_in(i, j) = (i + D * j) % 16;
+        }
+    }
+
+    ColMatrix<uint8_t> codes_out(2 * N, D / 4);
+    ColMatrix<uint8_t> ans(2 * N, D / 4);
+
+    zip4_4b_colmajor(codes_in.data(), D, nblocks, codes_out.data());
+
+    int in_offset = 0;
+    int out_offset = 0;
+    int lut_sz = 16;
+    // ac
+    for (int i = 0; i < lut_sz; i++) {
+        ans(i + out_offset, 0) = (codes_in(i + in_offset, 2) << 4) + codes_in(i + in_offset, 0);
+    }
+    // bd
+    out_offset += lut_sz;
+    for (int i = 0; i < lut_sz; i++) {
+        ans(i + out_offset, 0) = (codes_in(i + in_offset, 3) << 4) + codes_in(i + in_offset, 1);
+    }
+    // ef
+    in_offset += lut_sz;
+    out_offset += lut_sz;
+    for (int i = 0; i < lut_sz; i++) {
+        ans(i + out_offset, 0) = (codes_in(i + in_offset, 2) << 4) + codes_in(i + in_offset, 0);
+    }
+    // gh
+    out_offset += lut_sz;
+    for (int i = 0; i < lut_sz; i++) {
+        ans(i + out_offset, 0) = (codes_in(i + in_offset, 3) << 4) + codes_in(i + in_offset, 1);
+    }
+
+    // std::cout << "in:\n" << codes_in.cast<int>() << "\n";
+    // std::cout << "ans:\n" << ans.cast<int>() << "\n";
+    // std::cout << "out:\n" << codes_out.cast<int>() << "\n";
+
+    for (int i = 0; i < ans.rows(); i++) {
+        for (int j = 0; j < ans.cols(); j++) {
+            CAPTURE(N);
+            CAPTURE(D);
+            CAPTURE(i);
+            CAPTURE(j);
+            CAPTURE(codes_out(i, j));
+            CAPTURE(ans(i, j));
+            REQUIRE(abs(codes_out(i, j) - ans(i, j)) < .0001);
+        }
     }
 }
