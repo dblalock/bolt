@@ -45,9 +45,9 @@ void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
     auto D_round = D - D_tail;
     auto M_round = M - M_tail;
 
-    auto A_row_stride = 1;
-    auto B_row_stride = 1;
-    auto out_row_stride = 1;
+//    auto A_row_stride = 1;
+//    auto B_row_stride = 1;
+//    auto out_row_stride = 1;
     auto A_col_stride = N;
     auto B_col_stride = D;
     auto out_col_stride = N;
@@ -71,15 +71,15 @@ void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
         // case 0: sgemm_colmajor_narrow_padded<4, 3>(A, B, N, D, M, out); return;
         case 0: return;
         case 10:  // one trailing input dim
-            // if (M % 2 == 0) {  // implies m % 6 == 0, since m % 3 == 0
-            //     sgemm_colmajor_narrow_padded<1, 6>(
-            //         A_coltail, B_rowtail, N, 1, M_round, out, true, A_col_stride, B_col_stride, out_col_stride);
-            // } else {
-            //     sgemm_colmajor_narrow_padded<1, 3>(
-            //         A_coltail, B_rowtail, N, 1, M_round, out, true, A_col_stride, B_col_stride, out_col_stride);
-            // }
-            sgemm_colmajor_narrow_padded<1, 3>(
+            if (M % 2 == 0) {  // implies m % 6 == 0, since m % 3 == 0
+                sgemm_colmajor_narrow_padded<1, 6>(
                     A_coltail, B_rowtail, N, 1, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
+            } else {
+                sgemm_colmajor_narrow_padded<1, 3>(
+                    A_coltail, B_rowtail, N, 1, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
+            }
+            // sgemm_colmajor_narrow_padded<1, 3>(
+            //         A_coltail, B_rowtail, N, 1, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
             return;
         case 20:  // two trailing input dims
             sgemm_colmajor_narrow_padded<2, 3>(A_coltail, B_rowtail, N, D_tail, M_round, out, pos_round_mat, A_col_stride, B_col_stride, out_col_stride);
