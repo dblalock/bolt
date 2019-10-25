@@ -170,18 +170,18 @@ template<int NReadCols, int NWriteCols>
 static inline void sgemm_colmajor_narrow_padded(
     const float* A, const float *B, int N, int D, int M, float* out,
     bool add_to_output=false, int A_col_stride=-1,
-    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_block=512)
+    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=512)
 {
     static const int packet_sz = 8;
     if (MIN(N, MIN(D, M)) < 1) { return; } // nothing to do
     // static const int L1_cache_sz_elems = (1 << 32) / sizeof(A[0]);
-    // if (nrows_per_block < packet_sz) {
+    // if (nrows_per_chunk < packet_sz) {
     //     auto max_in_rows_in_L1 = L1_cache_sz_elems / (D + M);
     //     // round down to multiple of 8;
-    //     nrows_per_block = (max_in_rows_in_L1 >> 3) << 3;
-    //     nrows_per_block = nrows_per_block < 32 ? 32 : nrows_per_block;
+    //     nrows_per_chunk = (max_in_rows_in_L1 >> 3) << 3;
+    //     nrows_per_chunk = nrows_per_chunk < 32 ? 32 : nrows_per_chunk;
     // }
-    // PRINT_VAR(nrows_per_block); // always 32
+    // PRINT_VAR(nrows_per_chunk); // always 32
 
     // printf("------------------------\n");
     // PRINT_VAR(NReadCols);
@@ -195,9 +195,9 @@ static inline void sgemm_colmajor_narrow_padded(
     // // printf("-----------\n");
 
     // stuff for tiling nrows
-    int nblocks_N = (N + nrows_per_block - 1) / nrows_per_block;
+    int nchunks_N = (N + nrows_per_chunk - 1) / nrows_per_chunk;
     auto N_orig = N;
-    N = N < nrows_per_block ? N : nrows_per_block; // *after* setting strides
+    N = N < nrows_per_chunk ? N : nrows_per_chunk; // *after* setting strides
     auto A_orig = A;
     auto out_orig = out;
     A_col_stride = A_col_stride     >= 1 ? A_col_stride   : N_orig;
@@ -225,23 +225,23 @@ static inline void sgemm_colmajor_narrow_padded(
         for (int i = 0; i < N_orig * M; i++) { out[i] = 0; }
     }
 
-    for (int n = 0; n < nblocks_N; n++) {
-        A = A_orig + (n * nrows_per_block);
-        out = out_orig + (n * nrows_per_block);
-        if (n == (nblocks_N - 1)) { // handle last block
-            auto N_done_so_far = n * nrows_per_block;
+    for (int n = 0; n < nchunks_N; n++) {
+        A = A_orig + (n * nrows_per_chunk);
+        out = out_orig + (n * nrows_per_chunk);
+        if (n == (nchunks_N - 1)) { // handle last chunk
+            auto N_done_so_far = n * nrows_per_chunk;
             N = N_orig - N_done_so_far;
         }
-        // printf("N for this block: %d\n", N);
+        // printf("N for this chunk: %d\n", N);
         // N = N_orig; // TODO uncomment above and rm this
 
         int nstripes_N = N / packet_sz;
 
-        // PRINT_VAR(n * nrows_per_block);
+        // PRINT_VAR(n * nrows_per_chunk);
         // PRINT_VAR(N);
         // PRINT_VAR(nstripes_N);
 
-        // main loop to matmul a block of rows in A with B
+        // main loop to matmul a chunk of rows in A with B
         for (int m = 0; m < nstripes_M; m++) { // for each group of output cols
             // printf("m = %d\n", m);
             // set output col start ptrs and current ptrs for simplicity
