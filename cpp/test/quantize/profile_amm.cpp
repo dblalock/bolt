@@ -55,8 +55,9 @@ TEST_CASE("amm profile smoketest", "[amm][profile]") {
                             encoding_out.data()));
 }
 
-TEST_CASE("amm profile split encode", "[amm][split][profile]") {
+TEST_CASE("amm profile split encode", "[amm][encode][split][profile]") {
     static const int N = 128 * 1000;
+    // static const int N = 32;
     static const uint32_t D = 64;
     static const int ncodebooks = 4;
     static const int nsplits_per_codebook = 4;
@@ -67,7 +68,7 @@ TEST_CASE("amm profile split encode", "[amm][split][profile]") {
     RowVector<uint32_t> splitdims_(total_nsplits);
     splitdims_.setRandom();
     RowVector<uint32_t> splitdims = splitdims_.unaryExpr(
-        [](const int x) { return x % D; });
+        [](const uint32_t x) { return x % D; });
     RowVector<int8_t> splitvals(total_nsplits);
     splitvals.setRandom();
     RowVector<float> scales(total_nsplits);
@@ -81,14 +82,32 @@ TEST_CASE("amm profile split encode", "[amm][split][profile]") {
     //     offsets.data(), ncodebooks, nsplits_per_codebook, out.data());
     // printf("sum of out: %d\n", out.sum());
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "split encode", kNtrials,
+    // split_encode_4b_colmajor(
+    //         X.data(), N, D, splitdims.data(), splitvals.data(), scales.data(),
+    //         offsets.data(), ncodebooks, out.data());
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "split 8b encode     ", kNtrials,
         out.data(), out.size(),
         split_encode_8b_colmajor(
             X.data(), N, D, splitdims.data(), splitvals.data(), scales.data(),
             offsets.data(), ncodebooks, nsplits_per_codebook, out.data()));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "split 4b encode     ", kNtrials,
+        out.data(), out.size(),
+        split_encode_4b_colmajor(
+            X.data(), N, D, splitdims.data(), splitvals.data(), scales.data(),
+            offsets.data(), ncodebooks, out.data()));
+
+    RowVector<float> splitvals_f32(total_nsplits);
+    splitvals_f32.setRandom();
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "split 4b encode alt ", kNtrials,
+        out.data(), out.size(),
+        split_encode_4b_colmajor_alt(
+            X.data(), N, D, splitdims.data(), splitvals_f32.data(), ncodebooks,
+            out.data()));
 }
 
-TEST_CASE("amm profile multisplit encode", "[amm][multisplit][profile]") {
+TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]") {
     static const int N = 128 * 1000;
     static const uint32_t D = 64;
     static const int ncodebooks = 4;
@@ -117,13 +136,19 @@ TEST_CASE("amm profile multisplit encode", "[amm][multisplit][profile]") {
     // printf("sum of out: %d\n", out.sum());
 
     // printf("out.size(): %lu\n", out.size());
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 8b", kNtrials,
         out.data(), out.size(),
         multisplit_encode_8b_colmajor(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, nsplits_per_codebook,
             out.data()));
-    }
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 4b", kNtrials,
+        out.data(), out.size(),
+        multisplit_encode_4b_colmajor(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks, out.data()));
+}
 
 TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][mcq][profile]") {
     static constexpr int nblocks = 16 * 1000;
@@ -404,7 +429,7 @@ template<class MatrixT1, class MatrixT2, class MatrixT3>
 void _run_our_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
     // not actually faster than the eigen one
     sgemm_colmajor(
-        X.data(), Q.data(), (int)X.rows(), (int)X.cols(), Q.cols(), out.data());
+        X.data(), Q.data(), (int)X.rows(), (int)X.cols(), (int)Q.cols(), out.data());
 }
 
 void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {

@@ -57,7 +57,7 @@ TEST_CASE("print bolt params", "[bolt][mcq][profile]") {
     printf("---- bolt timings\n");
 }
 
-TEST_CASE("bolt encoding speed", "[bolt][mcq][profile]") {
+TEST_CASE("bolt encoding speed", "[bolt][encode][mcq][profile]") {
     static constexpr int nrows = nrows_enc;
 
     ColMatrix<float> centroids(ncentroids, ncols);
@@ -67,13 +67,13 @@ TEST_CASE("bolt encoding speed", "[bolt][mcq][profile]") {
     RowMatrix<uint8_t> encoding_out(nrows, M);
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt encode", kNtrials,
-    encoding_out.data(), nrows,
+    encoding_out.data(), nrows * M,
         bolt_encode<M>(X.data(), nrows, ncols, centroids.data(),
                        encoding_out.data()));
 }
 
 
-TEST_CASE("bolt lut encoding speed", "[bolt][mcq][profile]") {
+TEST_CASE("bolt lut encoding speed", "[bolt][encode][mcq][profile]") {
     static constexpr int nrows = nrows_lut;
 
     ColMatrix<float> centroids(ncentroids, ncols);

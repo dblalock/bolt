@@ -8,6 +8,8 @@
 #ifndef __EIGEN_UTILS_HPP
 #define __EIGEN_UTILS_HPP
 
+#define EIGEN_DONT_PARALLELIZE // ensure no multithreading
+
 #ifdef BLAZE  // bazel can't deal with pretending stuff is in same dir
     #include "src/external/eigen/Dense"
 #else

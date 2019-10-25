@@ -9,7 +9,7 @@
 #include <stdio.h>
 
 // unit tests magic
- #define CATCH_CONFIG_RUNNER
+#define CATCH_CONFIG_RUNNER
 
 
 #ifdef BLAZE

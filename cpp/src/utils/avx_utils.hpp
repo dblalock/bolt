@@ -170,7 +170,7 @@ template<int NReadCols, int NWriteCols>
 static inline void sgemm_colmajor_narrow_padded(
     const float* A, const float *B, int N, int D, int M, float* out,
     bool add_to_output=false, int A_col_stride=-1,
-    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_block=256)
+    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_block=512)
 {
     static const int packet_sz = 8;
     if (MIN(N, MIN(D, M)) < 1) { return; } // nothing to do
