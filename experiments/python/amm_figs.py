@@ -13,6 +13,7 @@ from . import amm_results as res
 
 sb.set_context('poster')
 # sb.set_context('talk')
+# sb.set_cmap('tab10')
 
 RESULTS_DIR = pl.Path('results/amm')
 FIGS_SAVE_DIR = pl.Path('../figs/amm')
@@ -131,14 +132,15 @@ def _clean_results_df(df, default_D=None):
             # which this applies are so far from being competitive that I
             # kind of don't care)
             if method != 'Exact':
-                nmuls = int(row['muls'])
-                exact_nmuls = N * D * M
-                scale = nmuls / exact_nmuls
-                # print("N, D, M, d", N, D, M, d)
-                # print("method, scale", method, scale)
-                # assert(scale > 1)
-                lat *= scale
-                thruput /= scale
+                secs = row['secs']
+                lat = secs * 1000
+                thruput = N * M / secs
+                # # version where we pretend same efficiency as matmul
+                # nmuls = int(row['muls'])
+                # exact_nmuls = N * D * M
+                # scale = nmuls / exact_nmuls
+                # lat *= scale
+                # thruput /= scale
             all_latencies.append(lat)
             all_thruputs.append(thruput)
 
@@ -165,25 +167,39 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
     # dfs = (df10, df100)
 
     # for df in dfs:
+    df10 = df10.loc[~(df10['ncodebooks'] < 4)]
+    df100 = df100.loc[~(df100['ncodebooks'] < 4)]
     if x_metric in ('Latency', 'Throughput'):
         # TODO get results for PQ + Bolt
         # df10 = df10.loc[~df10['method'].isin(['PQ', 'Bolt'])]
-        include_methods = ('Bolt+MultiSplits', 'Bolt', 'Exact')
+        # include_methods = ('Bolt+MultiSplits', 'Bolt', 'Exact')
+        include_methods = ['Bolt+MultiSplits', 'Bolt', 'Exact']
+        include_methods += 'PQ SVD FD-AMM CooccurSketch'.split()  # TODO rm
         # print("uniq methods: ", df10['method'].unique())
         # df10 = df10.loc[~df10['method'].isin(['PQ'])]
         df10 = df10.loc[df10['method'].isin(include_methods)]
-        df10 = df10.loc[~(df10['ncodebooks'] < 4)]
+
         # df100 = df100.loc[~df100['method'].isin(['PQ', 'Bolt'])]
         # df100 = df100.loc[~df100['method'].isin(['PQ'])]
         df100 = df100.loc[df100['method'].isin(include_methods)]
-        df100 = df100.loc[~(df100['ncodebooks'] < 4)]
 
     df10 = _clean_results_df(df10, default_D=512)
     df100 = _clean_results_df(df100, default_D=512)
 
     def lineplot(data, ax):
-        sb.lineplot(data=data, hue='Method', x=x_metric, y=y_metric,
-                    style='Method', markers=True, dashes=False, ax=ax)
+        order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
+        order = [m for m in order if m in data['Method'].unique()]
+
+        cmap = plt.get_cmap('tab10')
+        palette = {'Ours': 'red', 'Bolt': cmap(0), 'Exact': cmap(1),
+                   'PQ': cmap(2), 'SVD': cmap(4), 'FD-AMM': cmap(5),
+                   'CD': cmap(6)}
+        # print('order: ', order)
+        # import sys; sys.exit()
+        sb.lineplot(data=data, x=x_metric, y=y_metric, hue='Method',
+                    style='Method', style_order=order, hue_order=order,
+                    markers=True, dashes=False, ax=ax, palette=palette)
+    # palette='tab10')
 
     lineplot(df10, axes[0])
     lineplot(df100, axes[1])
@@ -201,11 +217,11 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
 
     handles, labels = axes[0].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
-    # axes[0].legend(handles, labels, fontsize='small')
-    axes[1].legend(handles, labels, fontsize='small')
+    axes[0].legend(handles, labels, fontsize='small')
+    # axes[1].legend(handles, labels, fontsize='small')
     # plt.figlegend(handles, labels, loc='lower center', ncol=1)
     # plt.figlegend(handles, labels, loc='center right', ncol=1)
-    axes[0].get_legend().remove()
+    axes[1].get_legend().remove()
     # axes[1].get_legend().remove()
 
     if x_metric in ('muls', 'ops', 'nlookups', 'Latency', 'Throughput'):
@@ -308,8 +324,8 @@ def main():
     #         make_cifar_fig(x_metric, y_metric)
     # make_cifar_fig('d', 'Accuracy')
     # make_cifar_fig('muls', 'Accuracy')
-    # make_cifar_fig('ops', 'Accuracy')
-    # make_cifar_fig('Latency', 'Accuracy')
+    make_cifar_fig('ops', 'Accuracy')
+    make_cifar_fig('Latency', 'Accuracy')
     make_cifar_fig('Throughput', 'Accuracy')
     # make_cifar_fig('Accuracy')
     # make_cifar_fig('Accuracy')
