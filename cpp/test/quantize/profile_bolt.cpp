@@ -91,7 +91,7 @@ TEST_CASE("bolt lut encoding speed", "[bolt][encode][mcq][profile]") {
             offsets.data(), scaleby, lut_out.data()));
 }
 
-TEST_CASE("bolt scan speed", "[bolt][mcq][profile]") {
+TEST_CASE("bolt scan speed", "[bolt][scan][mcq][profile]") {
     static constexpr int nblocks = nblocks_scan;
     static constexpr int nrows = nblocks_scan * 32;
 

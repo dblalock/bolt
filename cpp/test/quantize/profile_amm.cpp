@@ -150,7 +150,7 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
             scales.data(), offsets.data(), ncodebooks, out.data()));
 }
 
-TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][mcq][profile]") {
+TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][scan][mcq][profile]") {
     static constexpr int nblocks = 16 * 1000;
     static constexpr int nrows = nblocks * 32;
     static constexpr int ncodebooks = 16;
