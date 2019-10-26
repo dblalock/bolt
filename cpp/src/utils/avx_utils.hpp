@@ -221,9 +221,9 @@ static inline void sgemm_colmajor_narrow_padded(
     }
 
     // zero output buffer
-    if (!add_to_output) {
-        for (int i = 0; i < N_orig * M; i++) { out[i] = 0; }
-    }
+    // if (!add_to_output) {
+    //     for (int i = 0; i < N_orig * M; i++) { out[i] = 0; }
+    // }
 
     for (int n = 0; n < nchunks_N; n++) {
         A = A_orig + (n * nrows_per_chunk);
@@ -253,6 +253,12 @@ static inline void sgemm_colmajor_narrow_padded(
                 // printf("out_col_starts[mm] = ")
                 // PRINT_VAR(pretty_ptr(out_col_starts[mm]));
                 // PRINT_VAR(pretty_ptr(b_col_starts[mm]));
+
+                if (!add_to_output) {  // zero this block of output buffer
+                    for (int i = 0; i < N; i++) {
+                        out_col_starts[mm][i] = 0;
+                    }
+                }
             }
 
             // for each group of input cols

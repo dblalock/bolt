@@ -910,10 +910,10 @@ inline void bolt_scan_colmajor_tile4_v2(const uint8_t* codes,
             }
         }
     }
-    // zero output buffer
-    if (!add_to_output) {
-        for (int i = 0; i < N_orig * noutputs; i++) { out[i] = 0; }
-    }
+    // // zero output buffer
+    // if (!add_to_output) {
+    //     for (int i = 0; i < N_orig * noutputs; i++) { out[i] = 0; }
+    // }
 
     for (int n = 0; n < nchunks_N; n++) {
         codes = codes_orig + (n * nrows_per_chunk);
@@ -925,11 +925,18 @@ inline void bolt_scan_colmajor_tile4_v2(const uint8_t* codes,
         int nblocks_N = N / block_nrows;
 
         for (int m = 0; m < nstripes_out; m++) { // for each group of output cols
+
             // set output and lut col start ptrs
             for (int mm = 0; mm < NWriteCols; mm++) {
                 auto out_col = m * NWriteCols + mm;
                 lut_col_starts[mm] = luts + (lut_col_stride * out_col);
                 out_col_starts[mm] = out + (out_col_stride * out_col);
+
+                if (!add_to_output) {  // zero this block of output buffer
+                    for (int i = 0; i < N; i++) {
+                        out_col_starts[mm][i] = 0;
+                    }
+                }
             }
 
             // for each group of input cols
