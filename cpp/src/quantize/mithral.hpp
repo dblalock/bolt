@@ -556,7 +556,7 @@ inline void _mithral_scan(const uint8_t* codes,
     N = N < nrows_per_chunk ? N : nrows_per_chunk; // *after* setting strides
     auto codes_orig = codes;
     auto out_orig = out;
-    codes_col_stride = codes_col_stride >= 1 ? codes_col_stride : N_orig;
+    codes_col_stride = codes_col_stride >= 1 ? codes_col_stride : 2 * N_orig;
     lut_col_stride = lut_col_stride   >= 1 ?
         lut_col_stride  : default_lut_col_stride;
     out_col_stride = out_col_stride >= 1 ? out_col_stride : N_orig;
@@ -583,13 +583,13 @@ inline void _mithral_scan(const uint8_t* codes,
     }
 
 
-    PRINT_VAR(nblocks);
-    PRINT_VAR(N);
-    PRINT_VAR(N_orig);
-    PRINT_VAR(nchunks_N);
-    PRINT_VAR(ncolstripes_in);
-    PRINT_VAR(nstripes_out);
-    PRINT_VAR(codes_col_stride);
+    // PRINT_VAR(nblocks);
+    // PRINT_VAR(N);
+    // PRINT_VAR(N_orig);
+    // PRINT_VAR(nchunks_N);
+    // PRINT_VAR(ncolstripes_in);
+    // PRINT_VAR(nstripes_out);
+    // PRINT_VAR(codes_col_stride);
 
 
     for (int n = 0; n < nchunks_N; n++) {
@@ -622,6 +622,7 @@ inline void _mithral_scan(const uint8_t* codes,
                 for (int jj = 0; jj < NReadCols; jj++) {
                     auto in_col = j * NReadCols + jj;
                     in_cols[jj] = in_col;
+                    // printf("in_col = %2d, j=%2d, jj=%2d\n", in_col, j, jj);
                     codes_col_starts[jj] = codes + (codes_col_stride * in_col);
                     codes_col_ptrs[jj] = codes_col_starts[jj];
                 }
@@ -642,9 +643,9 @@ inline void _mithral_scan(const uint8_t* codes,
                         vluts[mm][jj][0] = load_si256i(vlut_low_ptr);
                         vluts[mm][jj][1] = load_si256i(vlut_high_ptr);
 
-                        printf("LUT for m=%2d, col=%2d, mm=%2d, jj=%2d, lut_ab, lut_cd:\n", m * NWriteCols + mm, j * NReadCols + jj, mm, jj);
-                        dump_m256i(vluts[mm][jj][0]);
-                        dump_m256i(vluts[mm][jj][1]);
+                        // printf("LUT for m=%2d, col=%2d, mm=%2d, jj=%2d, lut_ab, lut_cd:\n", m * NWriteCols + mm, j * NReadCols + jj, mm, jj);
+                        // dump_m256i<int8_t>(vluts[mm][jj][0]);
+                        // dump_m256i<int8_t>(vluts[mm][jj][1]);
                     }
                 }
 
@@ -656,7 +657,7 @@ inline void _mithral_scan(const uint8_t* codes,
                     for (int mm = 0; mm < NWriteCols; mm++) {
                         sums[mm] = load_si256i(out_col_ptrs[mm]);
                         sums_8b[mm] = _mm256_setzero_si256();
-                        printf("sums[%d]:\n", mm); dump_m256i(sums[mm]);
+                        // printf("sums[%d]:\n", mm); dump_m256i<int16_t>(sums[mm]);
                     }
 
                     // load input from each col, and update partial sums for
@@ -671,9 +672,11 @@ inline void _mithral_scan(const uint8_t* codes,
                         auto vcodes_cd = _mm256_and_si256(
                             _mm256_srli_epi16(vcodes_packed, 4), low_4bits_mask);
 
-                        printf("codes ab, cd:\n");
-                        dump_m256i(vcodes_ab);
-                        dump_m256i(vcodes_cd);
+                        // if (j > 0) {
+                        //     printf("codes ab, cd:\n");
+                        //     dump_m256i(vcodes_ab);
+                        //     dump_m256i(vcodes_cd);
+                        // }
 
                         for (int mm = 0; mm < NWriteCols; mm++) { // each out col
                             auto vlut_ab = vluts[jj][mm][0];
@@ -681,6 +684,12 @@ inline void _mithral_scan(const uint8_t* codes,
 
                             auto prod_ab = _mm256_shuffle_epi8(vlut_ab, vcodes_ab);
                             auto prod_cd = _mm256_shuffle_epi8(vlut_cd, vcodes_cd);
+
+                            // if (j > 0) {
+                            //     printf("prods ab, cd:\n");
+                            //     dump_m256i<int8_t>(prod_ab);
+                            //     dump_m256i<int8_t>(prod_cd);
+                            // }
 
                             auto sum_ac_bd = _mm256_adds_epi8(prod_ab, prod_cd);
 

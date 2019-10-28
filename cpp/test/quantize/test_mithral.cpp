@@ -180,7 +180,7 @@ TEST_CASE("mithral zip4", "[mithral][utils]") {
 
 int8_t _lut_entry(int code, int codebook=0, int output=0) {
     // return code + codebook * 10 + output;
-    return code + codebook + output;
+    return (code + codebook + output) * (codebook % 5 ? 1 : -1);
 }
 
 template<int UpcastEvery=4>
@@ -211,6 +211,7 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     //     [=](const uint8_t x) { return (uint8_t)(x % 16); });
     for (int c = 0; c < ncodebooks; c++) {
         for (int n = 0; n < N; n++) {
+            // codes_unzipped(n, c) = (n + 3 * c) % ncentroids;
             codes_unzipped(n, c) = (n + 2 * c) % ncentroids;
         }
     }
@@ -222,7 +223,6 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     // printf("zipped codes bytes:\n");
     // auto zipped_unpacked = _unpack_low_hi(codes_zipped);
     // std::cout << "unpacked zipped codes:\n" << zipped_unpacked.cast<int>() << "\n";
-    // // dump_bytes(zipped_unpacked.data(), 2 * N * ncodebooks, ncodebooks);
 
     // std::cout << "codes zipped:\n" << codes_zipped.cast<int>() << "\n";
 
@@ -230,17 +230,23 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
 
     // create and populate answers
     ColVector<int16_t> ans(N);
+    // Tensor<int16_t, 3> vals(N, ncodebooks);
+    ColMatrix<int16_t> vals(N, ncodebooks);
     ans.setZero();
     for (int o = 0; o < nout; o++) {
         for (int n = 0; n < N; n++) {
             int16_t sum = 0;
             for (int c = 0; c < ncodebooks; c++) {
                 auto code = codes_unzipped(n, c);
-                sum += luts(o, c, code);
+                auto val = luts(o, c, code);
+                if (o == 0) { vals(n, c) = val; } // TODO rm
+                sum += val;
             }
             ans(n) = sum;
         }
     }
+
+    // std::cout << "intermediate vals:\n" << vals.cast<int>() << "\n";
 
     // get output from func
     ColVector<int16_t> out(N);
@@ -266,9 +272,9 @@ TEST_CASE("mithral scan", "[mithral][scan]") {
     _test_mithral_scan(1, 4);
     _test_mithral_scan(2, 4);
     _test_mithral_scan(3, 4);
-    // _test_mithral_scan(1, 8); // wrong output
-    // _test_mithral_scan<2>(1, 8); // wrong output
-    // _test_mithral_scan<2>(2, 8); // wrong output
+    _test_mithral_scan<2>(1, 8);
+    _test_mithral_scan<2>(2, 8);
+    _test_mithral_scan<4>(2, 8);
     // _test_mithral_scan<2>(1, 4, 2);
     // in wrapper func to take in different sizes
     // create random codes
