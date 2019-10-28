@@ -349,4 +349,3 @@ TEST_CASE("bolt_scan", "[mcq][bolt]") {
 //        printf("checked bolt wrapper scan\n");  // TODO rm
     }
 }
-

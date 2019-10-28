@@ -84,18 +84,21 @@ namespace {
  * fh
  * fh
  */
-inline void zip4_4b_colmajor(const uint8_t* codes_in, uint32_t ncodebooks,
-                             int64_t nblocks, uint8_t* codes_out)
+inline void zip4_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
+                             uint32_t ncodebooks, uint8_t* codes_out)
 {
     static constexpr int in_block_sz = 32;      // read 32 codes at once
     static constexpr int out_block_sz = 64;     // 32 x 4 cols -> 64 rows
     static constexpr int ncodebooks_per_group = 4;
     assert(ncodebooks % ncodebooks_per_group == 0);
+    assert(nrows % in_block_sz == 0);
     int ncolgroups = ncodebooks / ncodebooks_per_group;
+    auto nblocks = nrows / in_block_sz;
 
     auto in_col_stride = in_block_sz * nblocks;
     auto out_col_stride = out_block_sz * nblocks;
 
+    // PRINT_VAR(nblocks);
     // PRINT_VAR(ncolgroups);
     // PRINT_VAR(in_col_stride);
     // PRINT_VAR(out_col_stride);
@@ -112,7 +115,6 @@ inline void zip4_4b_colmajor(const uint8_t* codes_in, uint32_t ncodebooks,
         // for each block
         for (int b = 0; b < nblocks; b++) {
             // okay, forget being generic here; load from all 4 cols
-            auto initial_col = c * ncodebooks_per_group;
             auto x0 = load_si256i(initial_col_ptr + 0 * in_col_stride);
             auto x1 = load_si256i(initial_col_ptr + 1 * in_col_stride);
             auto x2 = load_si256i(initial_col_ptr + 2 * in_col_stride);
@@ -351,31 +353,31 @@ void _accumulate_8bit_si256(const __m256i& x0, const __m256i& x1,
 
 // for looking at assembly: https://godbolt.org/z/PEjpiz
 // .LBB0_7:                                #   Parent Loop BB0_6 Depth=1
-//         vmovdqa ymm5, ymmword ptr [rdi + rcx]
-//         vmovdqa ymm6, ymmword ptr [rdx + rcx]
-//         vpsrlw  ymm7, ymm5, 4
-//         vpsrlw  ymm8, ymm6, 4
-//         vpand   ymm5, ymm5, ymm0
-//         vpshufb ymm5, ymm1, ymm5
-//         vpand   ymm7, ymm7, ymm0
-//         vpshufb ymm7, ymm2, ymm7
-//         vpaddsb ymm5, ymm5, ymm7
-//         vpand   ymm6, ymm6, ymm0
-//         vpshufb ymm6, ymm4, ymm6
-//         vpand   ymm7, ymm8, ymm0
-//         vpshufb ymm7, ymm3, ymm7
-//         vpaddsb ymm6, ymm6, ymm7
-//         vpaddsb ymm5, ymm5, ymm6
-//         vpmovsxbw       ymm6, xmm5
-//         vextracti128    xmm5, ymm5, 1
-//         vpmovsxbw       ymm5, xmm5
-//         vpaddsw ymm6, ymm6, ymmword ptr [rbx + 2*rcx]
-//         vpaddsw ymm5, ymm5, ymmword ptr [rbx + 2*rcx + 32]
-//         vmovdqa ymmword ptr [rbx + 2*rcx], ymm6
-//         vmovdqa ymmword ptr [rbx + 2*rcx + 32], ymm5
-//         add     rcx, 32
-//         dec     rax
-//         jne     .LBB0_7
+//         vmovdqa      ymm5, ymmword ptr [rdi + rcx]
+//         vmovdqa      ymm6, ymmword ptr [rdx + rcx]
+//         vpsrlw       ymm7, ymm5, 4
+//         vpsrlw       ymm8, ymm6, 4
+//         vpand        ymm5, ymm5, ymm0
+//         vpshufb      ymm5, ymm1, ymm5
+//         vpand        ymm7, ymm7, ymm0
+//         vpshufb      ymm7, ymm2, ymm7
+//         vpaddsb      ymm5, ymm5, ymm7
+//         vpand        ymm6, ymm6, ymm0
+//         vpshufb      ymm6, ymm4, ymm6
+//         vpand        ymm7, ymm8, ymm0
+//         vpshufb      ymm7, ymm3, ymm7
+//         vpaddsb      ymm6, ymm6, ymm7
+//         vpaddsb      ymm5, ymm5, ymm6
+//         vpmovsxbw    ymm6, xmm5
+//         vextracti128 xmm5, ymm5, 1
+//         vpmovsxbw    ymm5, xmm5
+//         vpaddsw      ymm6, ymm6, ymmword ptr [rbx + 2*rcx]
+//         vpaddsw      ymm5, ymm5, ymmword ptr [rbx + 2*rcx + 32]
+//         vmovdqa      ymmword ptr [rbx + 2*rcx], ymm6
+//         vmovdqa      ymmword ptr [rbx + 2*rcx + 32], ymm5
+//         add          rcx, 32
+//         dec          rax
+//         jne          .LBB0_7
 template<int UpcastEvery=4, bool Packed=false, typename LutT=uint8_t>
 inline void _mithral_scan_tile4(const uint8_t* codes,
     int64_t nblocks, int ncodebooks, const LutT* luts, int16_t* out)

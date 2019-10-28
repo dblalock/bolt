@@ -162,7 +162,8 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     // create random codes from in [0, 15]
     ColMatrix<uint8_t> codes(nrows, ncodebooks);
     codes.setRandom();
-    codes = codes.array() / ncentroids;
+    codes = codes.unaryExpr(
+        [=](const uint8_t x) { return (uint8_t)(x % ncentroids); });
 
     // create random luts
     ColMatrix<uint8_t> luts(ncentroids, ncodebooks);
