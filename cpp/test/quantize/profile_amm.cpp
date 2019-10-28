@@ -234,8 +234,7 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan                           ", kNtrials,
         dists_u16_colmajor_v2.data(), nrows * noutputs,
-        mithral_scan<(2, noutputs_per_block)>(
-            codes.data(), 2 * nblocks, ncodebooks,
+        mithral_scan(codes.data(), 2 * nblocks, ncodebooks,
             noutputs, luts_signed.data(), dists_u16_colmajor_v2.data()));
 }
 

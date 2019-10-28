@@ -61,16 +61,16 @@ void _zip4_one_block(const MatT0& codes_in, MatT1& out,
     // }
 }
 
-template<typename MatT0, typename MatT1>
-void _zip4(const MatT0& codes_in, MatT1& out) {
+void _zip4(const ColMatrix<uint8_t>& codes_in, ColMatrix<uint8_t>& out) {
     static const int in_block_sz = 16;
     int ncodebooks = (int)codes_in.cols();
-    int nblocks = codes_in.rows() / in_block_sz;
+    auto nblocks = codes_in.rows() / in_block_sz;
     assert(ncodebooks % 4 == 0);
     auto ncolstripes = ncodebooks / 4;
 
     // PRINT_VAR(ncodebooks);
     // PRINT_VAR(nblocks);
+    // PRINT_VAR(ncolstripes);
 
     for (int j = 0; j < ncolstripes; j++) {
         auto in_col_offset = 4 * j;
@@ -96,10 +96,23 @@ void _zip4(const MatT0& codes_in, MatT1& out) {
 // }
 
 // template<typename MatT0, typename MatT1>
-// void _unzip4(const MatT0& codes_zipped, int D, int nblocks, MatT1& out) {
+// void _unzip4(const MatT0& codes_zipped, MatT1& out) {
 //     assert(D % 4 == 0);
 
 // }
+
+ColMatrix<uint8_t> _unpack_low_hi(const ColMatrix<uint8_t>& codes_packed) {
+    ColMatrix<uint8_t> out(codes_packed.rows(), 2 * codes_packed.cols());
+    for (int i = 0; i < codes_packed.rows(); i++) {
+        for (int j = 0; j < codes_packed.cols(); j++) {
+            uint8_t val = codes_packed(i, j);
+            auto j_out = 2 * j;
+            out(i, j_out) = val & 0x0F;
+            out(i, j_out + 1) = (val >> 4) & 0x0F;
+        }
+    }
+    return out;
+}
 
 
 
@@ -155,26 +168,29 @@ void _test_zip4(int nblocks, int ncodebooks) {
 
 TEST_CASE("mithral zip4", "[mithral][utils]") {
     _test_zip4(1, 4);
-    // _test_zip4(1, 8);
-    // _test_zip4(2, 4);
-    // _test_zip4(2, 8);
-    // _test_zip4(2, 12);
-    // _test_zip4(1, 20);
-    // _test_zip4(2, 24);
-    // _test_zip4(17, 24);
+    _test_zip4(1, 8);
+    _test_zip4(2, 4);
+    _test_zip4(2, 8);
+    _test_zip4(2, 12);
+    _test_zip4(1, 20);
+    _test_zip4(2, 24);
+    _test_zip4(17, 24);
 }
 
 
 int8_t _lut_entry(int code, int codebook=0, int output=0) {
-    return code + codebook * 10 + output;
+    // return code + codebook * 10 + output;
+    return code + codebook + output;
 }
 
-void _test_mithral_scan(int N, int ncodebooks, int nout=1) {
+template<int UpcastEvery=4>
+void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     static constexpr int ncentroids = 16;
-    // static constexpr int block_nrows = 16;
+    constexpr int block_nrows = 16; // always 16 in this file
     assert(ncodebooks % 4 == 0);
     // assert(N % 32 == 0);  // needed for zip func; or at least its current impl
-    assert(N % 16 == 0);
+    int N = nblocks * block_nrows;
+    // assert(N % 16 == 0);
     // int N = nblocks * block_nrows;
 
     // create and populate luts
@@ -183,17 +199,34 @@ void _test_mithral_scan(int N, int ncodebooks, int nout=1) {
         for (int c = 0; c < ncodebooks; c++) {
             for (int cc = 0; cc < ncentroids; cc++) {
                 luts(o, c, cc) = _lut_entry(cc, c);
+                // luts(o, c, cc) = _lut_entry(cc);
             }
         }
     }
 
     // create and populate codes
     ColMatrix<uint8_t> codes_unzipped(N, ncodebooks);
-    codes_unzipped.setRandom();
-    codes_unzipped = codes_unzipped.unaryExpr(
-        [=](const uint8_t x) { return (uint8_t)(x % 16); });
+    // codes_unzipped.setRandom();
+    // codes_unzipped = codes_unzipped.unaryExpr(
+    //     [=](const uint8_t x) { return (uint8_t)(x % 16); });
+    for (int c = 0; c < ncodebooks; c++) {
+        for (int n = 0; n < N; n++) {
+            codes_unzipped(n, c) = (n + 2 * c) % ncentroids;
+        }
+    }
     ColMatrix<uint8_t> codes_zipped(2 * N, ncodebooks / 4);
     _zip4(codes_unzipped, codes_zipped);
+
+    // std::cout << "codes pre-zip:\n" << codes_unzipped.cast<int>() << "\n";
+
+    // printf("zipped codes bytes:\n");
+    // auto zipped_unpacked = _unpack_low_hi(codes_zipped);
+    // std::cout << "unpacked zipped codes:\n" << zipped_unpacked.cast<int>() << "\n";
+    // // dump_bytes(zipped_unpacked.data(), 2 * N * ncodebooks, ncodebooks);
+
+    // std::cout << "codes zipped:\n" << codes_zipped.cast<int>() << "\n";
+
+    // TODO uncomment below
 
     // create and populate answers
     ColVector<int16_t> ans(N);
@@ -211,32 +244,32 @@ void _test_mithral_scan(int N, int ncodebooks, int nout=1) {
 
     // get output from func
     ColVector<int16_t> out(N);
-    static constexpr int noutputs_per_stripe = 1;
-    mithral_scan<(2, noutputs_per_stripe)>(
-            codes_zipped.data(), N, ncodebooks,
-            nout, luts.data(), out.data());
+    mithral_scan<UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+                              luts.data(), out.data());
+
+    // ColMatrix<int16_t>tmp(ans.rows(), 2);
+    // tmp.leftCols(1) = ans.rightCols(1);
+    // tmp.rightCols(1) = out.rightCols(1);
+    // std::cout << "ans vs out:\n" << tmp.cast<int>() << "\n";
 
     for (int n = 0; n < ans.rows(); n++) {
-            CAPTURE(N);
-            CAPTURE(ncodebooks);
-            CAPTURE(n);
-            CAPTURE((int)out(n));
-            CAPTURE((int)ans(n));
-            REQUIRE(abs(out(n) - ans(n)) < .0001);
+        CAPTURE(N);
+        CAPTURE(ncodebooks);
+        CAPTURE(n);
+        CAPTURE((int)out(n));
+        CAPTURE((int)ans(n));
+        REQUIRE(abs(out(n) - ans(n)) < .0001);
     }
-
-    // luts_signed.setRandom();
-    // luts_signed = luts_signed.array() / ncodebooks; // make max lut value small
-
-    // for (int i = 0; i < N; i++) {
-    //     for (int j = 0; j < D; j++) {
-    //         codes_in(i, j) = (i + D * j) % 16;
-    //     }
-    // }
 }
 
 TEST_CASE("mithral scan", "[mithral][scan]") {
-    // _test_mithral_scan(1, 4);
+    _test_mithral_scan(1, 4);
+    _test_mithral_scan(2, 4);
+    _test_mithral_scan(3, 4);
+    // _test_mithral_scan(1, 8); // wrong output
+    // _test_mithral_scan<2>(1, 8); // wrong output
+    // _test_mithral_scan<2>(2, 8); // wrong output
+    // _test_mithral_scan<2>(1, 4, 2);
     // in wrapper func to take in different sizes
     // create random codes
     // create deterministic luts (no overflow, val = 10+code or something)

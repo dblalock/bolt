@@ -487,49 +487,49 @@ inline void mithral_scan_tile4(const uint8_t* codes,
 /* https://godbolt.org/z/qeMdf0
  * inner loop with 2 input cols, one output:
  *
- * vmovdqa ymm0, YMMWORD PTR [rbx]
- * add     r12, 32
- * add     rbx, 32
- * add     r14, 32
- * inc     eax
- * vpsrlw  ymm1, ymm0, 4
- * vpand   ymm0, ymm0, ymm2
- * vpand   ymm1, ymm2, ymm1
- * vpshufb ymm0, ymm6, ymm0
- * vpshufb ymm1, ymm5, ymm1
- * vpaddsb ymm0, ymm0, ymm1
- * vmovdqa ymm1, YMMWORD PTR [r12-32]
- * vpaddsb ymm0, ymm7, ymm0
- * vpsrlw  ymm8, ymm1, 4
- * vpand   ymm1, ymm1, ymm2
- * vpand   ymm8, ymm2, ymm8
- * vpshufb ymm1, ymm4, ymm1
- * vpshufb ymm8, ymm3, ymm8
- * vpaddsb ymm1, ymm1, ymm8
- * vpaddsb ymm0, ymm0, ymm1
- * vpmovsxbw       ymm1, xmm0
- * vextracti128    xmm0, ymm0, 0x1
- * vpmovsxbw       ymm0, xmm0
- * vpaddsw ymm0, ymm1, ymm0
- * vpaddsw ymm0, ymm0, YMMWORD PTR [r14-32]
- * vmovdqu YMMWORD PTR [r14-32], ymm0
+ * vmovdqa      ymm0, YMMWORD PTR [rbx]
+ * add          r12, 32
+ * add          rbx, 32
+ * add          r14, 32
+ * inc          eax
+ * vpsrlw       ymm1, ymm0, 4
+ * vpand        ymm0, ymm0, ymm2
+ * vpand        ymm1, ymm2, ymm1
+ * vpshufb      ymm0, ymm6, ymm0
+ * vpshufb      ymm1, ymm5, ymm1
+ * vpaddsb      ymm0, ymm0, ymm1
+ * vmovdqa      ymm1, YMMWORD PTR [r12-32]
+ * vpaddsb      ymm0, ymm7, ymm0
+ * vpsrlw       ymm8, ymm1, 4
+ * vpand        ymm1, ymm1, ymm2
+ * vpand        ymm8, ymm2, ymm8
+ * vpshufb      ymm1, ymm4, ymm1
+ * vpshufb      ymm8, ymm3, ymm8
+ * vpaddsb      ymm1, ymm1, ymm8
+ * vpaddsb      ymm0, ymm0, ymm1
+ * vpmovsxbw    ymm1, xmm0
+ * vextracti128 xmm0, ymm0, 0x1
+ * vpmovsxbw    ymm0, xmm0
+ * vpaddsw      ymm0, ymm1, ymm0
+ * vpaddsw      ymm0, ymm0, YMMWORD PTR [r14-32]
+ * vmovdqu      YMMWORD PTR [r14-32], ymm0
  */
 template<int NReadCols, int NWriteCols=1, int UpcastEvery=4>
-inline void mithral_scan(const uint8_t* codes,
-    int nblocks, int ncodebooks, int noutputs,
+inline void _mithral_scan(const uint8_t* codes,
+    int nrows, int ncodebooks, int noutputs,
     const int8_t* luts, int16_t* out, bool add_to_output=false,
     int codes_col_stride=-1, int lut_col_stride=-1, int out_col_stride=-1,
     int nrows_per_chunk=512)
 {
-    static const bool SignedLUTs = std::is_signed<decltype(luts[0])>::value;
-    static constexpr int lut_sz = 16;
+//    static const bool SignedLUTs = std::is_signed<decltype(luts[0])>::value;
+    static constexpr int block_nrows = 16;
+//    static constexpr int lut_sz = 16;
     static constexpr int simd_vec_sz = 32;
     static constexpr int ncodebooks_per_col = 4;
     static constexpr int nlutvecs_per_col = 2;
     // static constexpr int block_in_nrows = 32;
     // static constexpr int block_out_nrows = 16;
     static constexpr int out_elem_sz = sizeof(out[0]);
-    static constexpr int block_nrows = 16;
     // static constexpr int packet_sz = 16;
     static constexpr int nreadcodebooks = NReadCols * ncodebooks_per_col;
     static constexpr int UpcastEveryNCols = UpcastEvery / nlutvecs_per_col;
@@ -539,6 +539,7 @@ inline void mithral_scan(const uint8_t* codes,
     static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
     // static_assert(NReadCols % UpcastEveryNCols == 0,
     //     "(UpcastEvery / 2) must evenly divide NReadCols");
+    assert(nrows % block_nrows == 0);
     assert(ncodebooks % ncodebooks_per_col == 0);
     assert(ncodebooks % nreadcodebooks == 0);
     assert(noutputs % NWriteCols == 0);
@@ -547,7 +548,9 @@ inline void mithral_scan(const uint8_t* codes,
     // luts are (ncols / nlutvecs_per_col) x noutputs colmajor
     int default_lut_col_stride = nlutvecs_per_output * simd_vec_sz;
 
-    auto N = nblocks * block_nrows;
+    // auto N = nblocks * block_nrows;
+    auto nblocks = nrows / block_nrows;
+    auto N = nrows;
     auto N_orig = N;
     auto nchunks_N = (N + nrows_per_chunk - 1) / nrows_per_chunk;
     N = N < nrows_per_chunk ? N : nrows_per_chunk; // *after* setting strides
@@ -578,6 +581,16 @@ inline void mithral_scan(const uint8_t* codes,
             }
         }
     }
+
+
+    PRINT_VAR(nblocks);
+    PRINT_VAR(N);
+    PRINT_VAR(N_orig);
+    PRINT_VAR(nchunks_N);
+    PRINT_VAR(ncolstripes_in);
+    PRINT_VAR(nstripes_out);
+    PRINT_VAR(codes_col_stride);
+
 
     for (int n = 0; n < nchunks_N; n++) {
         codes = codes_orig + (n * nrows_per_chunk);
@@ -616,96 +629,139 @@ inline void mithral_scan(const uint8_t* codes,
                 for (int mm = 0; mm < NWriteCols; mm++) {
                     out_col_ptrs[mm] = out_col_starts[mm];
                 }
-            }
-            // load up coeffs for this group of input dims, for all out cols
-            for (int mm = 0; mm < NWriteCols; mm++) {
-                auto lut_col_start = lut_col_starts[mm];
-                for (int jj = 0; jj < NReadCols; jj++) {
-                    auto in_col = in_cols[jj];
-                    auto vlut_low_idx = in_col * nlutvecs_per_col;
-                    auto vlut_high_idx = vlut_low_idx + 1;
-                    auto vlut_low_ptr = lut_col_start + (simd_vec_sz * vlut_low_idx);
-                    auto vlut_high_ptr = lut_col_start + (simd_vec_sz * vlut_high_idx);
-                    vluts[mm][jj][0] = load_si256i(vlut_low_ptr);
-                    vluts[mm][jj][1] = load_si256i(vlut_high_ptr);
-                }
-            }
 
-            auto low_4bits_mask = _mm256_set1_epi8(0x0F);
-            for (int b = 0; b < nblocks_N; b++) {   // for each block of rows
-                // load up sums-so-far from current output
-                __m256i sums[NWriteCols]; // 16xepi16
-                __m256i sums_8b[NWriteCols]; // only used if upcast_every == 8
+                // load up coeffs for this group of input dims, for all out cols
                 for (int mm = 0; mm < NWriteCols; mm++) {
-                    sums[mm] = load_si256i(out_col_ptrs[mm]);
-                    sums_8b[mm] = _mm256_setzero_si256();
-                }
+                    auto lut_col_start = lut_col_starts[mm];
+                    for (int jj = 0; jj < NReadCols; jj++) {
+                        auto in_col = in_cols[jj];
+                        auto vlut_low_idx = in_col * nlutvecs_per_col;
+                        auto vlut_high_idx = vlut_low_idx + 1;
+                        auto vlut_low_ptr = lut_col_start + (simd_vec_sz * vlut_low_idx);
+                        auto vlut_high_ptr = lut_col_start + (simd_vec_sz * vlut_high_idx);
+                        vluts[mm][jj][0] = load_si256i(vlut_low_ptr);
+                        vluts[mm][jj][1] = load_si256i(vlut_high_ptr);
 
-                // load input from each col, and update partial sums for
-                // each output
-                for (int jj = 0; jj < NReadCols; jj++) {  // for each in col
-                    auto code_ptr = codes_col_ptrs[jj];
-                    auto vcodes_packed = load_si256i(code_ptr);
-                    codes_col_ptrs[jj] += simd_vec_sz;
-
-                    auto vcodes_ab = _mm256_and_si256(
-                        vcodes_packed, low_4bits_mask);
-                    auto vcodes_cd = _mm256_and_si256(
-                        _mm256_srli_epi16(vcodes_packed, 4), low_4bits_mask);
-
-                    for (int mm = 0; mm < NWriteCols; mm++) { // each out col
-                        auto vlut_ab = vluts[jj][mm][0];
-                        auto vlut_cd = vluts[jj][mm][1];
-
-                        auto prod_ab = _mm256_shuffle_epi8(vlut_ab, vcodes_ab);
-                        auto prod_cd = _mm256_shuffle_epi8(vlut_cd, vcodes_cd);
-
-                        auto sum_ac_bd = _mm256_adds_epi8(prod_ab, prod_cd);
-
-                        if (UpcastEvery == 2) { // just immediately upcast
-                            auto sum_ac = _mm256_cvtepi8_epi16(
-                                _mm256_extracti128_si256(sum_ac_bd, 0));
-                            auto sum_bd = _mm256_cvtepi8_epi16(
-                                _mm256_extracti128_si256(sum_ac_bd, 1));
-                            auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
-                            sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
-                        } else {
-                            sums_8b[mm] = _mm256_adds_epi8(
-                                sums_8b[mm], sum_ac_bd);
-                        }
-                    }
-                    auto needs_upcast = (jj == NReadCols - 1) || // last col
-                        ((jj + 1) % UpcastEveryNCols == 0); // last col in set
-                    needs_upcast = needs_upcast && (UpcastEvery > 2);
-                    if (needs_upcast) {
-                        for (int mm = 0; mm < NWriteCols; mm++) { // out col
-                            auto sum_ac_bd = sums_8b[mm];
-                            sums_8b[mm] = _mm256_setzero_si256();
-
-                            auto sum_ac = _mm256_cvtepi8_epi16(
-                                _mm256_extracti128_si256(sum_ac_bd, 0));
-                            auto sum_bd = _mm256_cvtepi8_epi16(
-                                _mm256_extracti128_si256(sum_ac_bd, 1));
-                            auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
-
-                            sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
-                        }
+                        printf("LUT for m=%2d, col=%2d, mm=%2d, jj=%2d, lut_ab, lut_cd:\n", m * NWriteCols + mm, j * NReadCols + jj, mm, jj);
+                        dump_m256i(vluts[mm][jj][0]);
+                        dump_m256i(vluts[mm][jj][1]);
                     }
                 }
 
-                // write back partial sums and increment output
-                // if (n > 0) { PRINT_VAR(b); }
-                for (int mm = 0; mm < NWriteCols; mm++) {
-                    auto out_ptr = out_col_ptrs[mm];
-                    _mm256_storeu_si256((__m256i*)out_ptr, sums[mm]);
-                    out_col_ptrs[mm] += simd_vec_sz / out_elem_sz;
+                auto low_4bits_mask = _mm256_set1_epi8(0x0F);
+                for (int b = 0; b < nblocks_N; b++) {   // for each block of rows
+                    // load up sums-so-far from current output
+                    __m256i sums[NWriteCols]; // 16xepi16
+                    __m256i sums_8b[NWriteCols]; // only used if upcast_every == 8
+                    for (int mm = 0; mm < NWriteCols; mm++) {
+                        sums[mm] = load_si256i(out_col_ptrs[mm]);
+                        sums_8b[mm] = _mm256_setzero_si256();
+                        printf("sums[%d]:\n", mm); dump_m256i(sums[mm]);
+                    }
+
+                    // load input from each col, and update partial sums for
+                    // each output
+                    for (int jj = 0; jj < NReadCols; jj++) {  // for each in col
+                        auto code_ptr = codes_col_ptrs[jj];
+                        auto vcodes_packed = load_si256i(code_ptr);
+                        codes_col_ptrs[jj] += simd_vec_sz;
+
+                        auto vcodes_ab = _mm256_and_si256(
+                            vcodes_packed, low_4bits_mask);
+                        auto vcodes_cd = _mm256_and_si256(
+                            _mm256_srli_epi16(vcodes_packed, 4), low_4bits_mask);
+
+                        printf("codes ab, cd:\n");
+                        dump_m256i(vcodes_ab);
+                        dump_m256i(vcodes_cd);
+
+                        for (int mm = 0; mm < NWriteCols; mm++) { // each out col
+                            auto vlut_ab = vluts[jj][mm][0];
+                            auto vlut_cd = vluts[jj][mm][1];
+
+                            auto prod_ab = _mm256_shuffle_epi8(vlut_ab, vcodes_ab);
+                            auto prod_cd = _mm256_shuffle_epi8(vlut_cd, vcodes_cd);
+
+                            auto sum_ac_bd = _mm256_adds_epi8(prod_ab, prod_cd);
+
+                            if (UpcastEvery == 2) { // just immediately upcast
+                                auto sum_ac = _mm256_cvtepi8_epi16(
+                                    _mm256_extracti128_si256(sum_ac_bd, 0));
+                                auto sum_bd = _mm256_cvtepi8_epi16(
+                                    _mm256_extracti128_si256(sum_ac_bd, 1));
+                                auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
+                                sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                            } else {
+                                sums_8b[mm] = _mm256_adds_epi8(
+                                    sums_8b[mm], sum_ac_bd);
+                            }
+                        }
+                        auto needs_upcast = (jj == NReadCols - 1) || // last col
+                            ((jj + 1) % UpcastEveryNCols == 0); // last col in set
+                        needs_upcast = needs_upcast && (UpcastEvery > 2);
+                        if (needs_upcast) {
+                            for (int mm = 0; mm < NWriteCols; mm++) { // out col
+                                auto sum_ac_bd = sums_8b[mm];
+                                sums_8b[mm] = _mm256_setzero_si256();
+
+                                auto sum_ac = _mm256_cvtepi8_epi16(
+                                    _mm256_extracti128_si256(sum_ac_bd, 0));
+                                auto sum_bd = _mm256_cvtepi8_epi16(
+                                    _mm256_extracti128_si256(sum_ac_bd, 1));
+                                auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
+
+                                sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                            }
+                        }
+                    }
+
+                    // write back partial sums and increment output
+                    // if (n > 0) { PRINT_VAR(b); }
+                    for (int mm = 0; mm < NWriteCols; mm++) {
+                        auto out_ptr = out_col_ptrs[mm];
+                        _mm256_storeu_si256((__m256i*)out_ptr, sums[mm]);
+                        out_col_ptrs[mm] += simd_vec_sz / out_elem_sz;
+                    }
                 }
             }
         }
     }
 }
 
+template<int UpcastEvery=4>
+void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
+    int noutputs, const int8_t* luts, int16_t* out, bool add_to_output=false)
+{
+    // TODO rm
+    // _mithral_scan<2, 1, UpcastEvery>(
+    _mithral_scan<1, 1, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
 
+    if (ncodebooks == 4) {
+        switch (noutputs) {
+            case 1: _mithral_scan<1, 1, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+            case 2: _mithral_scan<1, 2, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+            case 3: _mithral_scan<1, 3, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+            default: _mithral_scan<1, 1, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+        }
+    } else if (ncodebooks == 8 && (noutputs % 2) == 0) {
+        _mithral_scan<2, 2, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+    } else if (ncodebooks % 2 == 0) {
+        _mithral_scan<2, 1, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+    } else if (ncodebooks % 3 == 0) {
+        _mithral_scan<3, 1, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+    } else {
+        _mithral_scan<1, 1, UpcastEvery>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+    }
+}
 
 } // anon namespace
 #endif // __MITHRAL_HPP
