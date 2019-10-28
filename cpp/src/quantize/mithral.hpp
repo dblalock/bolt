@@ -585,12 +585,12 @@ inline void _mithral_scan(const uint8_t* codes,
 
     // PRINT_VAR(nblocks);
     // PRINT_VAR(N);
-    // PRINT_VAR(N_orig);
-    // PRINT_VAR(nchunks_N);
+    // // PRINT_VAR(N_orig);
+    // // PRINT_VAR(nchunks_N);
     // PRINT_VAR(ncolstripes_in);
-    // PRINT_VAR(nstripes_out);
     // PRINT_VAR(codes_col_stride);
-
+    // PRINT_VAR(nstripes_out);
+    // PRINT_VAR(out_col_stride);
 
     for (int n = 0; n < nchunks_N; n++) {
         codes = codes_orig + (n * nrows_per_chunk);
@@ -601,11 +601,11 @@ inline void _mithral_scan(const uint8_t* codes,
         }
         int nblocks_N = N / block_nrows;
 
-        for (int m = 0; m < nstripes_out; m++) { // for each group of output cols
-
+        for (int m = 0; m < nstripes_out; m++) { // for each group of outputs
             // set output and lut col start ptrs
             for (int mm = 0; mm < NWriteCols; mm++) {
                 auto out_col = m * NWriteCols + mm;
+                // printf("out_col: %2d\n", out_col);
                 lut_col_starts[mm] = luts + (lut_col_stride * out_col);
                 out_col_starts[mm] = out + (out_col_stride * out_col);
 
@@ -640,8 +640,8 @@ inline void _mithral_scan(const uint8_t* codes,
                         auto vlut_high_idx = vlut_low_idx + 1;
                         auto vlut_low_ptr = lut_col_start + (simd_vec_sz * vlut_low_idx);
                         auto vlut_high_ptr = lut_col_start + (simd_vec_sz * vlut_high_idx);
-                        vluts[mm][jj][0] = load_si256i(vlut_low_ptr);
-                        vluts[mm][jj][1] = load_si256i(vlut_high_ptr);
+                        vluts[jj][mm][0] = load_si256i(vlut_low_ptr);
+                        vluts[jj][mm][1] = load_si256i(vlut_high_ptr);
 
                         // printf("LUT for m=%2d, col=%2d, mm=%2d, jj=%2d, lut_ab, lut_cd:\n", m * NWriteCols + mm, j * NReadCols + jj, mm, jj);
                         // dump_m256i<int8_t>(vluts[mm][jj][0]);
@@ -673,6 +673,7 @@ inline void _mithral_scan(const uint8_t* codes,
                             _mm256_srli_epi16(vcodes_packed, 4), low_4bits_mask);
 
                         // if (j > 0) {
+                        // if (m == 0) {
                         //     printf("codes ab, cd:\n");
                         //     dump_m256i(vcodes_ab);
                         //     dump_m256i(vcodes_cd);
@@ -686,7 +687,8 @@ inline void _mithral_scan(const uint8_t* codes,
                             auto prod_cd = _mm256_shuffle_epi8(vlut_cd, vcodes_cd);
 
                             // if (j > 0) {
-                            //     printf("prods ab, cd:\n");
+                            // if (m == 0 && mm == 0) {
+                            //     printf("jj=%2d, mm=%2d; prods ab, cd:\n", jj, mm);
                             //     dump_m256i<int8_t>(prod_ab);
                             //     dump_m256i<int8_t>(prod_cd);
                             // }
@@ -743,10 +745,11 @@ void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
 {
     // TODO rm
     // _mithral_scan<2, 1, UpcastEvery>(
-    _mithral_scan<1, 1, UpcastEvery>(
-                codes, nrows, ncodebooks, noutputs, luts, out); return;
+    // _mithral_scan<1, 1, UpcastEvery>(
+    //             codes, nrows, ncodebooks, noutputs, luts, out); return;
 
-    if (ncodebooks == 4) {
+    auto ncols = ncodebooks / 4;
+    if (ncols == 1) {
         switch (noutputs) {
             case 1: _mithral_scan<1, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
@@ -757,13 +760,13 @@ void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
             default: _mithral_scan<1, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         }
-    } else if (ncodebooks == 8 && (noutputs % 2) == 0) {
+    } else if (ncols == 2 && (noutputs % 2) == 0) {
         _mithral_scan<2, 2, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-    } else if (ncodebooks % 2 == 0) {
+    } else if (ncols % 2 == 0) {
         _mithral_scan<2, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-    } else if (ncodebooks % 3 == 0) {
+    } else if (ncols % 3 == 0) {
         _mithral_scan<3, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else {

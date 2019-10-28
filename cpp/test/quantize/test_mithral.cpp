@@ -206,15 +206,15 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
 
     // create and populate codes
     ColMatrix<uint8_t> codes_unzipped(N, ncodebooks);
-    // codes_unzipped.setRandom();
-    // codes_unzipped = codes_unzipped.unaryExpr(
-    //     [=](const uint8_t x) { return (uint8_t)(x % 16); });
-    for (int c = 0; c < ncodebooks; c++) {
-        for (int n = 0; n < N; n++) {
-            // codes_unzipped(n, c) = (n + 3 * c) % ncentroids;
-            codes_unzipped(n, c) = (n + 2 * c) % ncentroids;
-        }
-    }
+    codes_unzipped.setRandom();
+    codes_unzipped = codes_unzipped.unaryExpr(
+        [=](const uint8_t x) { return (uint8_t)(x % 16); });
+    // for (int c = 0; c < ncodebooks; c++) {
+    //     for (int n = 0; n < N; n++) {
+    //         // codes_unzipped(n, c) = (n + 3 * c) % ncentroids;
+    //         codes_unzipped(n, c) = (n + 2 * c) % ncentroids;
+    //     }
+    // }
     ColMatrix<uint8_t> codes_zipped(2 * N, ncodebooks / 4);
     _zip4(codes_unzipped, codes_zipped);
 
@@ -229,7 +229,8 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     // TODO uncomment below
 
     // create and populate answers
-    ColVector<int16_t> ans(N);
+    // ColVector<int16_t> ans(N);
+    ColMatrix<int16_t> ans(N, nout);
     // Tensor<int16_t, 3> vals(N, ncodebooks);
     ColMatrix<int16_t> vals(N, ncodebooks);
     ans.setZero();
@@ -242,21 +243,38 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
                 if (o == 0) { vals(n, c) = val; } // TODO rm
                 sum += val;
             }
-            ans(n) = sum;
+            ans(n, o) = sum;
         }
     }
 
     // std::cout << "intermediate vals:\n" << vals.cast<int>() << "\n";
 
     // get output from func
-    ColVector<int16_t> out(N);
+    // ColVector<int16_t> out(N, nout);
+    ColMatrix<int16_t> out(N, nout);
+
+
+    // <2, 2> fails with (1, 8, 2), but other amounts of tiling all work
+
+
     mithral_scan<UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+    // _mithral_scan<1, 1, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+    // _mithral_scan<1, 2, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+    // _mithral_scan<2, 1, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+    // _mithral_scan<2, 2, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
                               luts.data(), out.data());
 
-    // ColMatrix<int16_t>tmp(ans.rows(), 2);
-    // tmp.leftCols(1) = ans.rightCols(1);
-    // tmp.rightCols(1) = out.rightCols(1);
-    // std::cout << "ans vs out:\n" << tmp.cast<int>() << "\n";
+    // if (nout == 1) {
+    //     ColMatrix<int16_t>tmp(ans.rows(), 2);
+    //     tmp.leftCols(1) = ans.rightCols(1);
+    //     tmp.rightCols(1) = out.rightCols(1);
+    //     std::cout << "ans vs out:\n" << tmp.cast<int>() << "\n";
+    // } else if (nout == 2) {
+    //     ColMatrix<int16_t>tmp(ans.rows(), 4);
+    //     tmp.leftCols(2) = ans.rightCols(2);
+    //     tmp.rightCols(2) = out.rightCols(2);
+    //     std::cout << "ans vs out:\n" << tmp.cast<int>() << "\n";
+    // }
 
     for (int n = 0; n < ans.rows(); n++) {
         CAPTURE(N);
@@ -269,24 +287,26 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
 }
 
 TEST_CASE("mithral scan", "[mithral][scan]") {
-    _test_mithral_scan(1, 4);
-    _test_mithral_scan(2, 4);
-    _test_mithral_scan(3, 4);
-    _test_mithral_scan<2>(1, 8);
-    _test_mithral_scan<2>(2, 8);
-    _test_mithral_scan<4>(2, 8);
-    // _test_mithral_scan<2>(1, 4, 2);
-    // in wrapper func to take in different sizes
-    // create random codes
-    // create deterministic luts (no overflow, val = 10+code or something)
-    //  make a simple func to avoid dup code when making ans and luts
-    // create output buff + ans buff
-    // populate ans buff based on codes
-    // populate output buff via zip4 of codes, then calling scan func
 
+    SECTION("One output column") {
+        _test_mithral_scan(1, 4);
+        _test_mithral_scan(2, 4);
+        _test_mithral_scan(3, 4);
+        _test_mithral_scan<2>(1, 8);
+        _test_mithral_scan<2>(2, 8);
+        _test_mithral_scan<4>(2, 8);
+        _test_mithral_scan<2>(2, 12);
+        _test_mithral_scan<2>(7, 12);
+        _test_mithral_scan<2>(3, 4 * 7);
+    }
 
-    // SELF: pick up here
-
+    SECTION("Two output columns") {
+        _test_mithral_scan(1, 4, 2); // works
+        _test_mithral_scan(1, 8, 2);
+        _test_mithral_scan(2, 8, 2);
+        _test_mithral_scan(2, 8, 3);
+        _test_mithral_scan(2, 12, 3);
+    }
 
     printf("test mithral scan done\n");
 }
