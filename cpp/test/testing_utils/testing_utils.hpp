@@ -13,10 +13,16 @@
 #include <random>
 #include <stdint.h>
 
+
+
 #ifdef BLAZE
+    #include "test/external/catch.hpp"
+    #include "src/utils/eigen_utils.hpp"
     #include "src/utils/memory.hpp"
     #include "src/utils/timing_utils.hpp" // for profiling
 #else
+    #include "catch.hpp"
+    #include "eigen_utils.hpp"
     #include "memory.hpp"
     #include "timing_utils.hpp" // for profiling
 #endif

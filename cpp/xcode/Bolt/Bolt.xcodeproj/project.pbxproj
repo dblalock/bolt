@@ -10,6 +10,7 @@
 		725BA8572351557D00CACF41 /* test_avx_utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725BA8562351557D00CACF41 /* test_avx_utils.cpp */; };
 		725BA85923528EF800CACF41 /* avx_utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725BA85823528EF700CACF41 /* avx_utils.cpp */; };
 		72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72A5A650234BC43100E4E256 /* profile_amm.cpp */; };
+		72B4CB0E23676106005D3A3D /* test_mithral.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72B4CB0D23676106005D3A3D /* test_mithral.cpp */; };
 		72DE646D1E5F74ED009B5E61 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64621E5F74BB009B5E61 /* main.cpp */; };
 		72DE646E1E5F74F3009B5E61 /* profile_bolt.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64641E5F74BB009B5E61 /* profile_bolt.cpp */; };
 		72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72DE64651E5F74BB009B5E61 /* profile_multicodebook.cpp */; };
@@ -36,6 +37,8 @@
 		725BA85823528EF700CACF41 /* avx_utils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = avx_utils.cpp; sourceTree = "<group>"; };
 		72A5A64F234A8E4A00E4E256 /* multisplit.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multisplit.hpp; sourceTree = "<group>"; };
 		72A5A650234BC43100E4E256 /* profile_amm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_amm.cpp; sourceTree = "<group>"; };
+		72B4CB0C23675F98005D3A3D /* mithral.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = mithral.hpp; sourceTree = "<group>"; };
+		72B4CB0D23676106005D3A3D /* test_mithral.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = test_mithral.cpp; sourceTree = "<group>"; };
 		72DE62DB1E5F7467009B5E61 /* Bolt */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Bolt; sourceTree = BUILT_PRODUCTS_DIR; };
 		72DE62E81E5F74BB009B5E61 /* Cholesky */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cholesky; sourceTree = "<group>"; };
 		72DE62E91E5F74BB009B5E61 /* CholmodSupport */ = {isa = PBXFileReference; lastKnownFileType = text; path = CholmodSupport; sourceTree = "<group>"; };
@@ -1084,6 +1087,7 @@
 			children = (
 				72DE64531E5F74BB009B5E61 /* bolt.cpp */,
 				72DE64541E5F74BB009B5E61 /* bolt.hpp */,
+				72B4CB0C23675F98005D3A3D /* mithral.hpp */,
 				72A5A64F234A8E4A00E4E256 /* multisplit.hpp */,
 				72DE64551E5F74BB009B5E61 /* multi_codebook.hpp */,
 				72DE64561E5F74BB009B5E61 /* product_quantize.hpp */,
@@ -1131,6 +1135,7 @@
 			children = (
 				72DE64641E5F74BB009B5E61 /* profile_bolt.cpp */,
 				72A5A650234BC43100E4E256 /* profile_amm.cpp */,
+				72B4CB0D23676106005D3A3D /* test_mithral.cpp */,
 				72DE64651E5F74BB009B5E61 /* profile_multicodebook.cpp */,
 				72DE64661E5F74BB009B5E61 /* profile_pq.cpp */,
 				72DE64671E5F74BB009B5E61 /* test_bolt.cpp */,
@@ -1213,6 +1218,7 @@
 				72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */,
 				725BA8572351557D00CACF41 /* test_avx_utils.cpp in Sources */,
 				725BA85923528EF800CACF41 /* avx_utils.cpp in Sources */,
+				72B4CB0E23676106005D3A3D /* test_mithral.cpp in Sources */,
 				72DE646E1E5F74F3009B5E61 /* profile_bolt.cpp in Sources */,
 				72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */,
 				72DE646D1E5F74ED009B5E61 /* main.cpp in Sources */,

@@ -13,6 +13,7 @@
 #ifdef BLAZE
     #include "test/external/catch.hpp"
     #include "src/quantize/bolt.hpp"
+    #include "src/quantize/mithral.hpp"
     #include "src/quantize/multisplit.hpp"
     #include "src/utils/debug_utils.hpp"
     #include "src/utils/eigen_utils.hpp"
@@ -22,6 +23,7 @@
 #else
     #include "catch.hpp"
     #include "bolt.hpp"
+    #include "mithral.hpp"
     #include "multisplit.hpp"
     #include "debug_utils.hpp"
     #include "eigen_utils.hpp"
@@ -150,7 +152,7 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
             scales.data(), offsets.data(), ncodebooks, out.data()));
 }
 
-TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][scan][mcq][profile]") {
+TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     static constexpr int nblocks = 16 * 1000;
     static constexpr int nrows = nblocks * 32;
     static constexpr int ncodebooks = 16;
@@ -166,6 +168,11 @@ TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][scan][mcq][profile]") {
     ColMatrix<uint8_t> luts(ncentroids, ncodebooks);
     luts.setRandom();
     luts = luts.array() / ncodebooks; // make max lut value small
+
+    ColMatrix<int8_t> luts_signed(ncentroids, ncodebooks);
+    luts_signed.setRandom();
+    luts_signed = luts_signed.array() / ncodebooks; // make max lut value small
+
     // ColMatrix<int8_t> luts_i8(ncentroids, ncodebooks);
     // luts_i8.setRandom();
     // luts_i8 = luts_i8.array() / ncodebooks;
@@ -176,6 +183,7 @@ TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][scan][mcq][profile]") {
     RowVector<uint16_t> dists_u16_safe(nrows);
     RowVector<int16_t> dists_u16_colmajor(nrows);
     RowVector<int16_t> dists_u16_colmajor_tile4(nrows);
+    RowVector<int16_t> dists_u16_colmajor_v2(nrows);
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint8", kNtrials,
         dists_u8.data(), nrows,
@@ -188,32 +196,46 @@ TEST_CASE("bolt scan speed with colmajor", "[amm][bolt][scan][mcq][profile]") {
         bolt_scan<M>(codes.data(), luts.data(), dists_u16_safe.data(), nblocks));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor", kNtrials,
         dists_u16_colmajor.data(), nrows,
-        bolt_scan_unpacked_colmajor(codes.data(), nblocks, ncodebooks,
+        mithral_scan_unpacked_colmajor(codes.data(), nblocks, ncodebooks,
             luts.data(), dists_u16_colmajor.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1", kNtrials,
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1", kNtrials,
+    // //     dists_u16_colmajor_tile4.data(), nrows,
+    // //     bolt_scan_colmajor_tile4<1>(codes.data(), nblocks, ncodebooks,
+    // //         luts.data(), dists_u16_colmajor_tile4.data()));
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2", kNtrials,
+    // //     dists_u16_colmajor_tile4.data(), nrows,
+    // //     bolt_scan_colmajor_tile4<2>(codes.data(), nblocks, ncodebooks,
+    // //         luts.data(), dists_u16_colmajor_tile4.data()));
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4", kNtrials,
+    // //     dists_u16_colmajor_tile4.data(), nrows,
+    // //     bolt_scan_colmajor_tile4<4>(codes.data(), nblocks, ncodebooks,
+    // //         luts.data(), dists_u16_colmajor_tile4.data()));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1 packed", kNtrials,
     //     dists_u16_colmajor_tile4.data(), nrows,
-    //     bolt_scan_colmajor_tile4<1>(codes.data(), nblocks, ncodebooks,
+    //     bolt_scan_colmajor_tile4_packed<1>(codes.data(), nblocks, ncodebooks,
     //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2", kNtrials,
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2 packed", kNtrials,
     //     dists_u16_colmajor_tile4.data(), nrows,
-    //     bolt_scan_colmajor_tile4<2>(codes.data(), nblocks, ncodebooks,
+    //     bolt_scan_colmajor_tile4_packed<2>(codes.data(), nblocks, ncodebooks,
     //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4", kNtrials,
-    //     dists_u16_colmajor_tile4.data(), nrows,
-    //     bolt_scan_colmajor_tile4<4>(codes.data(), nblocks, ncodebooks,
-    //         luts.data(), dists_u16_colmajor_tile4.data()));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1 packed", kNtrials,
-        dists_u16_colmajor_tile4.data(), nrows,
-        bolt_scan_colmajor_tile4_packed<1>(codes.data(), nblocks, ncodebooks,
-            luts.data(), dists_u16_colmajor_tile4.data()));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2 packed", kNtrials,
-        dists_u16_colmajor_tile4.data(), nrows,
-        bolt_scan_colmajor_tile4_packed<2>(codes.data(), nblocks, ncodebooks,
-            luts.data(), dists_u16_colmajor_tile4.data()));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4 packed", kNtrials,
         dists_u16_colmajor_tile4.data(), nrows,
-        bolt_scan_colmajor_tile4_packed<4>(codes.data(), nblocks, ncodebooks,
+        mithral_scan_tile4<4>(codes.data(), nblocks, ncodebooks,
             luts.data(), dists_u16_colmajor_tile4.data()));
+
+    static constexpr int noutputs = 1;
+    static constexpr int noutputs_per_block = 1;
+
+    // // create random codes from in [0, 15]
+    // ColMatrix<uint8_t> codes(nrows, ncodebooks);
+    // codes.setRandom();
+    // codes = codes.array() / ncentroids;
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan                           ", kNtrials,
+        dists_u16_colmajor_v2.data(), nrows * noutputs,
+        mithral_scan<(2, noutputs_per_block)>(
+            codes.data(), 2 * nblocks, ncodebooks,
+            noutputs, luts_signed.data(), dists_u16_colmajor_v2.data()));
 }
 
 void _amm_multisplit(const float* X, int64_t nrows, int ncols,
@@ -230,7 +252,7 @@ void _amm_multisplit(const float* X, int64_t nrows, int ncols,
     auto out_ptr = out_mat;
     auto lut_ptr = luts;
     for (int i = 0; i < out_ncols; i++) {
-        bolt_scan_colmajor_tile4_packed<4>(out_enc, nblocks, ncodebooks,
+        mithral_scan_tile4<4>(out_enc, nblocks, ncodebooks,
             luts, out_ptr);
         out_ptr += nrows;
         lut_ptr += 16 * ncodebooks;
