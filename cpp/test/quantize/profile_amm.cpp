@@ -184,7 +184,7 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     RowVector<uint16_t> dists_u16_safe(nrows);
     RowVector<int16_t> dists_u16_colmajor(nrows);
     RowVector<int16_t> dists_u16_colmajor_tile4(nrows);
-    RowVector<int16_t> dists_u16_colmajor_v2(nrows);
+    RowVector<int16_t> dists_u16_colmajor_mithral(nrows);
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint8", kNtrials,
         dists_u8.data(), nrows,
@@ -232,10 +232,14 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     // codes.setRandom();
     // codes = codes.array() / ncentroids;
 
+    ColMatrix<int8_t> all_luts(noutputs * ncentroids, ncodebooks);
+    luts_signed.setRandom();
+    luts_signed = luts_signed.array() / ncodebooks; // make max lut value small
+
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan                           ", kNtrials,
-        dists_u16_colmajor_v2.data(), nrows * noutputs,
-        mithral_scan(codes.data(), 2 * nblocks, ncodebooks,
-            noutputs, luts_signed.data(), dists_u16_colmajor_v2.data()));
+        dists_u16_colmajor_mithral.data(), nrows * noutputs,
+        mithral_scan(codes.data(), nrows, ncodebooks,
+            noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
 }
 
 void _amm_multisplit(const float* X, int64_t nrows, int ncols,

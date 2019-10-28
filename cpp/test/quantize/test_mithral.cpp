@@ -308,5 +308,10 @@ TEST_CASE("mithral scan", "[mithral][scan]") {
         _test_mithral_scan(2, 12, 3);
     }
 
-    printf("test mithral scan done\n");
+    SECTION("Multiple chunks") {
+        _test_mithral_scan(2 * 1024, 4, 1);
+        _test_mithral_scan(2 * 1024, 4, 2);
+        _test_mithral_scan(2 * 1024, 12, 2);
+        _test_mithral_scan(2 * 1024, 12, 3);
+    }
 }

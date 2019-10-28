@@ -520,25 +520,18 @@ inline void _mithral_scan(const uint8_t* codes,
     const int8_t* luts, int16_t* out, bool add_to_output=false,
     int codes_col_stride=-1, int lut_col_stride=-1, int out_col_stride=-1,
     int nrows_per_chunk=512)
+    // int nrows_per_chunk=(1 << 20))
+    // int nrows_per_chunk=1024)
 {
-//    static const bool SignedLUTs = std::is_signed<decltype(luts[0])>::value;
     static constexpr int block_nrows = 16;
-//    static constexpr int lut_sz = 16;
     static constexpr int simd_vec_sz = 32;
     static constexpr int ncodebooks_per_col = 4;
     static constexpr int nlutvecs_per_col = 2;
-    // static constexpr int block_in_nrows = 32;
-    // static constexpr int block_out_nrows = 16;
     static constexpr int out_elem_sz = sizeof(out[0]);
-    // static constexpr int packet_sz = 16;
     static constexpr int nreadcodebooks = NReadCols * ncodebooks_per_col;
     static constexpr int UpcastEveryNCols = UpcastEvery / nlutvecs_per_col;
     static_assert(sizeof(luts[0]) == 1, "Lookup table entries must be 1 byte!");
-    // static_assert(UpcastEvery == 2 || UpcastEvery == 4 || UpcastEvery == 8,
-    //     "UpcastEvery must be one of {2,4,8}");
     static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
-    // static_assert(NReadCols % UpcastEveryNCols == 0,
-    //     "(UpcastEvery / 2) must evenly divide NReadCols");
     assert(nrows % block_nrows == 0);
     assert(ncodebooks % ncodebooks_per_col == 0);
     assert(ncodebooks % nreadcodebooks == 0);
@@ -548,7 +541,6 @@ inline void _mithral_scan(const uint8_t* codes,
     // luts are (ncols / nlutvecs_per_col) x noutputs colmajor
     int default_lut_col_stride = nlutvecs_per_output * simd_vec_sz;
 
-    // auto N = nblocks * block_nrows;
     auto nblocks = nrows / block_nrows;
     auto N = nrows;
     auto N_orig = N;
@@ -593,7 +585,7 @@ inline void _mithral_scan(const uint8_t* codes,
     // PRINT_VAR(out_col_stride);
 
     for (int n = 0; n < nchunks_N; n++) {
-        codes = codes_orig + (n * nrows_per_chunk);
+        codes = codes_orig + (2 * n * nrows_per_chunk);
         out = out_orig + (n * nrows_per_chunk);
         if (n == (nchunks_N - 1)) { // handle last chunk
             auto N_done_so_far = n * nrows_per_chunk;
