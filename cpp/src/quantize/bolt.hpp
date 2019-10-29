@@ -489,17 +489,21 @@ inline void bolt_scan(const uint8_t* codes,
             // and shifting down by 8 bits to get the odd-numbered ones as
             // the second vector of uint16s
             if (NoOverflow) { // convert to epu16s before doing any adds
-                auto dists16_low_evens = _mm256_and_si256(dists_low, low_8bits_mask);
-                auto dists16_low_odds = _mm256_srli_epi16(dists_low, 8);
-                auto dists16_high_evens = _mm256_and_si256(dists_high, low_8bits_mask);
-                auto dists16_high_odds = _mm256_srli_epi16(dists_high, 8);
-
                 if (SignedLUTs) {
+                    auto dists16_low_odds = _mm256_srai_epi16(dists_low, 8);
+                    auto dists16_high_odds = _mm256_srai_epi16(dists_high, 8);
+                    // need to sign extend upper bit of low 8b
+                    auto dists16_low_evens = _mm256_srai_epi16(_mm256_srai_epi16(dists_low, 8), 8);
+                    auto dists16_high_evens = _mm256_srai_epi16(_mm256_srai_epi16(dists_high, 8), 8);
                     totals_evens = _mm256_adds_epi16(totals_evens, dists16_low_evens);
                     totals_evens = _mm256_adds_epi16(totals_evens, dists16_high_evens);
                     totals_odds = _mm256_adds_epi16(totals_odds, dists16_low_odds);
                     totals_odds = _mm256_adds_epi16(totals_odds, dists16_high_odds);
                 } else {
+                    auto dists16_low_odds = _mm256_srli_epi16(dists_low, 8);
+                    auto dists16_high_odds = _mm256_srli_epi16(dists_high, 8);
+                    auto dists16_low_evens = _mm256_and_si256(dists_low, low_8bits_mask);
+                    auto dists16_high_evens = _mm256_and_si256(dists_high, low_8bits_mask);
                     totals_evens = _mm256_adds_epu16(totals_evens, dists16_low_evens);
                     totals_evens = _mm256_adds_epu16(totals_evens, dists16_high_evens);
                     totals_odds = _mm256_adds_epu16(totals_odds, dists16_low_odds);
@@ -509,8 +513,8 @@ inline void bolt_scan(const uint8_t* codes,
             } else { // add pairs as epu8s, then use pair sums as epu16s
                 if (SignedLUTs) {
                     auto dists = _mm256_adds_epi8(dists_low, dists_high);
-                    auto dists16_evens = _mm256_and_si256(dists, low_8bits_mask);
-                    auto dists16_odds = _mm256_srli_epi16(dists, 8);
+                    auto dists16_evens = _mm256_srai_epi16(_mm256_srai_epi16(dists, 8), 8);
+                    auto dists16_odds = _mm256_srai_epi16(dists, 8);
                     totals_evens = _mm256_adds_epi16(totals_evens, dists16_evens);
                     totals_odds = _mm256_adds_epi16(totals_odds, dists16_odds);
                 } else {
