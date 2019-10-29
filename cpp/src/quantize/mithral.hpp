@@ -485,36 +485,24 @@ inline void mithral_scan_tile4(const uint8_t* codes,
 }
 
 /* https://godbolt.org/z/qeMdf0
- * inner loop with 2 input cols, one output:
+ * inner loop with 5 input cols, one output (for one output):
  *
- * vmovdqa      ymm0, YMMWORD PTR [rbx]
- * add          r12, 32
- * add          rbx, 32
- * add          r14, 32
- * inc          eax
- * vpsrlw       ymm1, ymm0, 4
- * vpand        ymm0, ymm0, ymm2
- * vpand        ymm1, ymm2, ymm1
- * vpshufb      ymm0, ymm6, ymm0
- * vpshufb      ymm1, ymm5, ymm1
- * vpaddsb      ymm0, ymm0, ymm1
- * vmovdqa      ymm1, YMMWORD PTR [r12-32]
- * vpaddsb      ymm0, ymm7, ymm0
- * vpsrlw       ymm8, ymm1, 4
- * vpand        ymm1, ymm1, ymm2
- * vpand        ymm8, ymm2, ymm8
- * vpshufb      ymm1, ymm4, ymm1
- * vpshufb      ymm8, ymm3, ymm8
- * vpaddsb      ymm1, ymm1, ymm8
+ * vmovdqa      ymm3, YMMWORD PTR [rcx-32]
+ * mov          QWORD PTR [rsp+160], rcx
  * vpaddsb      ymm0, ymm0, ymm1
  * vpmovsxbw    ymm1, xmm0
  * vextracti128 xmm0, ymm0, 0x1
  * vpmovsxbw    ymm0, xmm0
- * vpaddsw      ymm0, ymm1, ymm0
- * vpaddsw      ymm0, ymm0, YMMWORD PTR [r14-32]
- * vmovdqu      YMMWORD PTR [r14-32], ymm0
+ * vpaddsw      ymm1, ymm1, ymm0
+ * vpsrlw       ymm0, ymm3, 4
+ * vpand        ymm3, ymm3, ymm2
+ * vpand        ymm0, ymm2, ymm0
+ * vpshufb      ymm3, ymm9, ymm3
+ * vpaddsw      ymm1, ymm1, YMMWORD PTR [r14-32]
+ * vpshufb      ymm0, ymm10, ymm0
+ * vpaddsb      ymm3, ymm3, ymm0
  */
-template<int NReadCols, int NWriteCols=1, int UpcastEvery=4>
+template<int NReadCols, int NWriteCols=1, int UpcastEvery=4, int NCodebooks=-1, int ChunkSz=256>
 inline void _mithral_scan(const uint8_t* codes,
     int nrows, int ncodebooks, int noutputs,
     const int8_t* luts, int16_t* out, bool add_to_output=false,
@@ -541,6 +529,9 @@ inline void _mithral_scan(const uint8_t* codes,
     int nlutvecs_per_output = ncols * nlutvecs_per_col;
     // luts are (ncols / nlutvecs_per_col) x noutputs colmajor
     int default_lut_col_stride = nlutvecs_per_output * simd_vec_sz;
+
+    ncodebooks = NCodebooks > 0 ? NCodebooks : ncodebooks;
+    nrows_per_chunk = ChunkSz > 0 ? ChunkSz : nrows_per_chunk;
 
     auto N = nrows;
     auto N_orig = N;
@@ -610,7 +601,7 @@ inline void _mithral_scan(const uint8_t* codes,
                 //     dump_m256i<int8_t>(load_si256i(lut_col_ptrs[mm]));
                 // }
 
-                if (!add_to_output) {  // zero this block of output buffer
+                if (!add_to_output && NCodebooks != 4) {  // zero this block of output buffer
                     for (int i = 0; i < N; i++) {
                         out_col_starts[mm][i] = 0;
                     }
@@ -668,14 +659,29 @@ inline void _mithral_scan(const uint8_t* codes,
                     }
                 }
 
+                // static constexpr bool evens_odds = true;
+                static constexpr bool evens_odds = false;
+
                 auto low_4bits_mask = _mm256_set1_epi8(0x0F);
+                auto low_8bits_mask = _mm256_set1_epi16(0x00FF);
                 for (int b = 0; b < nblocks_N; b++) {   // for each block of rows
                     // load up sums-so-far from current output
                     __m256i sums[NWriteCols]; // 16xepi16
+                    __m256i sums_evens[NWriteCols]; // 16xepi16
+                    __m256i sums_odds[NWriteCols]; // 16xepi16
                     __m256i sums_8b[NWriteCols]; // only used if upcast_every == 8
                     for (int mm = 0; mm < NWriteCols; mm++) {
-                        sums[mm] = load_si256i(out_col_ptrs[mm]);
+                        if (NCodebooks != 4) {
+                            sums[mm] = load_si256i(out_col_ptrs[mm]);
+                        } else { // only one stripe
+                            sums[mm] = _mm256_setzero_si256();
+                        }
                         sums_8b[mm] = _mm256_setzero_si256();
+
+                        if (evens_odds) {
+                            sums_evens[mm] = _mm256_setzero_si256();
+                            sums_odds[mm] = _mm256_setzero_si256();
+                        }
                         // printf("sums[%d]:\n", mm); dump_m256i<int16_t>(sums[mm]);
                     }
 
@@ -714,13 +720,23 @@ inline void _mithral_scan(const uint8_t* codes,
 
                             auto sum_ac_bd = _mm256_adds_epi8(prod_ab, prod_cd);
 
+                            // static_assert(UpcastEvery == 2, ""); // TODO rm
                             if (UpcastEvery == 2) { // just immediately upcast
-                                auto sum_ac = _mm256_cvtepi8_epi16(
+                                if (evens_odds) {
+                                    // left then right shift to sign extend
+                                    auto sum_ac_bd_evens = _mm256_srai_epi16(
+                                        _mm256_slli_epi16(sum_ac_bd, 8), 8);
+                                    auto sum_ac_bd_odds = _mm256_srai_epi16(sum_ac_bd, 8);
+                                    sums_evens[mm] = _mm256_adds_epi16(sums_evens[mm], sum_ac_bd_evens);
+                                    sums_odds[mm] = _mm256_adds_epi16(sums_odds[mm], sum_ac_bd_odds);
+                                } else {
+                                    auto sum_ac = _mm256_cvtepi8_epi16(
                                     _mm256_extracti128_si256(sum_ac_bd, 0));
-                                auto sum_bd = _mm256_cvtepi8_epi16(
-                                    _mm256_extracti128_si256(sum_ac_bd, 1));
-                                auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
-                                sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                    auto sum_bd = _mm256_cvtepi8_epi16(
+                                        _mm256_extracti128_si256(sum_ac_bd, 1));
+                                    auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
+                                    sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                }
                             } else {
                                 sums_8b[mm] = _mm256_adds_epi8(
                                     sums_8b[mm], sum_ac_bd);
@@ -734,13 +750,24 @@ inline void _mithral_scan(const uint8_t* codes,
                                 auto sum_ac_bd = sums_8b[mm];
                                 sums_8b[mm] = _mm256_setzero_si256();
 
-                                auto sum_ac = _mm256_cvtepi8_epi16(
+                                if (evens_odds) {
+                                    auto sum_ac_bd_evens = _mm256_srai_epi16(
+                                        _mm256_slli_epi16(sum_ac_bd, 8), 8);
+                                    auto sum_ac_bd_odds = _mm256_srai_epi16(
+                                        sum_ac_bd, 8);
+                                    sums_evens[mm] = _mm256_adds_epi16(
+                                        sums_evens[mm], sum_ac_bd_evens);
+                                    sums_odds[mm] = _mm256_adds_epi16(
+                                        sums_odds[mm], sum_ac_bd_odds);
+                                } else {
+                                    auto sum_ac = _mm256_cvtepi8_epi16(
                                     _mm256_extracti128_si256(sum_ac_bd, 0));
-                                auto sum_bd = _mm256_cvtepi8_epi16(
-                                    _mm256_extracti128_si256(sum_ac_bd, 1));
-                                auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
+                                    auto sum_bd = _mm256_cvtepi8_epi16(
+                                        _mm256_extracti128_si256(sum_ac_bd, 1));
+                                    auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
 
-                                sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                    sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                }
                             }
                         }
                     }
@@ -749,6 +776,21 @@ inline void _mithral_scan(const uint8_t* codes,
                     // if (n > 0) { PRINT_VAR(b); }
                     for (int mm = 0; mm < NWriteCols; mm++) {
                         auto out_ptr = out_col_ptrs[mm];
+                        if (evens_odds) {
+                            // sums for codebooks for {low, high} 128b
+                            auto tmp_evens = _mm256_permute4x64_epi64(
+                                    sums_evens[mm], _MM_SHUFFLE(3,1,2,0));
+                            auto tmp_odds = _mm256_permute4x64_epi64(
+                                    sums_odds[mm], _MM_SHUFFLE(3,1,2,0));
+                            auto low_sums = _mm256_unpacklo_epi16(
+                                        tmp_evens, tmp_odds);
+                            auto high_sums = _mm256_unpackhi_epi16(
+                                tmp_evens, tmp_odds);
+                            sums[mm] = _mm256_adds_epi16(
+                                sums[mm], low_sums);
+                            sums[mm] = _mm256_adds_epi16(
+                                sums[mm], high_sums);
+                        }
                         _mm256_storeu_si256((__m256i*)out_ptr, sums[mm]);
                         out_col_ptrs[mm] += simd_vec_sz / out_elem_sz;
                     }
@@ -759,33 +801,44 @@ inline void _mithral_scan(const uint8_t* codes,
 }
 
 
-template<int UpcastEvery=2>
+template<int UpcastEvery=4>
 void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
     int noutputs, const int8_t* luts, int16_t* out, bool add_to_output=false)
 {
-    // TODO rm
-    // _mithral_scan<2, 1, UpcastEvery>(
-    // _mithral_scan<1, 1, UpcastEvery>(
-    //             codes, nrows, ncodebooks, noutputs, luts, out); return;
+    // TODO figure out optimal amount of tiling and reduce to this case, then
+    // clean up leftover input/output columns
 
     auto ncols = ncodebooks / 4;
     if (ncols == 1) {
-        switch (noutputs) {
-            case 1: _mithral_scan<1, 1, UpcastEvery>(
+        static constexpr int NCodebooks = 4;
+        // with 1 input col 6 outputs: https://godbolt.org/z/dLLfV8
+        // if (noutputs % 6 == 0) {
+        //     _mithral_scan<1, 6, UpcastEvery, NCodebooks>(
+        //         codes, nrows, ncodebooks, noutputs, luts, out); return;
+        // } else if (noutputs % 5 == 0) {
+        if (noutputs % 5 == 0) {
+            _mithral_scan<1, 5, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-            case 2: _mithral_scan<1, 2, UpcastEvery>(
+        } else if (noutputs % 4 == 0) {
+            _mithral_scan<1, 4, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-            case 3: _mithral_scan<1, 3, UpcastEvery>(
+        } else if (noutputs % 3 == 0) {
+            _mithral_scan<1, 3, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-            default: _mithral_scan<1, 1, UpcastEvery>(
+        } else if (noutputs % 2 == 0) {
+            _mithral_scan<1, 2, UpcastEvery, NCodebooks>(
+                codes, nrows, ncodebooks, noutputs, luts, out); return;
+        } else {
+            _mithral_scan<1, 1, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         }
     } else if (ncols == 2 && (noutputs % 2) == 0) {
-        _mithral_scan<2, 2, UpcastEvery>(
+        static constexpr int NCodebooks = 8;
+        _mithral_scan<2, 2, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-    } else if (ncols % 6 == 0) {
-        _mithral_scan<6, 1, UpcastEvery>(
-                codes, nrows, ncodebooks, noutputs, luts, out); return;
+    // } else if (ncols % 6 == 0) {
+    //     _mithral_scan<6, 1, UpcastEvery>(
+    //             codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else if (ncols % 5 == 0) {
         _mithral_scan<5, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;

@@ -273,7 +273,8 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     // <2, 2> fails with (1, 8, 2), but other amounts of tiling all work
 
 
-    mithral_scan<UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+    // mithral_scan<UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
+    mithral_scan<2>(codes_zipped.data(), N, ncodebooks, nout,
     // _mithral_scan<1, 1, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
     // _mithral_scan<1, 2, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
     // _mithral_scan<2, 1, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
@@ -320,7 +321,7 @@ TEST_CASE("mithral scan", "[mithral][scan]") {
         _test_mithral_scan<2>(3, 4 * 7);
     }
 
-    SECTION("Two output columns") {
+    SECTION("Multiple output columns") {
         _test_mithral_scan(1, 4, 2);
         _test_mithral_scan(1, 8, 2);
         _test_mithral_scan(2, 8, 2);
