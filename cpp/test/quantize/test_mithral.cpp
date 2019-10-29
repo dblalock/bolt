@@ -180,7 +180,8 @@ TEST_CASE("mithral zip4", "[mithral][utils]") {
 
 int8_t _lut_entry(int code, int codebook=0, int output=0) {
     // return code + codebook * 10 + output;
-    return (code + codebook + output) * (codebook % 5 ? 1 : -1);
+    // return (code + codebook - 10 * output) * (codebook % 5 ? 1 : -1);
+    return (code + codebook - (10 * output));
 }
 
 template<int UpcastEvery=4>
@@ -199,12 +200,25 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
         for (int c = 0; c < ncodebooks; c++) {
             for (int cc = 0; cc < ncentroids; cc++) {
                 // luts(o, c, cc) = _lut_entry(cc, c, o) % 20; // TODO this fails
-                luts(o, c, cc) = _lut_entry(cc, c, 3) % 20; // works
+                luts(o, c, cc) = _lut_entry(cc, c, o);
+                // luts(o, c, cc) = _lut_entry(cc, c);
+                // luts(o, c, cc) = _lut_entry(cc, c, o) % 13;
+                // luts(o, c, cc) = _lut_entry(cc, c, 3) % 20; // works
                 // luts(o, c, cc) = _lut_entry(cc, c) % 20;
                 // luts(o, c, cc) = _lut_entry(cc);
             }
         }
     }
+
+    // for (int o = 0; o < nout; o++) {
+    //     printf("luts for output col %d\n", o);
+    //     // std::cout << "luts for output :";
+    //     dump_elements(&luts(o, 0, 0), ncodebooks * ncentroids, ncentroids);
+    //     // RowMatrix<uint8_t> tmp(luts.row(o))
+    //     // std::cout << tmp.cast<int>() << "\n";
+    // }
+    // printf("raw luts mem:\n");
+    // dump_elements(luts.data(), ncodebooks * ncentroids * nout, ncentroids);
 
     // create and populate codes
     ColMatrix<uint8_t> codes_unzipped(N, ncodebooks);
@@ -248,12 +262,12 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
             ans(n, o) = sum;
         }
     }
-
     // std::cout << "intermediate vals:\n" << vals.cast<int>() << "\n";
 
     // get output from func
     // ColVector<int16_t> out(N, nout);
     ColMatrix<int16_t> out(N, nout);
+    out.setZero();
 
 
     // <2, 2> fails with (1, 8, 2), but other amounts of tiling all work
@@ -272,19 +286,23 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     //     tmp.rightCols(1) = out.rightCols(1);
     //     std::cout << "ans vs out:\n" << tmp.cast<int>() << "\n";
     // } else if (nout == 2) {
+    //     // left 2 cols are answers for the 2 outputs; right 2 cols are ours
     //     ColMatrix<int16_t>tmp(ans.rows(), 4);
     //     tmp.leftCols(2) = ans.rightCols(2);
     //     tmp.rightCols(2) = out.rightCols(2);
     //     std::cout << "ans vs out:\n" << tmp.cast<int>() << "\n";
     // }
 
-    for (int n = 0; n < ans.rows(); n++) {
-        CAPTURE(N);
-        CAPTURE(ncodebooks);
-        CAPTURE(n);
-        CAPTURE((int)out(n));
-        CAPTURE((int)ans(n));
-        REQUIRE(abs(out(n) - ans(n)) < .0001);
+    for (int o = 0; o < nout; o++) {
+        for (int n = 0; n < ans.rows(); n++) {
+            CAPTURE(o);
+            CAPTURE(N);
+            CAPTURE(ncodebooks);
+            CAPTURE(n);
+            CAPTURE((int)out(n, o));
+            CAPTURE((int)ans(n, o));
+            REQUIRE(abs(out(n, o) - ans(n, o)) < .0001);
+        }
     }
 }
 
@@ -311,9 +329,9 @@ TEST_CASE("mithral scan", "[mithral][scan]") {
     }
 
     SECTION("Multiple chunks") {
-        _test_mithral_scan(2 * 1024, 4, 1);
-        _test_mithral_scan(2 * 1024, 4, 2);
-        _test_mithral_scan(2 * 1024, 12, 2);
-        _test_mithral_scan(2 * 1024, 12, 3);
+        _test_mithral_scan(5 * 1024, 4, 1);
+        _test_mithral_scan(5 * 1024, 4, 2);
+        _test_mithral_scan(5 * 1024, 12, 2);
+        _test_mithral_scan(5 * 1024, 12, 3);
     }
 }
