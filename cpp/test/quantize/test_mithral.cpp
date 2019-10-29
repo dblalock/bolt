@@ -198,7 +198,9 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     for (int o = 0; o < nout; o++) {
         for (int c = 0; c < ncodebooks; c++) {
             for (int cc = 0; cc < ncentroids; cc++) {
-                luts(o, c, cc) = _lut_entry(cc, c);
+                // luts(o, c, cc) = _lut_entry(cc, c, o) % 20; // TODO this fails
+                luts(o, c, cc) = _lut_entry(cc, c, 3) % 20; // works
+                // luts(o, c, cc) = _lut_entry(cc, c) % 20;
                 // luts(o, c, cc) = _lut_entry(cc);
             }
         }
@@ -301,7 +303,7 @@ TEST_CASE("mithral scan", "[mithral][scan]") {
     }
 
     SECTION("Two output columns") {
-        _test_mithral_scan(1, 4, 2); // works
+        _test_mithral_scan(1, 4, 2);
         _test_mithral_scan(1, 8, 2);
         _test_mithral_scan(2, 8, 2);
         _test_mithral_scan(2, 8, 3);
