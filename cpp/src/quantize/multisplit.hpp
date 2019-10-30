@@ -134,6 +134,8 @@ void split_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
             auto splitval = splitvals[split_idx + s];
             x_ptrs[s] = X + (x_col_stride * splitdim);
             current_vsplitvals[s] = _mm256_set1_epi8(splitval);
+            current_vscales[s] = _mm256_set1_epi8(scales[split_idx + s]);
+            current_voffsets[s] = _mm256_set1_epi8(offsets[split_idx + s]);
         }
         split_idx += nsplits_per_codebook;
 
@@ -241,8 +243,7 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
 
                 __m256i ab = _mm256_packs_epi32(a, b);
                 __m256i cd = _mm256_packs_epi32(c, d);
-                __m256i abcd = _mm256_undefined_si256();
-                abcd = _mm256_packs_epi16(ab, cd);
+                __m256i abcd = _mm256_packs_epi16(ab, cd);
                 __m256i masks = _mm256_permutevar8x32_epi32(
                     abcd, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
 
@@ -392,10 +393,13 @@ void multisplit_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
         auto out_ptr = out + (out_col_stride * c);
         for (int s = 0; s < nsplits_per_codebook; s++) {
             auto splitdim = splitdims[split_idx + s];
+            x_ptrs[s] = X + (x_col_stride * splitdim);
             auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
             current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
                 load_si128i((const __m128i*)splitvals_ptr));
-            x_ptrs[s] = X + (x_col_stride * splitdim);
+            current_vscales[s] = _mm256_set1_epi8(scales[split_idx + s]);
+            current_voffsets[s] = _mm256_set1_epi8(offsets[split_idx + s]);
+
         }
         split_idx += nsplits_per_codebook;
 
