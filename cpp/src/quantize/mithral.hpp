@@ -734,8 +734,10 @@ inline void _mithral_scan(const uint8_t* codes,
                                     _mm256_extracti128_si256(sum_ac_bd, 0));
                                     auto sum_bd = _mm256_cvtepi8_epi16(
                                         _mm256_extracti128_si256(sum_ac_bd, 1));
-                                    auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
-                                    sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                    // auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
+                                    // sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                    sums[mm] = _mm256_add_epi16(sums[mm], sum_ac);
+                                    sums[mm] = _mm256_add_epi16(sums[mm], sum_bd);
                                 }
                             } else {
                                 sums_8b[mm] = _mm256_adds_epi8(
@@ -764,9 +766,10 @@ inline void _mithral_scan(const uint8_t* codes,
                                     _mm256_extracti128_si256(sum_ac_bd, 0));
                                     auto sum_bd = _mm256_cvtepi8_epi16(
                                         _mm256_extracti128_si256(sum_ac_bd, 1));
-                                    auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
-
-                                    sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                    // auto sum_abcd = _mm256_adds_epi16(sum_ac, sum_bd);
+                                    // sums[mm] = _mm256_adds_epi16(sums[mm], sum_abcd);
+                                    sums[mm] = _mm256_add_epi16(sums[mm], sum_ac);
+                                    sums[mm] = _mm256_add_epi16(sums[mm], sum_bd);
                                 }
                             }
                         }
@@ -816,7 +819,7 @@ void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
         //     _mithral_scan<1, 6, UpcastEvery, NCodebooks>(
         //         codes, nrows, ncodebooks, noutputs, luts, out); return;
         // } else if (noutputs % 5 == 0) {
-        if (noutputs % 5 == 0) {
+        if (noutputs % 5 == 0 && UpcastEvery > 2) {
             _mithral_scan<1, 5, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         } else if (noutputs % 4 == 0) {
@@ -839,13 +842,13 @@ void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
     // } else if (ncols % 6 == 0) {
     //     _mithral_scan<6, 1, UpcastEvery>(
     //             codes, nrows, ncodebooks, noutputs, luts, out); return;
-    } else if (ncols % 5 == 0) {
+    } else if (ncols % 5 == 0 && UpcastEvery > 2) {
         _mithral_scan<5, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-    } else if (ncols % 4 == 0) {
+    } else if (ncols % 4 == 0 && UpcastEvery > 2) {
         _mithral_scan<4, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
-    } else if (ncols % 3 == 0) {
+    } else if (ncols % 3 == 0 && UpcastEvery > 2) {
         _mithral_scan<3, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else if (ncols % 2 == 0) {
