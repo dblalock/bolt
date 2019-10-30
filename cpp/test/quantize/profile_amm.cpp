@@ -110,9 +110,17 @@ TEST_CASE("amm profile split encode", "[amm][encode][split][profile]") {
 }
 
 TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]") {
-    static const int N = 128 * 1000;
+    static const int N = 1024 * 1000;
+    // static const int N = 128;
     static const uint32_t D = 64;
+    // static const uint32_t D = 24;
+    // static const uint32_t D = 4;
+    // static const int ncodebooks = 64;
+    // static const int ncodebooks = 32;
+    // static const int ncodebooks = 16;
+    // static const int ncodebooks = 8;
     static const int ncodebooks = 4;
+    // static const int ncodebooks = 1;
     static const int nsplits_per_codebook = 4;
     static const int total_nsplits = ncodebooks * nsplits_per_codebook;
     static const int group_id_nbits = 4;
@@ -126,11 +134,21 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
         [](const int x) { return x % D; });
     ColMatrix<int8_t> all_splitvals(max_ngroups, total_nsplits);
     all_splitvals.setRandom();
-    RowVector<float> scales(total_nsplits);
+    // RowVector<float> scales(total_nsplits);
+    RowVector<float> scales(MAX(D, total_nsplits)); // v2 needs D of these
     scales.setRandom();
-    RowVector<float> offsets(total_nsplits);
+    // RowVector<float> offsets(total_nsplits);
+    RowVector<float> offsets(MAX(D, total_nsplits)); // v2 needs D of these
     offsets.setRandom();
     ColMatrix<uint8_t> out(N, ncodebooks);
+
+    ColMatrix<int8_t> X_i8(N, D);
+    X_i8.setRandom();
+
+    // multisplit_encode_4b_colmajor_v2(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks, out.data(), X_i8.data());
+
 
     // multisplit_encode_8b_colmajor(
     //     X.data(), N, D, splitdims.data(), all_splitvals.data(), scales.data(),
@@ -150,6 +168,30 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
         multisplit_encode_4b_colmajor(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, out.data()));
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit deferp 4b", kNtrials,
+    //     out.data(), out.size(),
+    //     multisplit_encode_4b_colmajor<true>(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks, out.data()));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 4b", kNtrials,
+        out.data(), out.size(),
+        multisplit_encode_4b_colmajor(
+            X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
+            ncodebooks, out.data()));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc f  v2", kNtrials,
+        out.data(), out.size(),
+        multisplit_encode_4b_colmajor_v2(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks, out.data(), X_i8.data()));
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit deferp v2", kNtrials,
+    //     out.data(), out.size(),
+    //     multisplit_encode_4b_colmajor_v2<true>(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks, out.data(), X_i8.data()));
 }
 
 TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
@@ -373,21 +415,47 @@ TEST_CASE("amm lut+scan bolt", "[amm][matmul][bolt][profile]") {
     }
 }
 
-void _amm_multisplit(const float* X, int64_t nrows, int ncols,
+void _amm_mithral_unpacked(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const float* scales, const float* offsets,
-    int ncodebooks, int nsplits_per_codebook,
-    uint8_t* out_enc, int8_t* luts, int16_t* out_mat, int out_ncols)
+    int ncodebooks, uint8_t* out_enc, int8_t* luts,
+    int16_t* out_mat, int out_ncols)
 {
-    multisplit_encode_8b_colmajor(
+    // multisplit_encode_8b_colmajor(
+    //     X, nrows, ncols, splitdims, all_splitvals, scales,
+    //     offsets, ncodebooks, nsplits_per_codebook, out_enc);
+    multisplit_encode_4b_colmajor(
         X, nrows, ncols, splitdims, all_splitvals, scales,
-        offsets, ncodebooks, nsplits_per_codebook, out_enc);
-
+        offsets, ncodebooks, out_enc);
     auto nblocks = nrows / 32;
     auto out_ptr = out_mat;
     auto lut_ptr = luts;
     for (int i = 0; i < out_ncols; i++) {
-        mithral_scan_tile4<4>(out_enc, nblocks, ncodebooks,
+        _mithral_scan_tile4<4, false>(out_enc, nblocks, ncodebooks,
+            luts, out_ptr);
+        out_ptr += nrows;
+        lut_ptr += 16 * ncodebooks;
+    }
+}
+
+void _amm_mithral_packed(const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets,
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
+    int16_t* out_mat, int out_ncols)
+{
+    // multisplit_encode_8b_colmajor(
+    //     X, nrows, ncols, splitdims, all_splitvals, scales,
+    //     offsets, ncodebooks, nsplits_per_codebook, out_enc);
+    multisplit_encode_4b_colmajor(
+        X, nrows, ncols, splitdims, all_splitvals, scales,
+        offsets, ncodebooks, out_enc);
+    zip2_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+    auto nblocks = nrows / 32;
+    auto out_ptr = out_mat;
+    auto lut_ptr = luts;
+    for (int i = 0; i < out_ncols; i++) {
+        _mithral_scan_tile4<4, true>(out_enc, nblocks, ncodebooks,
             luts, out_ptr);
         out_ptr += nrows;
         lut_ptr += 16 * ncodebooks;
@@ -433,30 +501,55 @@ void _amm_mithral_just_enc(const float* X, int64_t nrows, int ncols,
     // memset(out_mat, 42, nrows * out_ncols * sizeof(out_mat[0]));
 }
 
-void _amm_mithral_enc(const float* X, int64_t nrows, int ncols,
+void _amm_mithral_just_zip(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const float* scales, const float* offsets,
-    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
-    int16_t* out_mat, int out_ncols)
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
 {
-    multisplit_encode_4b_colmajor(
-        X, nrows, ncols, splitdims, all_splitvals, scales,
-        offsets, ncodebooks, out_enc);
-    // multisplit_encode_8b_colmajor(
-    //     X, nrows, ncols, splitdims, all_splitvals, scales,
-    //     offsets, ncodebooks, 4, out_enc);
     zip4_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
-    // mithral_scan<2>(out_enc_packed, nrows, ncodebooks, out_ncols, luts, out_mat);
-    mithral_scan<4>(out_enc_packed, 64, ncodebooks, out_ncols, luts, out_mat);
-    // mithral_scan<8>(out_enc_packed, nrows, ncodebooks, out_ncols, luts, out_mat);
-    // auto out_ptr = out_mat;
-    // auto lut_ptr = luts;
-    // for (int i = 0; i < out_ncols; i++) {
-    //     mithral_scan<4>(out_enc_packed, nrows, ncodebooks, 1, luts, out_ptr);
-    //     out_ptr += nrows;
-    //     lut_ptr += 16 * ncodebooks;
-    // }
 }
+
+
+void _amm_mithral_just_zip2(const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets,
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
+{
+    zip2_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+}
+
+void _amm_mithral_just_zip_bolt(const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets,
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
+{
+    zip_bolt_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+}
+
+// void _amm_mithral_enc(const float* X, int64_t nrows, int ncols,
+//     const uint32_t* splitdims, const int8_t* all_splitvals,
+//     const float* scales, const float* offsets,
+//     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
+//     int16_t* out_mat, int out_ncols)
+// {
+//     multisplit_encode_4b_colmajor(
+//         X, nrows, ncols, splitdims, all_splitvals, scales,
+//         offsets, ncodebooks, out_enc);
+//     // multisplit_encode_8b_colmajor(
+//     //     X, nrows, ncols, splitdims, all_splitvals, scales,
+//     //     offsets, ncodebooks, 4, out_enc);
+//     zip4_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+//     // mithral_scan<2>(out_enc_packed, nrows, ncodebooks, out_ncols, luts, out_mat);
+//     mithral_scan<4>(out_enc_packed, 64, ncodebooks, out_ncols, luts, out_mat);
+//     // mithral_scan<8>(out_enc_packed, nrows, ncodebooks, out_ncols, luts, out_mat);
+//     // auto out_ptr = out_mat;
+//     // auto lut_ptr = luts;
+//     // for (int i = 0; i < out_ncols; i++) {
+//     //     mithral_scan<4>(out_enc_packed, nrows, ncodebooks, 1, luts, out_ptr);
+//     //     out_ptr += nrows;
+//     //     lut_ptr += 16 * ncodebooks;
+//     // }
+// }
 
 void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     // static const int N = 128 * 1000;
@@ -520,33 +613,74 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 //            scales.data(), offsets.data(), ncodebooks, nsplits_per_codebook,
 //            codes.data(), luts.data(), out_mat.data(), out_ncols));
 
-    std::string msg_mithral = string_with_format(
+    std::string msg;
+    printf("----\n");
+
+    msg = string_with_format(
         "amm mithral      N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg_mithral, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
         _amm_mithral(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
 
-    // std::string msg_enc = string_with_format(
-    //     "amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-    //     orig_N, D, M, ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg_enc, kNtrials,
-    //     out_mat.data(), out_mat.size(),
-    //     _amm_mithral_enc(
-    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
-    //         scales.data(), offsets.data(), ncodebooks,
-    //         codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
-
-    X.setRandom();
-    std::string msg_enc = string_with_format(
-        "amm mithral enc2 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    msg = string_with_format(
+        "amm mithral unpa N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg_enc, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out_mat.data(), out_mat.size(),
+        _amm_mithral_unpacked(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks,
+            codes.data(), luts.data(), out_mat.data(), out_ncols));
+
+    msg = string_with_format(
+        "amm mithral pack N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out_mat.data(), out_mat.size(),
+        _amm_mithral_packed(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks,
+            codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
+
+    // X.setRandom();
+    msg = string_with_format(
+        "amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         codes_packed.data(), codes_packed.size(),
         _amm_mithral_just_enc(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks,
+            codes.data(), codes_packed.data()));
+
+    msg = string_with_format(
+        "amm mithral zip4 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        codes_packed.data(), codes_packed.size(),
+        _amm_mithral_just_zip(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks,
+            codes.data(), codes_packed.data()));
+    // msg = string_with_format(
+    //     "amm mithral zip2 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    //     orig_N, D, M, ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     codes_packed.data(), codes_packed.size(),
+    //     _amm_mithral_just_zip2(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks,
+    //         codes.data(), codes_packed.data()));
+    msg = string_with_format(
+        "amm mithral zipb N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        codes_packed.data(), codes_packed.size(),
+        _amm_mithral_just_zip_bolt(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data()));

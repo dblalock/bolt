@@ -144,14 +144,16 @@ inline void zip4_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
 
 // just pack low 4b from 2 cols into one col by using upper 8b; note that
 // we assume that upper 4b are originally 0
-inline void zip2_4b_colmajor(const uint8_t* codes_in, uint32_t ncodebooks,
-                             int64_t nblocks, uint8_t* codes_out)
+inline void zip2_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
+                             uint32_t ncodebooks, uint8_t* codes_out)
 {
     static constexpr int in_block_sz = 32;      // read 32 codes at once
     static constexpr int out_block_sz = 32;     // 32 x 4 cols -> 64 rows
     static constexpr int ncodebooks_per_group = 2;
     assert(ncodebooks % ncodebooks_per_group == 0);
+    assert(nrows % in_block_sz == 0);
     int ncolgroups = ncodebooks / ncodebooks_per_group;
+    auto nblocks = nrows / in_block_sz;
 
     auto in_col_stride = in_block_sz * nblocks;
     auto out_col_stride = out_block_sz * nblocks;
@@ -172,6 +174,42 @@ inline void zip2_4b_colmajor(const uint8_t* codes_in, uint32_t ncodebooks,
             auto x01 = _mm256_or_si256(x0, _mm256_slli_epi16(x1, 4));
             _mm256_store_si256((__m256i*)out_col_ptr, x01);
             out_col_ptr += 32;
+        }
+    }
+}
+
+inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
+                              uint32_t ncodebooks, uint8_t* codes_out)
+{
+    static constexpr int in_block_sz = 32;      // read 32 codes at once
+    static constexpr int simd_vec_sz = 32;     // 32 x 4 cols -> 64 rows
+    static constexpr int ncodebooks_per_group = 2;
+    assert(ncodebooks % ncodebooks_per_group == 0);
+    assert(nrows % in_block_sz == 0);
+    int ncolgroups = ncodebooks / ncodebooks_per_group;
+    auto nblocks = nrows / in_block_sz;
+
+    // auto in_col_stride = in_block_sz * nblocks;
+    auto in_col_stride = nrows;
+    // auto out_col_stride = out_block_sz * nblocks;
+
+    for (int c = 0; c < ncolgroups; c++) {
+        // initialize col starts
+        auto initial_col = c * ncodebooks_per_group;
+        auto initial_col_ptr = codes_in + (initial_col * in_col_stride);
+        auto out_col_ptr = codes_out + (c * simd_vec_sz);
+        // for each block
+        for (int b = 0; b < nblocks; b++) {
+            auto initial_col = c * ncodebooks_per_group;
+            auto x0 = load_si256i(initial_col_ptr + 0 * in_col_stride);
+            auto x1 = load_si256i(initial_col_ptr + 1 * in_col_stride);
+            initial_col_ptr += simd_vec_sz;
+
+            // pack bits and store result
+            auto x01 = _mm256_or_si256(x0, _mm256_slli_epi16(x1, 4));
+            _mm256_store_si256((__m256i*)out_col_ptr, x01);
+            out_col_ptr += simd_vec_sz * ncolgroups;
+            __builtin_prefetch(out_col_ptr + 16 * simd_vec_sz * ncolgroups);
         }
     }
 }

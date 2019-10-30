@@ -121,7 +121,7 @@ static inline __m256i packed_epu16_to_unpacked_epu8(const __m256i& a, const __m2
 }
 
 // based on https://stackoverflow.com/a/51779212/1153180
-template<bool Signed=true>
+template<bool Signed=true, bool SameOrder=true>
 static inline __m256i pack_ps_epi8_or_epu8(const __m256& x0, const __m256& x1,
                                            const __m256& x2, const __m256& x3)
 {
@@ -140,12 +140,14 @@ static inline __m256i pack_ps_epi8_or_epu8(const __m256& x0, const __m256& x1,
     // packed to one vector, but in [ a_lo, b_lo, c_lo, d_lo | a_hi, b_hi, c_hi, d_hi ] order
     // if you can deal with that in-memory format (e.g. for later in-lane unpack), great, you're done
 
+    if (!SameOrder) { return abcd; }
+
     // but if you need sequential order, then vpermd:
     __m256i lanefix = _mm256_permutevar8x32_epi32(abcd, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
     return lanefix;
 }
 
-template<bool Signed=true>
+template<bool Signed=true, bool SameOrder=true>
 static inline __m256i load_4xf32_as_32xepi8_or_epu8(
     const float* x, const __m256& scales, const __m256& offsets)
 {
@@ -153,7 +155,18 @@ static inline __m256i load_4xf32_as_32xepi8_or_epu8(
     auto x1 = fma(_mm256_loadu_ps(x + 8), scales, offsets);
     auto x2 = fma(_mm256_loadu_ps(x + 16), scales, offsets);
     auto x3 = fma(_mm256_loadu_ps(x + 24), scales, offsets);
-    return pack_ps_epi8_or_epu8<Signed>(x0, x1, x2, x3);
+    return pack_ps_epi8_or_epu8<Signed, SameOrder>(x0, x1, x2, x3);
+}
+
+template<bool Signed=true, bool SameOrder=true>
+static inline __m256i load_4xf32_as_32xepi8_or_epu8(
+    const float* x, const __m256& scales)
+{
+    auto x0 = _mm256_mul_ps(_mm256_loadu_ps(x), scales);
+    auto x1 = _mm256_mul_ps(_mm256_loadu_ps(x + 8), scales);
+    auto x2 = _mm256_mul_ps(_mm256_loadu_ps(x + 16), scales);
+    auto x3 = _mm256_mul_ps(_mm256_loadu_ps(x + 24), scales);
+    return pack_ps_epi8_or_epu8<Signed, SameOrder>(x0, x1, x2, x3);
 }
 
 

@@ -27,10 +27,10 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     const float* scales, const float* offsets,
     int ncodebooks, int nsplits_per_codebook, uint8_t* out)
 {
-    static constexpr int block_rows = 32;
-    const int64_t nblocks = ceil(nrows / (double)block_rows);
+    static constexpr int block_nrows = 32;
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
     assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
-    assert(nrows % block_rows == 0); // TODO remove this constraint
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
 
     int split_idx = 0;
     for (int c = 0; c < ncodebooks; c++) {
@@ -70,8 +70,8 @@ void split_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                 codes = _mm256_add_epi8(codes, masks_0_or_1);
 
                 _mm256_storeu_si256((__m256i*)out_ptr, codes);
-                out_ptr += block_rows;
-                x_ptr += block_rows;
+                out_ptr += block_nrows;
+                x_ptr += block_nrows;
             }
             split_idx++;  // increment for each split in each codebook
         }
@@ -112,11 +112,11 @@ void split_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
     const float* scales, const float* offsets,
     int ncodebooks, uint8_t* out)
 {
-    static constexpr int block_rows = 32;
+    static constexpr int block_nrows = 32;
     static constexpr int nsplits_per_codebook = 4;
-    const int64_t nblocks = ceil(nrows / (double)block_rows);
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
     assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
-    assert(nrows % block_rows == 0); // TODO remove this constraint
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
 
     size_t x_col_stride = nrows;
     size_t out_col_stride = nrows;
@@ -148,7 +148,7 @@ void split_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
                 auto vsplitvals = current_vsplitvals[s];
 
                 auto x_ptr = x_ptrs[s];
-                x_ptrs[s] += block_rows;
+                x_ptrs[s] += block_nrows;
 
                 // true = signed saturation; better because cmp instructions
                 // exist for epi8 but not epu8
@@ -168,7 +168,7 @@ void split_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
                 codes = _mm256_or_si256(codes, masks_0_or_1);
             }
             _mm256_storeu_si256((__m256i*)out_ptr, codes);
-            out_ptr += block_rows;
+            out_ptr += block_nrows;
         }
     }
 }
@@ -193,13 +193,13 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const float* splitvals, int ncodebooks,
     uint8_t* out)
 {
-    static constexpr int block_rows = 32;
+    static constexpr int block_nrows = 32;
     // static constexpr int stripe_rows = 8;
-    // static constexpr int nstripes = block_rows / stripe_rows;
+    // static constexpr int nstripes = block_nrows / stripe_rows;
     static constexpr int nsplits_per_codebook = 4;
-    const int64_t nblocks = ceil(nrows / (double)block_rows);
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
     assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
-    assert(nrows % block_rows == 0); // TODO remove this constraint
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
 
     size_t x_col_stride = nrows;
     size_t out_col_stride = nrows;
@@ -231,7 +231,7 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
                 auto x1 = _mm256_loadu_ps(x_ptr + 8);
                 auto x2 = _mm256_loadu_ps(x_ptr + 16);
                 auto x3 = _mm256_loadu_ps(x_ptr + 24);
-                x_ptrs[s] += block_rows;
+                x_ptrs[s] += block_nrows;
 
                 // see https://stackoverflow.com/questions/16988199/
                 // how-to-choose-avx-compare-predicate-variants for how to
@@ -259,7 +259,7 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
                 codes = _mm256_or_si256(codes, masks_0_or_1);
             }
             _mm256_storeu_si256((__m256i*)out_ptr, codes);
-            out_ptr += block_rows;
+            out_ptr += block_nrows;
         }
     }
 }
@@ -273,13 +273,13 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     static const int group_id_nbits = low_bits_used_in_shuffle;
     // static_assert(GroupIdNumBits <= low_bits_used_in_shuffle,
     //     "Can vectorize at most 16 groups");
-    static constexpr int block_rows = 32;
+    static constexpr int block_nrows = 32;
     static const __m256i low_4bits_mask = _mm256_set1_epi8(0x0F);
-    const int64_t nblocks = ceil(nrows / (double)block_rows);
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
     const int vals_per_split = 1 << group_id_nbits; // usually 16
     assert(group_id_nbits <= low_bits_used_in_shuffle);
     assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
-    assert(nrows % block_rows == 0); // TODO remove this constraint
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
 
     int split_idx = 0;
     for (int c = 0; c < ncodebooks; c++) {
@@ -328,8 +328,8 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                     codes = _mm256_add_epi8(codes, masks_0_or_1);
 
                     _mm256_storeu_si256((__m256i*)out_ptr, codes);
-                    out_ptr += block_rows;
-                    x_ptr += block_rows;
+                    out_ptr += block_nrows;
+                    x_ptr += block_nrows;
                 }
             } else {  // group_id is no longer in the low 4 bits
                 // assert(false); // TODO rm
@@ -358,8 +358,8 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
                     codes = _mm256_add_epi8(codes, masks_0_or_1);
 
                     _mm256_storeu_si256((__m256i*)out_ptr, codes);
-                    out_ptr += block_rows;
-                    x_ptr += block_rows;
+                    out_ptr += block_nrows;
+                    x_ptr += block_nrows;
                 }
             }
             split_idx++;  // increment for each split in each codebook
@@ -367,17 +367,38 @@ void multisplit_encode_8b_colmajor(const float* X, int64_t nrows, int ncols,
     }
 }
 
-void multisplit_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
+/* https://godbolt.org/z/OEqSHD (without voffsets):
+ * vmulps       ymm11, ymm8, ymmword ptr [rdx + 4*r8 - 96]
+ * vmulps       ymm12, ymm8, ymmword ptr [rdx + 4*r8 - 64]
+ * vmulps       ymm13, ymm8, ymmword ptr [rdx + 4*r8 - 32]
+ * vmulps       ymm8, ymm8, ymmword ptr [rdx + 4*r8]
+ * vpshufb      ymm10, ymm10, ymm9
+ * vcvtps2dq    ymm11, ymm11
+ * vcvtps2dq    ymm12, ymm12
+ * vpackssdw    ymm11, ymm11, ymm12
+ * vcvtps2dq    ymm12, ymm13
+ * vcvtps2dq    ymm8, ymm8
+ * vpackssdw    ymm8, ymm12, ymm8
+ * vpacksswb    ymm8, ymm11, ymm8
+ * vpermd       ymm8, ymm1, ymm8
+ * vpcmpgtb     ymm8, ymm8, ymm10
+ * vpsignb      ymm8, ymm8, ymm8
+ * vpaddb       ymm9, ymm9, ymm9
+ * vpor         ymm8, ymm9, ymm8
+ */
+// template<bool DeferPerm=true>
+void multisplit_encode_4b_colmajor(
+    const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
-    int ncodebooks, uint8_t* out)
+    const float* scales, const float* offsets, int ncodebooks, uint8_t* out)
+    // const float* scales, int ncodebooks, uint8_t* out)
 {
-    static constexpr int block_rows = 32;
+    static constexpr bool DeferPerm = true;
+    static constexpr int block_nrows = 32;
     static constexpr int nsplits_per_codebook = 4;
     static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
-    const int64_t nblocks = ceil(nrows / (double)block_rows);
-    assert(nsplits_per_codebook <= 8); // code assumes we don't overflow bytes
-    assert(nrows % block_rows == 0); // TODO remove this constraint
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
 
     size_t x_col_stride = nrows;
     size_t out_col_stride = nrows;
@@ -399,7 +420,6 @@ void multisplit_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
                 load_si128i((const __m128i*)splitvals_ptr));
             current_vscales[s] = _mm256_set1_epi8(scales[split_idx + s]);
             current_voffsets[s] = _mm256_set1_epi8(offsets[split_idx + s]);
-
         }
         split_idx += nsplits_per_codebook;
 
@@ -409,16 +429,18 @@ void multisplit_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
             for (int s = 0; s < nsplits_per_codebook; s++) {
                 auto vscales = current_vscales[s];
                 auto voffsets = current_voffsets[s];
+                // auto voffsets = _mm256_setzero_si256();
                 auto vsplitvals_lut = current_vsplitval_luts[s];
                 auto vsplitvals = _mm256_shuffle_epi8(
                         vsplitvals_lut, codes); // codes = group_ids
 
                 auto x_ptr = x_ptrs[s];
-                x_ptrs[s] += block_rows;
+                x_ptrs[s] += block_nrows;
 
                 // true = signed saturation; better because cmp instructions
                 // exist for epi8 but not epu8
-                auto x_i8 = load_4xf32_as_32xepi8_or_epu8<true>(
+                auto x_i8 = load_4xf32_as_32xepi8_or_epu8<true, !DeferPerm>(
+                    // x_ptr, vscales);
                     x_ptr, vscales, voffsets);
 
                 auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
@@ -433,8 +455,182 @@ void multisplit_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
                 // OR in new low bit
                 codes = _mm256_or_si256(codes, masks_0_or_1);
             }
+            if (DeferPerm) {
+                codes = _mm256_permutevar8x32_epi32(
+                    codes, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
+            }
             _mm256_storeu_si256((__m256i*)out_ptr, codes);
-            out_ptr += block_rows;
+            out_ptr += block_nrows;
+        }
+    }
+}
+
+// version with int8 data
+void multisplit_encode_4b_colmajor(const int8_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    int ncodebooks, uint8_t* out)
+    // const float* scales, int ncodebooks, uint8_t* out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int nsplits_per_codebook = 4;
+    static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
+
+    size_t x_col_stride = nrows;
+    size_t out_col_stride = nrows;
+    size_t splitval_luts_stride = vals_per_split;
+    const int8_t* x_ptrs[nsplits_per_codebook];
+    __m256i current_vsplitval_luts[nsplits_per_codebook];
+
+    int split_idx = 0;
+    for (int c = 0; c < ncodebooks; c++) {
+        // compute input and output column starts
+        auto out_ptr = out + (out_col_stride * c);
+        for (int s = 0; s < nsplits_per_codebook; s++) {
+            auto splitdim = splitdims[split_idx + s];
+            x_ptrs[s] = X + (x_col_stride * splitdim);
+            auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
+            current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)splitvals_ptr));
+        }
+        split_idx += nsplits_per_codebook;
+
+        for (int b = 0; b < nblocks; b++) { // for each block
+            __m256i codes = _mm256_setzero_si256();
+            #pragma unroll
+            for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto vsplitvals_lut = current_vsplitval_luts[s];
+                auto vsplitvals = _mm256_shuffle_epi8(
+                        vsplitvals_lut, codes); // codes = group_ids
+
+                auto x_i8 = load_si256i(x_ptrs[s]);
+                x_ptrs[s] += block_nrows;
+
+                auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
+                // map -1 -> 1; 0 stays the same
+                auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
+
+                if (s > 0) {
+                    // shift left by multiplying by 2, by adding to itself
+                    codes = _mm256_add_epi8(codes, codes);
+                }
+
+                // OR in new low bit
+                codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            _mm256_storeu_si256((__m256i*)out_ptr, codes);
+            out_ptr += block_nrows;
+        }
+    }
+}
+
+/// XXX scales and offsets need to have one element per col, not split
+template<bool DeferPerm=false>
+void multisplit_encode_4b_colmajor_v2(const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets,
+    int ncodebooks, uint8_t* out, int8_t* X_tmp)
+    // const float* scales, int ncodebooks, uint8_t* out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int nsplits_per_codebook = 4;
+    static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
+
+    size_t x_col_stride = nrows;
+    size_t out_col_stride = nrows;
+
+    // ------------------------ convert needed cols of X to i8
+
+    int total_nsplits = ncodebooks * nsplits_per_codebook;
+
+    // for reusing quantized cols
+    int quantized_col_starts[ncols];
+    for (int i = 0; i < ncols; i++) {
+        quantized_col_starts[i] = -1;
+    }
+    auto nuniq_cols = 0;
+    int uniq_cols[ncols];
+    for (int s = 0; s < total_nsplits; s++) {
+        auto dim = splitdims[s];
+        if (quantized_col_starts[dim] < 0) {
+            quantized_col_starts[dim] = nuniq_cols;
+            uniq_cols[nuniq_cols] = dim;
+            nuniq_cols++;
+        }
+    }
+
+    // actually quantize all the uniq cols
+    for (int c = 0; c < nuniq_cols; c++) {
+        auto in_col = uniq_cols[c];
+        auto out_col = c;
+        auto in_ptr = X + (in_col * x_col_stride);
+        auto out_ptr = X_tmp + (out_col * x_col_stride);
+
+        // load f32->u8 quantization params for this dim
+        auto vscales = _mm256_set1_ps(scales[in_col]);
+        auto voffsets = _mm256_set1_ps(offsets[in_col]);
+
+        for (int b = 0; b < nblocks; b++) {
+            auto x_i8 = load_4xf32_as_32xepi8_or_epu8<true, !DeferPerm>(
+                in_ptr, vscales, voffsets);
+            _mm256_store_si256((__m256i*)out_ptr, x_i8);
+            in_ptr += block_nrows;
+            out_ptr += block_nrows;
+        }
+    }
+
+    // ------------------------ everything is i8 now
+
+    size_t splitval_luts_stride = vals_per_split;
+    const int8_t* x_ptrs[nsplits_per_codebook];
+    __m256i current_vsplitval_luts[nsplits_per_codebook];
+
+    int split_idx = 0;
+    for (int c = 0; c < ncodebooks; c++) {
+        // compute input and output column starts
+        auto out_ptr = out + (out_col_stride * c);
+        for (int s = 0; s < nsplits_per_codebook; s++) {
+            auto splitdim = splitdims[split_idx + s];
+            auto i8_dim = quantized_col_starts[splitdim];
+            assert(i8_dim >= 0);
+            x_ptrs[s] = X_tmp + (x_col_stride * i8_dim);
+            auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
+            current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)splitvals_ptr));
+        }
+        split_idx += nsplits_per_codebook;
+
+        for (int b = 0; b < nblocks; b++) { // for each block
+            __m256i codes = _mm256_setzero_si256();
+            for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto vsplitvals_lut = current_vsplitval_luts[s];
+                auto vsplitvals = _mm256_shuffle_epi8(
+                        vsplitvals_lut, codes); // codes = group_ids
+
+                auto x_i8 = load_si256i(x_ptrs[s]);
+                x_ptrs[s] += block_nrows;
+
+                auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
+                // map -1 -> 1; 0 stays the same
+                auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
+
+                if (s > 0) {
+                    // shift left by multiplying by 2, by adding to itself
+                    codes = _mm256_add_epi8(codes, codes);
+                }
+
+                // OR in new low bit
+                codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            if (DeferPerm) {
+                codes = _mm256_permutevar8x32_epi32(
+                    codes, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
+            }
+            _mm256_storeu_si256((__m256i*)out_ptr, codes);
+            out_ptr += block_nrows;
         }
     }
 }
