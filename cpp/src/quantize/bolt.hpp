@@ -437,12 +437,17 @@ static constexpr bool is_power_of_2(int64_t x) {
     return (x & (x - 1)) == 0;
 }
 
-template<int NBytes, int UpcastEvery=16>
-void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
-                   uint8_t* dists_out, int64_t nblocks)
+
+// TODO have output type be templated and intelligent upcast or
+// whatever based on the type
+//
+// https://godbolt.org/z/cP80FF
+template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=false>
+void bolt_scan_avg(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
+                   uint8_t* dists_out)
 {
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
-    // static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
+    static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
     static_assert(UpcastEvery >= 2, "UpcastEvery must be >= 2");
     static_assert(UpcastEvery <= 16, "UpcastEvery must be <= 16");
     // static_assert(UpcastEvery == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
@@ -458,19 +463,6 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
     static_assert(colgroup_sz <= ncodebooks, "WTF, did some math wrong");
     static_assert(ncols % colgroup_sz == 0,
         "Size of column group must evenly number of columns");
-    // UpcastEvery = MIN(UpcastEvery, ncodebooks);
-    // static constexpr int log2_colgroup_sz =
-    //     _log2_of_power_of_2<colgroup_sz>::value;
-
-    // printf("\n");
-    // PRINT_VAR(ncodebooks);
-    // PRINT_VAR(ncols);
-    // PRINT_VAR(UpcastEvery);
-    // PRINT_VAR(actually_upcast_every);
-    // PRINT_VAR(ncolgroups);
-    // PRINT_VAR(colgroup_sz);
-
-    // return;
 
     // unpack 16B luts into 32B registers
     __m256i luts_ar[ncodebooks];
@@ -483,9 +475,6 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
         luts_ar[2 * j] = lut0;
         luts_ar[2 * j + 1] = lut1;
     }
-
-    // PRINT_VAR(ncodebooks);
-    // PRINT_VAR(colgroup_sz);
 
     for (int64_t i = 0; i < nblocks; i++) {
         // used if ncolgroups > 1, in which case we have to upcast
@@ -506,12 +495,9 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
             #pragma unroll
             for (int gg = 0; gg < colgroup_sz; gg++) {
                 auto j = (g * colgroup_sz) + gg;
-                // PRINT_VAR(g);
-                // PRINT_VAR(gg);
-                // PRINT_VAR(j);
 
-//                auto x_col = stream_load_si256i(codes);
                 auto x_col = load_si256i(codes);
+                // auto x_col = stream_load_si256i(codes);
                 codes += 32;
 
                 auto lut_low = luts_ar[2 * j];
@@ -526,45 +512,12 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
 
                 auto avgs = _mm256_avg_epu8(dists_low, dists_high);
 
-                // TODO rm all these
-                // totals_dbg = _mm256_adds_epu8(totals_dbg, avgs);
-                // totals_dbg = (gg + 1) % 2 == 0 ? _mm256_adds_epi8(totals_dbg, avgs) : _mm256_adds_epu8(totals_dbg, avgs);
-
-                // avg_prev1 =
-                // auto new_avg_prev2 = (gg + 1) % 2 == 0 ? _mm256_avg_epu8(avg_prev1, avgs) : _mm256_undefined_si256();
-                // auto new_avg_prev2 = (gg + 1) % 2 == 0 ? _mm256_avg_epu8(avg_prev1, avgs) : _mm256_undefined_si256();
-
-                // avg_prev16 = (gg + 1) % 16 == 0 ? _mm256_avg_epu8(avg_prev8, new_avg_prev8);
-
-
-                // // SELF: issue is that compiler refuses to emit vpavgb; it
-                // // unrolls this version where we adds instead of avg just fine
-                // if (gg % 16 == 15) {
-                //     auto new_avg_prev2 = _mm256_adds_epu8(avg_prev1, avgs);
-                //     auto new_avg_prev4 = _mm256_adds_epu8(avg_prev2, new_avg_prev2);
-                //     auto new_avg_prev8 = _mm256_adds_epu8(avg_prev4, new_avg_prev4);
-                //     avg_prev16 = _mm256_adds_epu8(avg_prev8, new_avg_prev8);
-                // }
-                // // if ((gg + 1) % 8 == 0) {
-                // if (gg % 8 == 7) {
-                //     auto new_avg_prev2 = _mm256_adds_epu8(avg_prev1, avgs);
-                //     auto new_avg_prev4 = _mm256_adds_epu8(avg_prev2, new_avg_prev2);
-                //     avg_prev8 = _mm256_adds_epu8(avg_prev4, new_avg_prev4);
-                // }
-                // // if ((gg + 1) % 4 == 0) {
-                // if (gg % 4 == 3) {
-                //     auto new_avg_prev2 = _mm256_adds_epu8(avg_prev1, avgs);
-                //     avg_prev4 = _mm256_adds_epu8(avg_prev2, new_avg_prev2);
-                // }
-                // // if ((gg + 1) % 2 == 0) {
-                // if (gg % 2 == 1) {
-                //     avg_prev2 = _mm256_adds_epu8(avg_prev1, avgs);
-                // } else {
-                //     avg_prev1 = avgs;
-                // }
-                // how about if we do inline asm here? EDIT: excellent, this
-                // fixes the problem; no idea why it refused to emit this
-                // instruction before
+                // update running averages; this is messy because if you
+                // need to current and previous average to be over the same
+                // number of values, or else it's a weird weighted average
+                // instead of a true average
+                // note that we need to use inline asm to get the right
+                // instruction here on my machine for unclear reasons
                 if (gg % 16 == 15) {
                     auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
                     auto new_avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
@@ -588,34 +541,6 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
                 } else {
                     avg_prev1 = avgs;
                 }
-                // // update running averages; this is messy because if you
-                // // need to current and previous average to be over the same
-                // // number of values, or else it's a weird weighted average
-                // // instead of a true average
-                // // if ((gg + 1) % 16 == 0) {
-                // if (gg % 16 == 15) {
-                //     auto new_avg_prev2 = _mm256_avg_epu8(avg_prev1, avgs);
-                //     auto new_avg_prev4 = _mm256_avg_epu8(avg_prev2, new_avg_prev2);
-                //     auto new_avg_prev8 = _mm256_avg_epu8(avg_prev4, new_avg_prev4);
-                //     avg_prev16 = _mm256_avg_epu8(avg_prev8, new_avg_prev8);
-                // }
-                // // if ((gg + 1) % 8 == 0) {
-                // if (gg % 8 == 7) {
-                //     auto new_avg_prev2 = _mm256_avg_epu8(avg_prev1, avgs);
-                //     auto new_avg_prev4 = _mm256_avg_epu8(avg_prev2, new_avg_prev2);
-                //     avg_prev8 = _mm256_avg_epu8(avg_prev4, new_avg_prev4);
-                // }
-                // // if ((gg + 1) % 4 == 0) {
-                // if (gg % 4 == 3) {
-                //     auto new_avg_prev2 = _mm256_avg_epu8(avg_prev1, avgs);
-                //     avg_prev4 = _mm256_avg_epu8(avg_prev2, new_avg_prev2);
-                // }
-                // // if ((gg + 1) % 2 == 0) {
-                // if (gg % 2 == 1) {
-                //     avg_prev2 = _mm256_avg_epu8(avg_prev1, avgs);
-                // } else {
-                //     avg_prev1 = avgs;
-                // }
             }
             auto group_avg = colgroup_sz == 1  ? avg_prev1 :
                              colgroup_sz == 2  ? avg_prev2 :
@@ -623,16 +548,10 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
                              colgroup_sz == 8  ? avg_prev8 :
                              avg_prev16;
 
-            // group_avg = avg_prev2;
-            // group_avg = totals_dbg; // TODO rm
-
-            // if (false) { // TODO rm
-            // if (ncolgroups == 1) { // just write out 8b values
-            if (ncolgroups == 1) { // just write out 8b values
+            if (ncolgroups == 1 && !Force16BitOutput) { // write out 8b values
                 _mm256_store_si256((__m256i*)dists_out, group_avg);
                 dists_out += 32;
             } else {
-                // totals_0_15 = _mm256_cvtepu8_epi16(group_avg)
                 auto avgs_0_15 = _mm256_cvtepi8_epi16(
                 _mm256_extracti128_si256(group_avg, 0));
                 auto avgs_16_31 = _mm256_cvtepi8_epi16(
@@ -642,7 +561,7 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
             }
         }
         // if (true) {
-        if (ncolgroups > 1) {
+        if (ncolgroups > 1 || Force16BitOutput) {
             _mm256_store_si256((__m256i*)(dists_out + 0), totals_0_15);
             _mm256_store_si256((__m256i*)(dists_out + 32), totals_16_31);
             // _mm256_stream_si256((__m256i*)(dists_out + 0), totals_0_15);
@@ -653,10 +572,21 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
 }
 
 // template<int NBytes, int UpcastEvery=16>
-void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
-                   uint8_t* dists_out, int64_t nblocks, int ncodebooks)
+template<int UpcastEvery=8>
+void bolt_scan_avg(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+                   const uint8_t* luts, uint8_t* dists_out)
 {
-    bolt_scan_avg<8, 8>(codes, luts, dists_out, nblocks);
+    // uint8_t* out = (uint8_t*)dists_out;
+    uint8_t* out = dists_out;
+    switch(ncodebooks) {
+        case 4: bolt_scan_avg<2, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 8: bolt_scan_avg<4, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 16: bolt_scan_avg<8, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 32: bolt_scan_avg<16, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 64: bolt_scan_avg<32, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 128: bolt_scan_avg<64, UpcastEvery>(codes, nblocks, luts, out); break;
+    }
+    // bolt_scan_avg<8, 8>(codes, luts, dists_out, nblocks);
 }
 
 

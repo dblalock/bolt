@@ -275,19 +275,19 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=2           ", kNtrials,
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 2>(
-            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+            codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=4           ", kNtrials,
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 4>(
-            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+            codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=8           ", kNtrials,
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 8>(
-            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+            codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=16          ", kNtrials,
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 16>(
-            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+            codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16                 ", kNtrials,
         dists_u16.data(), nrows,
@@ -509,8 +509,34 @@ void _amm_mithral_packed(const float* X, int64_t nrows, int ncols,
     }
 }
 
+void _amm_mithral_bolt(const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets,
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
+    int16_t* out_mat, int out_ncols)
+{
+    // multisplit_encode_8b_colmajor(
+    //     X, nrows, ncols, splitdims, all_splitvals, scales,
+    //     offsets, ncodebooks, nsplits_per_codebook, out_enc);
+    multisplit_encode_4b_colmajor(
+        X, nrows, ncols, splitdims, all_splitvals, scales,
+        offsets, ncodebooks, out_enc);
+    zip_bolt_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+    auto nblocks = nrows / 32;
+    auto out_ptr = (uint8_t*)out_mat;
+    auto lut_ptr = luts;
+    static constexpr int UpcastEvery = 8;
+    auto out_col_stride = UpcastEvery >= ncodebooks ? nrows : 2 * nrows;
+    for (int i = 0; i < out_ncols; i++) {
+        bolt_scan_avg<UpcastEvery>(out_enc, nblocks, ncodebooks, (uint8_t*)luts, out_ptr);
+        out_ptr += out_col_stride;
+        lut_ptr += 16 * ncodebooks;
+    }
+}
+
+
 // template<int UpcastEvery=4>
-void _amm_mithral(const float* X, int64_t nrows, int ncols,
+void _amm_mithral_tile(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const float* scales, const float* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
@@ -664,11 +690,11 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     printf("----\n");
 
     msg = string_with_format(
-        "amm mithral      N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        "amm mithral tile N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
-        _amm_mithral(
+        _amm_mithral_tile(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
@@ -693,6 +719,16 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
 
+    msg = string_with_format(
+        "amm mithral bolt N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out_mat.data(), out_mat.size(),
+        _amm_mithral_bolt(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks,
+            codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
+
     // X.setRandom();
     msg = string_with_format(
         "amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
@@ -713,15 +749,15 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data()));
-    // msg = string_with_format(
-    //     "amm mithral zip2 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-    //     orig_N, D, M, ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-    //     codes_packed.data(), codes_packed.size(),
-    //     _amm_mithral_just_zip2(
-    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
-    //         scales.data(), offsets.data(), ncodebooks,
-    //         codes.data(), codes_packed.data()));
+    msg = string_with_format(
+        "amm mithral zip2 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        codes_packed.data(), codes_packed.size(),
+        _amm_mithral_just_zip2(
+            X.data(), N, D, splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(), ncodebooks,
+            codes.data(), codes_packed.data()));
     msg = string_with_format(
         "amm mithral zipb N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         orig_N, D, M, ncodebooks);
@@ -735,7 +771,9 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
 TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][mithral][matmul][profile]") {
     // _profile_multisplit(128 * 1000, 64, 32, 4);
-    std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+    // std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+    // std::vector<int> ncodebooks {4, 64};
+    std::vector<int> ncodebooks {4, 16, 64};
     // std::vector<int> ncodebooks {4};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
