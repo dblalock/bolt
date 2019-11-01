@@ -90,9 +90,10 @@ inline void zip4_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
     static constexpr int in_block_sz = 32;      // read 32 codes at once
     static constexpr int out_block_sz = 64;     // 32 x 4 cols -> 64 rows
     static constexpr int ncodebooks_per_group = 4;
+    static constexpr int64_t chunk_sz = 1 << 29;
     // static constexpr int chunk_sz = 4096;       // one page
-    static constexpr int chunk_sz = 512;       // one page
-    // static constexpr int64_t chunk_sz = 1 << 29; // no chunking (30% slower?)
+    // static constexpr int chunk_sz = 512;       // one page
+    // static constexpr int chunk_sz = 64;       // one page
     assert(ncodebooks % ncodebooks_per_group == 0);
     assert(nrows % in_block_sz == 0);
     int ncolgroups = ncodebooks / ncodebooks_per_group;
@@ -138,6 +139,8 @@ inline void zip4_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
                 out_col_ptr += 32;
             }
         }
+        codes_in += chunk_sz;
+        codes_out += 2 * chunk_sz;
     }
 }
 
@@ -149,9 +152,10 @@ inline void zip2_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
     static constexpr int in_block_sz = 32;
     static constexpr int out_block_sz = 32;
     static constexpr int ncodebooks_per_group = 2;
+    static constexpr int64_t chunk_sz = 1 << 29;
     // static constexpr int chunk_sz = 4096;  // one page
     // static constexpr int chunk_sz = 1024;
-    static constexpr int chunk_sz = 512;
+    // static constexpr int chunk_sz = 512;
     // static constexpr int chunk_sz = 256;
     assert(ncodebooks % ncodebooks_per_group == 0);
     assert(nrows % in_block_sz == 0);
@@ -185,6 +189,8 @@ inline void zip2_4b_colmajor(const uint8_t* codes_in, int64_t nrows,
                 out_col_ptr += 32;
             }
         }
+        codes_in += chunk_sz;
+        codes_out += chunk_sz;
     }
 }
 
@@ -231,7 +237,8 @@ inline void zip_bolt_colmajor_v1(const uint8_t* codes_in, int64_t nrows,
 }
 
 // https://godbolt.org/z/BMx6D7 (also includes zip2_4b_colmajor to compare)
-inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
+// inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
+inline void zip_bolt_colmajor_v2(const uint8_t* codes_in, int64_t nrows,
                               uint32_t ncodebooks, uint8_t* codes_out)
 {
     static constexpr int in_block_sz = 32;
@@ -243,28 +250,26 @@ inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
     // static constexpr int ncols_out_per_group = 1;
     // static constexpr int chunk_sz = 4096;  // one page
     // static constexpr int chunk_sz = 2048;  // half a page
-    // static constexpr int chunk_sz = 1024;  // quarter of a page
-    // static constexpr int chunk_sz = 512;  // quarter of a page
-    static constexpr int chunk_sz = 256;
+    static constexpr int chunk_sz = 1024;  // quarter of a page
+    // static constexpr int chunk_sz = 512;
+    // static constexpr int chunk_sz = 256;
     // static constexpr int chunk_sz = 128;
     // static constexpr int chunk_sz = 64;
     assert(ncodebooks % ncols_in_per_group == 0);
     assert(nrows % in_block_sz == 0);
     int ncolgroups = ncodebooks / ncols_in_per_group;
-
     auto nchunks = (nrows + chunk_sz - 1) / chunk_sz;
-
     auto in_col_stride = nrows;
 
     for (int chunk = 0; chunk < nchunks; chunk++) {
         auto nrows_done_so_far = chunk * chunk_sz;
-        auto N = MIN(chunk_sz, nrows - nrows_done_so_far);
-        auto nblocks = N / in_block_sz;
+        auto nblocks = chunk_sz / in_block_sz;
+        if (chunk == nchunks - 1) {
+            auto N = MIN(chunk_sz, nrows - nrows_done_so_far);
+            nblocks = N / in_block_sz;
+        }
 
         for (int g = 0; g < ncolgroups; g++) {
-            // NOTE: I actually meant to push the gg loop inside the b loop,
-            // but this seems to be faster; presumably because the partial
-            // unrolling of the g loop is helpful
             for (int gg = 0; gg < ncols_out_per_group; gg++) {
                 // initialize col starts
                 auto initial_col_in = (g * ncols_in_per_group) + (2 * gg);
@@ -272,6 +277,7 @@ inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
                 auto initial_col_ptr = codes_in + (initial_col_in * in_col_stride);
                 auto out_col_ptr = codes_out + (col_out * simd_vec_sz);
                 // for each block
+                #pragma unroll
                 for (int b = 0; b < nblocks; b++) {
                     auto x0 = load_si256i(initial_col_ptr + 0 * in_col_stride);
                     auto x1 = load_si256i(initial_col_ptr + 1 * in_col_stride);
@@ -280,14 +286,121 @@ inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
                     // pack bits and store result
                     auto x01 = _mm256_or_si256(x0, _mm256_slli_epi16(x1, 4));
                     _mm256_store_si256((__m256i*)out_col_ptr, x01);
-                    // _mm256_stream_si256((__m256i*)out_col_ptr, x01); // 4x slower
                     out_col_ptr += simd_vec_sz * ncolgroups;
-                    // __builtin_prefetch(out_col_ptr + 16 * simd_vec_sz * ncolgroups);
                 }
             }
         }
+        codes_in += chunk_sz;
+        codes_out += chunk_sz * ncodebooks / 2;
     }
 }
+
+// https://godbolt.org/z/BMx6D7 (also includes zip2_4b_colmajor to compare)
+// inline void zip_bolt_colmajor_v2(const uint8_t* codes_in, int64_t nrows,
+template<int NReadColsAtOnce=2>
+inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
+                              uint32_t ncodebooks, uint8_t* codes_out)
+{
+    static constexpr int in_block_sz = 32;
+    static constexpr int simd_vec_sz = 32;
+    static constexpr int ncols_in_per_group = NReadColsAtOnce;
+    // static constexpr int ncols_in_per_group = 16;
+    // static constexpr int ncols_in_per_group = 4;
+    // static constexpr int ncols_in_per_group = 2;
+    static constexpr int ncols_in_per_col_out = 2;
+    static constexpr int ncols_out_per_group =
+        ncols_in_per_group / ncols_in_per_col_out;
+    // static constexpr int ncols_in_per_group = 2;
+    // static constexpr int ncols_out_per_group = 1;
+    // static constexpr int chunk_sz = 4096;  // one page
+    static constexpr int chunk_sz = 2048;  // half a page
+    // static constexpr int chunk_sz = 1024;  // quarter of a page
+    // static constexpr int chunk_sz = 512;  // quarter of a page
+    // static constexpr int chunk_sz = 256;
+    // static constexpr int chunk_sz = 128;
+    // static constexpr int chunk_sz = 64;
+    assert(ncodebooks % ncols_in_per_group == 0);
+    assert(nrows % in_block_sz == 0);
+    int ncolgroups = ncodebooks / ncols_in_per_group;
+
+    // int chunk_sz = MAX(256, 4096 / (ncodebooks / 2));
+    // int chunk_sz = 4096 / ncodebooks;
+    auto nchunks = (nrows + chunk_sz - 1) / chunk_sz;
+
+    auto in_col_stride = nrows;
+    // auto out_stride = simd_vec_sz;
+
+    // uint8_t* in_col_ptrs[ncols_in_per_group];
+    // const uint8_t* in_col_ptrs[ncols_in_per_col_out];
+    const uint8_t* in_col_ptrs[ncols_out_per_group];
+    uint8_t* out_ptrs[ncols_out_per_group];
+
+    for (int chunk = 0; chunk < nchunks; chunk++) {
+        auto nrows_done_so_far = chunk * chunk_sz;
+        auto nblocks = chunk_sz / in_block_sz;
+        if (chunk == nchunks - 1) {
+            auto N = MIN(chunk_sz, nrows - nrows_done_so_far);
+            nblocks = N / in_block_sz;
+        }
+
+        for (int g = 0; g < ncolgroups; g++) {
+            // initialize col starts
+            for (int gg = 0; gg < ncols_out_per_group; gg++) {
+                auto initial_col_in = (g * ncols_in_per_group) + (2 * gg);
+                auto col_out = initial_col_in / 2;
+                in_col_ptrs[gg] = codes_in + (initial_col_in * in_col_stride);
+                out_ptrs[gg] = codes_out + (col_out * simd_vec_sz);
+            }
+            // for each block
+            // #pragma unroll
+            for (int b = 0; b < nblocks; b++) {
+                #pragma unroll
+                for (int gg = 0; gg < ncols_out_per_group; gg++) {
+                    // // initialize col starts
+                    // auto initial_col_in = (g * ncols_in_per_group) + (2 * gg);
+                    // auto col_out = initial_col_in / 2;
+                    // auto initial_col_ptr = codes_in + (initial_col_in * in_col_stride);
+                    // auto out_col_ptr = codes_out + (col_out * simd_vec_sz);
+                    // // for each block
+                    // for (int b = 0; b < nblocks; b++) {
+                    // auto x0 = load_si256i(initial_col_ptr + 0 * in_col_stride);
+                    // auto x1 = load_si256i(initial_col_ptr + 1 * in_col_stride);
+                    // initial_col_ptr += simd_vec_sz;
+                    auto in_ptr = in_col_ptrs[gg];
+                    auto x0 = load_si256i(in_ptr + 0 * in_col_stride);
+                    auto x1 = load_si256i(in_ptr + 1 * in_col_stride);
+                    // initial_col_ptr += simd_vec_sz;
+                    in_col_ptrs[gg] += simd_vec_sz;
+
+                    // pack bits and store result
+                    auto x01 = _mm256_or_si256(x0, _mm256_slli_epi16(x1, 4));
+                    _mm256_store_si256((__m256i*)(out_ptrs[gg]), x01);
+                    out_ptrs[gg] += simd_vec_sz * ncolgroups;
+                    // _mm256_store_si256((__m256i*)out_col_ptr, x01);
+                    // _mm256_stream_si256((__m256i*)out_col_ptr, x01); // 4x slower
+                    // out_col_ptr += simd_vec_sz * ncolgroups;
+                    // __builtin_prefetch(out_col_ptr + 16 * simd_vec_sz * ncolgroups);
+                    // __builtin_prefetch(out_col_ptr + 16 * simd_vec_sz * ncodebooks / 2);
+                }
+            }
+        }
+        codes_in += chunk_sz;
+        codes_out += chunk_sz * ncodebooks / 2;
+    }
+}
+
+inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
+                              uint32_t ncodebooks, uint8_t* codes_out)
+{
+    if (ncodebooks % 8 == 0) {
+        zip_bolt_colmajor<8>(codes_in, nrows, ncodebooks, codes_out); return;
+    }
+    if (ncodebooks % 4 == 0) {
+        zip_bolt_colmajor<4>(codes_in, nrows, ncodebooks, codes_out); return;
+    }
+    zip_bolt_colmajor<2>(codes_in, nrows, ncodebooks, codes_out);
+}
+
 
 // like the above, but we assume that codes are in colmajor order
 // TODO version of this that uses packed 4b codes? along with packing func?

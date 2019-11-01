@@ -774,6 +774,7 @@ TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][mithral][matmul][profile
     // std::vector<int> ncodebooks {4, 8, 16, 32, 64};
     // std::vector<int> ncodebooks {4, 64};
     std::vector<int> ncodebooks {4, 16, 64};
+    // std::vector<int> ncodebooks {64};
     // std::vector<int> ncodebooks {4};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
