@@ -418,42 +418,59 @@ inline void bolt_scan(const uint8_t* codes,
     }
 }
 
-// template<int x> struct _log2_of_power_of_2 {
-//     // static_assert(x <= 512, "Only x <= 512 supported because I'm being lazy");
-//     static constexpr uint8_t value = (x == 1   ? 0 :
-//                                       x == 2   ? 1 :
-//                                       x == 4   ? 2 :
-//                                       x == 8   ? 3 :
-//                                       x == 16  ? 4 :
-//                                       x == 32  ? 5 :
-//                                       x == 64  ? 6 :
-//                                       x == 128 ? 7 :
-//                                       x == 256 ? 8 :
-//                                       x == 512 ? 9 : 255);
-//     static_assert(value != 255, "x must be one of 2^{1, 2, 4, 8, ..., 512}");
-// };
+template<int x> struct _log2_of_power_of_2 {
+    // static_assert(x <= 512, "Only x <= 512 supported because I'm being lazy");
+    static constexpr uint8_t value = (x == 1   ? 0 :
+                                      x == 2   ? 1 :
+                                      x == 4   ? 2 :
+                                      x == 8   ? 3 :
+                                      x == 16  ? 4 :
+                                      x == 32  ? 5 :
+                                      x == 64  ? 6 :
+                                      x == 128 ? 7 :
+                                      x == 256 ? 8 :
+                                      x == 512 ? 9 : 255);
+    static_assert(value != 255, "x must be one of 2^{1, 2, 4, 8, ..., 512}");
+};
+
+static constexpr bool is_power_of_2(int64_t x) {
+    return (x & (x - 1)) == 0;
+}
 
 template<int NBytes, int UpcastEvery=16>
 void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
                    uint8_t* dists_out, int64_t nblocks)
 {
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
-    static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
+    // static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
     static_assert(UpcastEvery >= 2, "UpcastEvery must be >= 2");
     static_assert(UpcastEvery <= 16, "UpcastEvery must be <= 16");
+    // static_assert(UpcastEvery == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
     static constexpr int ncodebooks = 2 * NBytes;
-    static_assert(ncodebooks % UpcastEvery == 0 || UpcastEvery > ncodebooks,
-        "UpcastEvery must be a factor of ncodebooks, or larger than ncodebooks");
+    static constexpr int ncols = NBytes;
     static constexpr int actually_upcast_every = MIN(UpcastEvery, ncodebooks);
+    // static_assert(actually_upcast_every == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
     static constexpr int colgroup_sz = actually_upcast_every / 2;
-    static constexpr int ncolgroups = ncodebooks / actually_upcast_every;
+    // static_assert(_log2_of_power_of_2<colgroup_sz>::value != 255,
+    static_assert(is_power_of_2(colgroup_sz),
+        "Invalid number of columns to unroll at once");
+    static constexpr int ncolgroups = ncols / colgroup_sz;
     static_assert(colgroup_sz <= ncodebooks, "WTF, did some math wrong");
+    static_assert(ncols % colgroup_sz == 0,
+        "Size of column group must evenly number of columns");
     // UpcastEvery = MIN(UpcastEvery, ncodebooks);
     // static constexpr int log2_colgroup_sz =
     //     _log2_of_power_of_2<colgroup_sz>::value;
 
+    // printf("\n");
     // PRINT_VAR(ncodebooks);
+    // PRINT_VAR(ncols);
+    // PRINT_VAR(UpcastEvery);
+    // PRINT_VAR(actually_upcast_every);
     // PRINT_VAR(ncolgroups);
+    // PRINT_VAR(colgroup_sz);
+
+    // return;
 
     // unpack 16B luts into 32B registers
     __m256i luts_ar[ncodebooks];
@@ -488,9 +505,13 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
 
             #pragma unroll
             for (int gg = 0; gg < colgroup_sz; gg++) {
-                auto j = g * ncolgroups + gg;
+                auto j = (g * colgroup_sz) + gg;
+                // PRINT_VAR(g);
+                // PRINT_VAR(gg);
+                // PRINT_VAR(j);
 
-                auto x_col = stream_load_si256i(codes);
+//                auto x_col = stream_load_si256i(codes);
+                auto x_col = load_si256i(codes);
                 codes += 32;
 
                 auto lut_low = luts_ar[2 * j];
@@ -622,10 +643,10 @@ void bolt_scan_avg(const uint8_t* codes, const uint8_t* luts,
         }
         // if (true) {
         if (ncolgroups > 1) {
-            // _mm256_store_si256((__m256i*)(dists_out + 0), totals_0_15);
-            // _mm256_store_si256((__m256i*)(dists_out + 32), totals_16_31);
-            _mm256_stream_si256((__m256i*)(dists_out + 0), totals_0_15);
-            _mm256_stream_si256((__m256i*)(dists_out + 32), totals_16_31);
+            _mm256_store_si256((__m256i*)(dists_out + 0), totals_0_15);
+            _mm256_store_si256((__m256i*)(dists_out + 32), totals_16_31);
+            // _mm256_stream_si256((__m256i*)(dists_out + 0), totals_0_15);
+            // _mm256_stream_si256((__m256i*)(dists_out + 32), totals_16_31);
             dists_out += 64;
         }
     }

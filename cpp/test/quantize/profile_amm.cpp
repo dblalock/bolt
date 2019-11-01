@@ -33,8 +33,9 @@
 #endif
 
 static constexpr int kNreps = 3;
+static constexpr int kNtrials = 20;
 // static constexpr int kNreps = 1;
-static constexpr int kNtrials = 5;
+// static constexpr int kNtrials = 1;
 
 TEST_CASE("amm profile smoketest", "[amm][profile]") {
     static constexpr int64_t nrows_enc = 128*100;   // number of rows to encode
@@ -216,11 +217,15 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
 
 TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     static constexpr int nblocks = 64 * 1000;
+    // static constexpr int nblocks = 2;
+    // static constexpr int nblocks = 256;
     static constexpr int nrows = nblocks * 32;
     // static constexpr int ncodebooks = 64;
-    static constexpr int ncodebooks = 16;
+    // static constexpr int ncodebooks = 32;
+    // static constexpr int ncodebooks = 24;
+    // static constexpr int ncodebooks = 16;
     // static constexpr int ncodebooks = 8;
-    // static constexpr int ncodebooks = 4;
+    static constexpr int ncodebooks = 4;
     static constexpr int ncentroids = 16;
     static constexpr int M = ncodebooks / 2;
 
@@ -266,6 +271,7 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     //         codes.data(), luts.data(), dists_u8_x2.data(), nblocks, ncodebooks)));
 
     RowVector<uint8_t> dists_u8_x2(nrows * 2); // in case decides to upcast
+
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=2           ", kNtrials,
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 2>(
@@ -278,17 +284,15 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 8>(
             codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=16           ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=16          ", kNtrials,
         dists_u8_x2.data(), nrows,
         (bolt_scan_avg<M, 16>(
             codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
 
-    // return;
-
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16                 ", kNtrials,
-    //     dists_u16.data(), nrows,
-    //     (bolt_scan<M, false, signed_luts>(
-    //         codes.data(), luts.data(), dists_u16.data(), nblocks)));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16                 ", kNtrials,
+        dists_u16.data(), nrows,
+        (bolt_scan<M, false, signed_luts>(
+            codes.data(), luts.data(), dists_u16.data(), nblocks)));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16 safe            ", kNtrials,
         dists_u16_safe.data(), nrows,
         (bolt_scan<M, true, signed_luts>(
@@ -333,10 +337,10 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     //     dists_u16_colmajor_mithral.data(), nrows * noutputs,
     //     mithral_scan<16>(codes.data(), nrows, ncodebooks,
     //         noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=8       ", kNtrials,
-    //     dists_u16_colmajor_mithral.data(), nrows * noutputs,
-    //     mithral_scan<8>(codes.data(), nrows, ncodebooks,
-    //         noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=8       ", kNtrials,
+        dists_u16_colmajor_mithral.data(), nrows * noutputs,
+        mithral_scan<8>(codes.data(), nrows, ncodebooks,
+            noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=4       ", kNtrials,
         dists_u16_colmajor_mithral.data(), nrows * noutputs,
         mithral_scan<4>(codes.data(), nrows, ncodebooks,
