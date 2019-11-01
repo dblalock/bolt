@@ -1,15 +1,16 @@
 
 
 #ifdef BLAZE
+    #include "test/external/catch.hpp"
     #include "test/quantize/test_bolt.hpp"
     #include "src/include/public.hpp" // for Bolt wrapper class
     #include "src/utils/debug_utils.hpp"
     #include "src/utils/memory.hpp"
     #include "test/testing_utils/testing_utils.hpp"
 #else
+    #include "catch.hpp"
     #include "test_bolt.hpp"
     #include "public.hpp" // for Bolt wrapper class
-
     #include "testing_utils.hpp"
     #include "debug_utils.hpp"
     #include "memory.hpp"

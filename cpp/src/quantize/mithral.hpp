@@ -590,7 +590,7 @@ inline void _mithral_scan(const uint8_t* codes,
     int in_cols[NReadCols];
     const uint8_t* codes_col_starts[NReadCols];
     const uint8_t* codes_col_ptrs[NReadCols];
-    const int8_t* lut_col_starts[NWriteCols];
+    // const int8_t* lut_col_starts[NWriteCols];
     const int8_t* lut_col_ptrs[NWriteCols];
     int16_t* out_col_starts[NWriteCols];
     int16_t* out_col_ptrs[NWriteCols];

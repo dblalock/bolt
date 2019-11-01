@@ -69,6 +69,12 @@ inline __m256 fma(__m256 a, __m256 b, __m256 c) {
     return res;
 }
 
+inline __m256i avg_epu8(__m256i a, __m256i b) {
+    __m256 res;
+    __asm__("vpavgb %[a], %[b], %[c]" : [c] "=x" (res) : [a] "x" (a), [b] "x" (b));
+    return res;
+}
+
 // ------------------------------------------------ other avx utils
 
 template<class T>

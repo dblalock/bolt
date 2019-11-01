@@ -193,6 +193,7 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const float* splitvals, int ncodebooks,
     uint8_t* out)
 {
+    static constexpr bool DeferPerm = true;
     static constexpr int block_nrows = 32;
     // static constexpr int stripe_rows = 8;
     // static constexpr int nstripes = block_nrows / stripe_rows;
@@ -243,9 +244,11 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
 
                 __m256i ab = _mm256_packs_epi32(a, b);
                 __m256i cd = _mm256_packs_epi32(c, d);
-                __m256i abcd = _mm256_packs_epi16(ab, cd);
-                __m256i masks = _mm256_permutevar8x32_epi32(
-                    abcd, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
+                __m256i masks = _mm256_packs_epi16(ab, cd);
+                if (!DeferPerm) {
+                    masks = _mm256_permutevar8x32_epi32(
+                        masks, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
+                }
 
                 // map -1 -> 1; 0 stays the same
                 auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
@@ -257,6 +260,10 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
 
                 // OR in new low bit
                 codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            if (DeferPerm) {
+                codes = _mm256_permutevar8x32_epi32(
+                        codes, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
             }
             _mm256_storeu_si256((__m256i*)out_ptr, codes);
             out_ptr += block_nrows;
@@ -465,28 +472,62 @@ void multisplit_encode_4b_colmajor(
     }
 }
 
+struct Layouts {
+    enum {
+        ColMajorNoPack = 0,
+        ColMajorPack2 = 1,
+        ColMajorPack4 = 2,
+        BoltNoPack = 3,
+        BoltPack2 = 4,
+        BoltPack4 = 5
+    };
+};
+
+// static constexpr int kLayoutColMajor = 0
+
 // version with int8 data
+template<int Layout=Layouts::ColMajorNoPack>
 void multisplit_encode_4b_colmajor(const int8_t* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     int ncodebooks, uint8_t* out)
     // const float* scales, int ncodebooks, uint8_t* out)
 {
+    static_assert(Layout == Layouts::ColMajorNoPack ||
+                  Layout == Layouts::BoltNoPack, "Unsupported Layout");
     static constexpr int block_nrows = 32;
+    static constexpr int simd_vec_sz = 32;
     static constexpr int nsplits_per_codebook = 4;
+    // static constexpr int ncodebooks_per_group = 2;
     static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
     const int64_t nblocks = ceil(nrows / (double)block_nrows);
     assert(nrows % block_nrows == 0); // TODO remove this constraint
+    // assert(ncodebooks % ncodebooks_per_group == 0);
+    // int ncolgroups = ncodebooks / ncodebooks_per_group;
 
     size_t x_col_stride = nrows;
     size_t out_col_stride = nrows;
     size_t splitval_luts_stride = vals_per_split;
     const int8_t* x_ptrs[nsplits_per_codebook];
     __m256i current_vsplitval_luts[nsplits_per_codebook];
+    // const int8_t* x_ptrs[ncodebooks_per_group][nsplits_per_codebook];
+    // __m256i current_vsplitval_luts[ncodebooks_per_group][nsplits_per_codebook];
 
     int split_idx = 0;
+    // for (int g = 0; g < ncolgroups; g++) {
+    //     for (int gg = 0; gg < ncodebooks_per_group; gg++) {
+    //         auto c = 8 * ncodebooks_per_group + gg;  // codebook
     for (int c = 0; c < ncodebooks; c++) {
         // compute input and output column starts
-        auto out_ptr = out + (out_col_stride * c);
+        uint8_t* out_ptr;
+        size_t out_block_stride;
+        if (Layout == Layouts::BoltNoPack) {
+            out_ptr = out + (simd_vec_sz * c);
+            /// XXX this will be off by a factor of 2 with a packed layout
+            out_block_stride = block_nrows * ncodebooks;
+        } else {
+            out_ptr = out + (out_col_stride * c);
+            out_block_stride = block_nrows;
+        }
         for (int s = 0; s < nsplits_per_codebook; s++) {
             auto splitdim = splitdims[split_idx + s];
             x_ptrs[s] = X + (x_col_stride * splitdim);
@@ -520,7 +561,89 @@ void multisplit_encode_4b_colmajor(const int8_t* X, int64_t nrows, int ncols,
                 codes = _mm256_or_si256(codes, masks_0_or_1);
             }
             _mm256_storeu_si256((__m256i*)out_ptr, codes);
-            out_ptr += block_nrows;
+            out_ptr += out_block_stride;
+            // if (Layout == Layouts::BoltNoPack) { // doesn't help
+            //     __builtin_prefetch(out_ptr + 16 * out_block_stride);
+            // }
+        }
+    }
+    // }
+}
+
+// version with int16 data
+template<int Layout=Layouts::ColMajorNoPack>
+void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    int ncodebooks, uint8_t* out)
+    // const float* scales, int ncodebooks, uint8_t* out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int simd_vec_sz = 32;
+    static constexpr int nsplits_per_codebook = 4;
+    static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
+
+    size_t x_col_stride = nrows;
+    size_t out_col_stride = nrows;
+    size_t splitval_luts_stride = vals_per_split;
+    const int16_t* x_ptrs[nsplits_per_codebook];
+    __m256i current_vsplitval_luts[nsplits_per_codebook];
+
+    int split_idx = 0;
+    for (int c = 0; c < ncodebooks; c++) {
+        // compute input and output column starts
+        uint8_t* out_ptr;
+        size_t out_block_stride;
+        if (Layout == Layouts::BoltNoPack) {
+            out_ptr = out + (simd_vec_sz * c);
+            /// XXX this will be off by a factor of 2 with a packed layout
+            out_block_stride = block_nrows * ncodebooks;
+        } else {
+            out_ptr = out + (out_col_stride * c);
+            out_block_stride = block_nrows;
+        }
+        for (int s = 0; s < nsplits_per_codebook; s++) {
+            auto splitdim = splitdims[split_idx + s];
+            x_ptrs[s] = X + (x_col_stride * splitdim);
+            auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
+            current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)splitvals_ptr));
+        }
+        split_idx += nsplits_per_codebook;
+
+        for (int b = 0; b < nblocks; b++) { // for each block
+            __m256i codes = _mm256_setzero_si256();
+            #pragma unroll
+            for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto vsplitvals_lut = current_vsplitval_luts[s];
+                auto vsplitvals = _mm256_shuffle_epi8(
+                        vsplitvals_lut, codes); // codes = group_ids
+
+                auto x_i16_0_15 = load_si256i(x_ptrs[s]);
+                auto x_i16_16_31 = load_si256i(x_ptrs[s] + 16);
+                x_ptrs[s] += 32;
+
+                // convert i16 to i8; note that this puts it in a weird
+                // order
+                auto x_i8 = _mm256_packs_epi16(x_i16_0_15, x_i16_16_31);
+
+                auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
+                // map -1 -> 1; 0 stays the same
+                auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
+
+                if (s > 0) {
+                    // shift left by multiplying by 2, by adding to itself
+                    codes = _mm256_add_epi8(codes, codes);
+                }
+
+                // OR in new low bit
+                codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            // undo weird permutation from packing i16 -> i8
+            codes = _mm256_permute4x64_epi64(codes, _MM_SHUFFLE(3,1,2,0));
+            _mm256_storeu_si256((__m256i*)out_ptr, codes);
+            out_ptr += out_block_stride;
         }
     }
 }

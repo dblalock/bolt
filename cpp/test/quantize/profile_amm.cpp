@@ -58,7 +58,7 @@ TEST_CASE("amm profile smoketest", "[amm][profile]") {
 }
 
 TEST_CASE("amm profile split encode", "[amm][encode][split][profile]") {
-    static const int N = 128 * 1000;
+    static const int N = 1024 * 1000;
     // static const int N = 32;
     static const uint32_t D = 64;
     static const int ncodebooks = 4;
@@ -144,6 +144,8 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
 
     ColMatrix<int8_t> X_i8(N, D);
     X_i8.setRandom();
+    ColMatrix<int16_t> X_i16(N, D);
+    X_i16.setRandom();
 
     // multisplit_encode_4b_colmajor_v2(
     //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
@@ -156,38 +158,56 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
     // printf("sum of out: %d\n", out.sum());
 
     // printf("out.size(): %lu\n", out.size());
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 8b", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 8b ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_8b_colmajor(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, nsplits_per_codebook,
             out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 4b", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 4b ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, out.data()));
 
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit deferp 4b", kNtrials,
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit deferp 4b ", kNtrials,
     //     out.data(), out.size(),
     //     multisplit_encode_4b_colmajor<true>(
     //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
     //         scales.data(), offsets.data(), ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 4b", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 4b ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor(
             X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
             ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc f  v2", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 bolt 4b ", kNtrials,
+        out.data(), out.size(),
+        multisplit_encode_4b_colmajor<Layouts::BoltNoPack>(
+            X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
+            ncodebooks, out.data()));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i16 4b", kNtrials,
+        out.data(), out.size(),
+        multisplit_encode_4b_colmajor(
+            X_i16.data(), N, D, splitdims.data(), all_splitvals.data(),
+            ncodebooks, out.data()));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i16 bolt 4b ", kNtrials,
+        out.data(), out.size(),
+        multisplit_encode_4b_colmajor<Layouts::BoltNoPack>(
+            X_i16.data(), N, D, splitdims.data(), all_splitvals.data(),
+            ncodebooks, out.data()));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc f v2  ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor_v2(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, out.data(), X_i8.data()));
 
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit deferp v2", kNtrials,
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit deferp v2 ", kNtrials,
     //     out.data(), out.size(),
     //     multisplit_encode_4b_colmajor_v2<true>(
     //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
@@ -197,9 +217,10 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
 TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     static constexpr int nblocks = 64 * 1000;
     static constexpr int nrows = nblocks * 32;
-    // static constexpr int ncodebooks = 16;
     // static constexpr int ncodebooks = 64;
-    static constexpr int ncodebooks = 4;
+    static constexpr int ncodebooks = 16;
+    // static constexpr int ncodebooks = 8;
+    // static constexpr int ncodebooks = 4;
     static constexpr int ncentroids = 16;
     static constexpr int M = ncodebooks / 2;
 
@@ -237,63 +258,85 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
         dists_u8.data(), nrows,
         (bolt_scan<M, true, signed_luts>(
             codes.data(), luts.data(), dists_u8.data(), nblocks)));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16                 ", kNtrials,
-        dists_u16.data(), nrows,
-        (bolt_scan<M, false, signed_luts>(
-            codes.data(), luts.data(), dists_u16.data(), nblocks)));
+
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=4           ", kNtrials,
+    //     dists_u8_x2.data(), nrows,
+    //     (bolt_scan_avg(
+    //         codes.data(), luts.data(), dists_u8_x2.data(), nblocks, ncodebooks)));
+
+    RowVector<uint8_t> dists_u8_x2(nrows * 2); // in case decides to upcast
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=2           ", kNtrials,
+        dists_u8_x2.data(), nrows,
+        (bolt_scan_avg<M, 2>(
+            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=4           ", kNtrials,
+        dists_u8_x2.data(), nrows,
+        (bolt_scan_avg<M, 4>(
+            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=8           ", kNtrials,
+        dists_u8_x2.data(), nrows,
+        (bolt_scan_avg<M, 8>(
+            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=16           ", kNtrials,
+        dists_u8_x2.data(), nrows,
+        (bolt_scan_avg<M, 16>(
+            codes.data(), luts.data(), dists_u8_x2.data(), nblocks)));
+
+    // return;
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16                 ", kNtrials,
+    //     dists_u16.data(), nrows,
+    //     (bolt_scan<M, false, signed_luts>(
+    //         codes.data(), luts.data(), dists_u16.data(), nblocks)));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16 safe            ", kNtrials,
         dists_u16_safe.data(), nrows,
         (bolt_scan<M, true, signed_luts>(
             codes.data(), luts.data(), dists_u16_safe.data(), nblocks)));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor", kNtrials,
-    //     dists_u16_colmajor.data(), nrows,
-    //     mithral_scan_unpacked_colmajor(codes.data(), nblocks, ncodebooks,
-    //         luts.data(), dists_u16_colmajor.data()));
-    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1", kNtrials,
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor", kNtrials,
+    // //     dists_u16_colmajor.data(), nrows,
+    // //     mithral_scan_unpacked_colmajor(codes.data(), nblocks, ncodebooks,
+    // //         luts.data(), dists_u16_colmajor.data()));
+    // // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1", kNtrials,
+    // // //     dists_u16_colmajor_tile4.data(), nrows,
+    // // //     bolt_scan_colmajor_tile4<1>(codes.data(), nblocks, ncodebooks,
+    // // //         luts.data(), dists_u16_colmajor_tile4.data()));
+    // // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2", kNtrials,
+    // // //     dists_u16_colmajor_tile4.data(), nrows,
+    // // //     bolt_scan_colmajor_tile4<2>(codes.data(), nblocks, ncodebooks,
+    // // //         luts.data(), dists_u16_colmajor_tile4.data()));
+    // // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4", kNtrials,
+    // // //     dists_u16_colmajor_tile4.data(), nrows,
+    // // //     bolt_scan_colmajor_tile4<4>(codes.data(), nblocks, ncodebooks,
+    // // //         luts.data(), dists_u16_colmajor_tile4.data()));
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1 packed", kNtrials,
     // //     dists_u16_colmajor_tile4.data(), nrows,
-    // //     bolt_scan_colmajor_tile4<1>(codes.data(), nblocks, ncodebooks,
+    // //     bolt_scan_colmajor_tile4_packed<1>(codes.data(), nblocks, ncodebooks,
     // //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2", kNtrials,
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2 packed", kNtrials,
     // //     dists_u16_colmajor_tile4.data(), nrows,
-    // //     bolt_scan_colmajor_tile4<2>(codes.data(), nblocks, ncodebooks,
+    // //     bolt_scan_colmajor_tile4_packed<2>(codes.data(), nblocks, ncodebooks,
     // //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4", kNtrials,
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4 packed", kNtrials,
     // //     dists_u16_colmajor_tile4.data(), nrows,
-    // //     bolt_scan_colmajor_tile4<4>(codes.data(), nblocks, ncodebooks,
+    // //     mithral_scan_tile4<4>(codes.data(), nblocks, ncodebooks,
     // //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast1 packed", kNtrials,
-    //     dists_u16_colmajor_tile4.data(), nrows,
-    //     bolt_scan_colmajor_tile4_packed<1>(codes.data(), nblocks, ncodebooks,
-    //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast2 packed", kNtrials,
-    //     dists_u16_colmajor_tile4.data(), nrows,
-    //     bolt_scan_colmajor_tile4_packed<2>(codes.data(), nblocks, ncodebooks,
-    //         luts.data(), dists_u16_colmajor_tile4.data()));
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan colmajor tile4 upcast4 packed", kNtrials,
-    //     dists_u16_colmajor_tile4.data(), nrows,
-    //     mithral_scan_tile4<4>(codes.data(), nblocks, ncodebooks,
-    //         luts.data(), dists_u16_colmajor_tile4.data()));
 
     static constexpr int noutputs = 1;
     static constexpr int noutputs_per_block = 1;
-
-    // // create random codes from in [0, 15]
-    // ColMatrix<uint8_t> codes(nrows, ncodebooks);
-    // codes.setRandom();
-    // codes = codes.array() / ncentroids;
 
     ColMatrix<int8_t> all_luts(noutputs * ncentroids, ncodebooks);
     luts_signed.setRandom();
     luts_signed = luts_signed.array() / ncodebooks; // make max lut value small
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=16      ", kNtrials,
-        dists_u16_colmajor_mithral.data(), nrows * noutputs,
-        mithral_scan<16>(codes.data(), nrows, ncodebooks,
-            noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=8       ", kNtrials,
-        dists_u16_colmajor_mithral.data(), nrows * noutputs,
-        mithral_scan<8>(codes.data(), nrows, ncodebooks,
-            noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=16      ", kNtrials,
+    //     dists_u16_colmajor_mithral.data(), nrows * noutputs,
+    //     mithral_scan<16>(codes.data(), nrows, ncodebooks,
+    //         noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=8       ", kNtrials,
+    //     dists_u16_colmajor_mithral.data(), nrows * noutputs,
+    //     mithral_scan<8>(codes.data(), nrows, ncodebooks,
+    //         noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=4       ", kNtrials,
         dists_u16_colmajor_mithral.data(), nrows * noutputs,
         mithral_scan<4>(codes.data(), nrows, ncodebooks,
