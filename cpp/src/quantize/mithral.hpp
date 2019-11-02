@@ -392,6 +392,12 @@ inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
 inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
                               uint32_t ncodebooks, uint8_t* codes_out)
 {
+    // if (ncodebooks % 64 == 0) {
+    //     zip_bolt_colmajor<64>(codes_in, nrows, ncodebooks, codes_out); return;
+    // }
+    // if (ncodebooks % 16 == 0) {
+    //     zip_bolt_colmajor<16>(codes_in, nrows, ncodebooks, codes_out); return;
+    // }
     if (ncodebooks % 8 == 0) {
         zip_bolt_colmajor<8>(codes_in, nrows, ncodebooks, codes_out); return;
     }

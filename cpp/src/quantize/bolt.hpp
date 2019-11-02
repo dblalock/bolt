@@ -434,7 +434,7 @@ template<int x> struct _log2_of_power_of_2 {
 };
 
 static constexpr bool is_power_of_2(int64_t x) {
-    return (x & (x - 1)) == 0;
+    return (x & (x - 1)) == 0 && x > 0;
 }
 
 
@@ -478,7 +478,7 @@ void bolt_scan_avg(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
 
     for (int64_t i = 0; i < nblocks; i++) {
         // used if ncolgroups > 1, in which case we have to upcast
-        auto totals_dbg = _mm256_setzero_si256();
+//        auto totals_dbg = _mm256_setzero_si256();
         auto totals_0_15 = _mm256_setzero_si256();
         auto totals_16_31 = _mm256_setzero_si256();
 
