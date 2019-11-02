@@ -272,26 +272,26 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
 
     // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=4           ", kNtrials,
     //     dists_u8_x2.data(), nrows,
-    //     (bolt_scan_avg(
+    //     (mithral_scan(
     //         codes.data(), luts.data(), dists_u8_x2.data(), nblocks, ncodebooks)));
 
     RowVector<uint8_t> dists_u8_x2(nrows * 2); // in case decides to upcast
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=2           ", kNtrials,
         dists_u8_x2.data(), nrows,
-        (bolt_scan_avg<M, 2>(
+        (mithral_scan<M, 2>(
             codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=4           ", kNtrials,
         dists_u8_x2.data(), nrows,
-        (bolt_scan_avg<M, 4>(
+        (mithral_scan<M, 4>(
             codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=8           ", kNtrials,
         dists_u8_x2.data(), nrows,
-        (bolt_scan_avg<M, 8>(
+        (mithral_scan<M, 8>(
             codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan avg upcast=16          ", kNtrials,
         dists_u8_x2.data(), nrows,
-        (bolt_scan_avg<M, 16>(
+        (mithral_scan<M, 16>(
             codes.data(), nblocks, luts.data(), dists_u8_x2.data())));
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt scan uint16                 ", kNtrials,
@@ -342,17 +342,17 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     //     dists_u16_colmajor_mithral.data(), nrows * noutputs,
     //     mithral_scan<16>(codes.data(), nrows, ncodebooks,
     //         noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=8       ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan tiled UpcastEvery=8     ", kNtrials,
         dists_u16_colmajor_mithral.data(), nrows * noutputs,
-        mithral_scan<8>(codes.data(), nrows, ncodebooks,
+        mithral_scan_tiled<8>(codes.data(), nrows, ncodebooks,
             noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=4       ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan tiled UpcastEvery=4     ", kNtrials,
         dists_u16_colmajor_mithral.data(), nrows * noutputs,
-        mithral_scan<4>(codes.data(), nrows, ncodebooks,
+        mithral_scan_tiled<4>(codes.data(), nrows, ncodebooks,
             noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan UpcastEvery=2       ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral scan tiled UpcastEvery=2     ", kNtrials,
         dists_u16_colmajor_mithral.data(), nrows * noutputs,
-        mithral_scan<2>(codes.data(), nrows, ncodebooks,
+        mithral_scan_tiled<2>(codes.data(), nrows, ncodebooks,
             noutputs, luts_signed.data(), dists_u16_colmajor_mithral.data()));
 }
 
@@ -532,7 +532,7 @@ void _amm_mithral_packed(const InputT* X, int64_t nrows, int ncols,
 }
 
 template<class InputT, class ScaleT, class OffsetT>
-void _amm_mithral_bolt(const InputT* X, int64_t nrows, int ncols,
+void _amm_mithral(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
@@ -551,7 +551,7 @@ void _amm_mithral_bolt(const InputT* X, int64_t nrows, int ncols,
     static constexpr int UpcastEvery = 8;
     auto out_col_stride = UpcastEvery >= ncodebooks ? nrows : 2 * nrows;
     for (int i = 0; i < out_ncols; i++) {
-        bolt_scan_avg<UpcastEvery>(out_enc, nblocks, ncodebooks, (uint8_t*)luts, out_ptr);
+        mithral_scan<UpcastEvery>(out_enc, nblocks, ncodebooks, (uint8_t*)luts, out_ptr);
         out_ptr += out_col_stride;
         lut_ptr += 16 * ncodebooks;
     }
@@ -572,7 +572,7 @@ void _amm_mithral_tile(const InputT* X, int64_t nrows, int ncols,
     zip4_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
     // mithral_scan<2>(out_enc_packed, nrows, ncodebooks, out_ncols, luts, out_mat);
     // mithral_scan<UpcastEvery>(out_enc_packed, (int)nrows, ncodebooks, out_ncols, luts, out_mat);
-    mithral_scan<4>(out_enc_packed, (int)nrows, ncodebooks, out_ncols, luts, out_mat);
+    mithral_scan_tiled<4>(out_enc_packed, (int)nrows, ncodebooks, out_ncols, luts, out_mat);
     // mithral_scan<8>(out_enc_packed, nrows, ncodebooks, out_ncols, luts, out_mat);
     // auto out_ptr = out_mat;
     // auto lut_ptr = luts;
@@ -603,7 +603,7 @@ void _amm_mithral_just_enc(const InputT* X, int64_t nrows, int ncols,
 }
 
 template<class InputT, class ScaleT, class OffsetT>
-void _amm_mithral_just_zip(const InputT* X, int64_t nrows, int ncols,
+void _amm_mithral_just_zip4(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
@@ -768,7 +768,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
         dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
-        _amm_mithral_bolt(
+        _amm_mithral(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
@@ -789,7 +789,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     //     dtype_str.c_str(), orig_N, D, M, ncodebooks);
     // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
     //     codes_packed.data(), codes_packed.size(),
-    //     _amm_mithral_just_zip(
+    //     _amm_mithral_just_zip4(
     //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
     //         scales.data(), offsets.data(), ncodebooks,
     //         codes.data(), codes_packed.data()));

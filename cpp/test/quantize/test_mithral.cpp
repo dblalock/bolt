@@ -187,7 +187,7 @@ int8_t _lut_entry(int code, int codebook=0, int output=0) {
 }
 
 template<int UpcastEvery=4>
-void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
+void _test_mithral_scan_tiled(int nblocks, int ncodebooks, int nout=1) {
     static constexpr int ncentroids = 16;
     constexpr int block_nrows = 16; // always 16 in this file
     assert(ncodebooks % 4 == 0);
@@ -276,7 +276,7 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
 
 
     // mithral_scan<UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
-    mithral_scan<2>(codes_zipped.data(), N, ncodebooks, nout,
+    mithral_scan_tiled<2>(codes_zipped.data(), N, ncodebooks, nout,
     // _mithral_scan<1, 1, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
     // _mithral_scan<1, 2, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
     // _mithral_scan<2, 1, UpcastEvery>(codes_zipped.data(), N, ncodebooks, nout,
@@ -309,32 +309,32 @@ void _test_mithral_scan(int nblocks, int ncodebooks, int nout=1) {
     }
 }
 
-TEST_CASE("mithral scan", "[mithral][scan]") {
+TEST_CASE("mithral scan tiled", "[mithral][scan]") {
 
     SECTION("One output column") {
-        _test_mithral_scan(1, 4);
-        _test_mithral_scan(2, 4);
-        _test_mithral_scan(3, 4);
-        _test_mithral_scan<2>(1, 8);
-        _test_mithral_scan<2>(2, 8);
-        _test_mithral_scan<4>(2, 8);
-        _test_mithral_scan<2>(2, 12);
-        _test_mithral_scan<2>(7, 12);
-        _test_mithral_scan<2>(3, 4 * 7);
+        _test_mithral_scan_tiled(1, 4);
+        _test_mithral_scan_tiled(2, 4);
+        _test_mithral_scan_tiled(3, 4);
+        _test_mithral_scan_tiled<2>(1, 8);
+        _test_mithral_scan_tiled<2>(2, 8);
+        _test_mithral_scan_tiled<4>(2, 8);
+        _test_mithral_scan_tiled<2>(2, 12);
+        _test_mithral_scan_tiled<2>(7, 12);
+        _test_mithral_scan_tiled<2>(3, 4 * 7);
     }
 
     SECTION("Multiple output columns") {
-        _test_mithral_scan(1, 4, 2);
-        _test_mithral_scan(1, 8, 2);
-        _test_mithral_scan(2, 8, 2);
-        _test_mithral_scan(2, 8, 3);
-        _test_mithral_scan(2, 12, 3);
+        _test_mithral_scan_tiled(1, 4, 2);
+        _test_mithral_scan_tiled(1, 8, 2);
+        _test_mithral_scan_tiled(2, 8, 2);
+        _test_mithral_scan_tiled(2, 8, 3);
+        _test_mithral_scan_tiled(2, 12, 3);
     }
 
     SECTION("Multiple chunks") {
-        _test_mithral_scan(5 * 1024, 4, 1);
-        _test_mithral_scan(5 * 1024, 4, 2);
-        _test_mithral_scan(5 * 1024, 12, 2);
-        _test_mithral_scan(5 * 1024, 12, 3);
+        _test_mithral_scan_tiled(5 * 1024, 4, 1);
+        _test_mithral_scan_tiled(5 * 1024, 4, 2);
+        _test_mithral_scan_tiled(5 * 1024, 12, 2);
+        _test_mithral_scan_tiled(5 * 1024, 12, 3);
     }
 }

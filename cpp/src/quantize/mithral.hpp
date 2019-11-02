@@ -735,7 +735,7 @@ inline void mithral_scan_tile4(const uint8_t* codes,
  * vpaddsb      ymm3, ymm3, ymm0
  */
 template<int NReadCols, int NWriteCols=1, int UpcastEvery=4, int NCodebooks=-1, int ChunkSz=256>
-inline void _mithral_scan(const uint8_t* codes,
+inline void _mithral_scan_tiled(const uint8_t* codes,
     int nrows, int ncodebooks, int noutputs,
     const int8_t* luts, int16_t* out, bool add_to_output=false,
     int codes_col_stride=-1, int lut_col_stride=-1, int out_col_stride=-1,
@@ -1037,7 +1037,7 @@ inline void _mithral_scan(const uint8_t* codes,
 
 
 template<int UpcastEvery=4>
-void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
+void mithral_scan_tiled(const uint8_t* codes, int nrows, int ncodebooks,
     int noutputs, const int8_t* luts, int16_t* out, bool add_to_output=false)
 {
     // TODO figure out optimal amount of tiling and reduce to this case, then
@@ -1048,47 +1048,215 @@ void mithral_scan(const uint8_t* codes, int nrows, int ncodebooks,
         static constexpr int NCodebooks = 4;
         // with 1 input col 6 outputs: https://godbolt.org/z/dLLfV8
         // if (noutputs % 6 == 0) {
-        //     _mithral_scan<1, 6, UpcastEvery, NCodebooks>(
+        //     _mithral_scan_tiled<1, 6, UpcastEvery, NCodebooks>(
         //         codes, nrows, ncodebooks, noutputs, luts, out); return;
         // } else if (noutputs % 5 == 0) {
         if (noutputs % 5 == 0 && UpcastEvery > 2) {
-            _mithral_scan<1, 5, UpcastEvery, NCodebooks>(
+            _mithral_scan_tiled<1, 5, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         } else if (noutputs % 4 == 0) {
-            _mithral_scan<1, 4, UpcastEvery, NCodebooks>(
+            _mithral_scan_tiled<1, 4, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         } else if (noutputs % 3 == 0) {
-            _mithral_scan<1, 3, UpcastEvery, NCodebooks>(
+            _mithral_scan_tiled<1, 3, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         } else if (noutputs % 2 == 0) {
-            _mithral_scan<1, 2, UpcastEvery, NCodebooks>(
+            _mithral_scan_tiled<1, 2, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         } else {
-            _mithral_scan<1, 1, UpcastEvery, NCodebooks>(
+            _mithral_scan_tiled<1, 1, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
         }
     } else if (ncols == 2 && (noutputs % 2) == 0) {
         static constexpr int NCodebooks = 8;
-        _mithral_scan<2, 2, UpcastEvery, NCodebooks>(
+        _mithral_scan_tiled<2, 2, UpcastEvery, NCodebooks>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     // } else if (ncols % 6 == 0) {
-    //     _mithral_scan<6, 1, UpcastEvery>(
+    //     _mithral_scan_tiled<6, 1, UpcastEvery>(
     //             codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else if (ncols % 5 == 0 && UpcastEvery > 2) {
-        _mithral_scan<5, 1, UpcastEvery>(
+        _mithral_scan_tiled<5, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else if (ncols % 4 == 0 && UpcastEvery > 2) {
-        _mithral_scan<4, 1, UpcastEvery>(
+        _mithral_scan_tiled<4, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else if (ncols % 3 == 0 && UpcastEvery > 2) {
-        _mithral_scan<3, 1, UpcastEvery>(
+        _mithral_scan_tiled<3, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else if (ncols % 2 == 0) {
-        _mithral_scan<2, 1, UpcastEvery>(
+        _mithral_scan_tiled<2, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
     } else {
-        _mithral_scan<1, 1, UpcastEvery>(
+        _mithral_scan_tiled<1, 1, UpcastEvery>(
                 codes, nrows, ncodebooks, noutputs, luts, out); return;
+    }
+}
+
+template<int x> struct _log2_of_power_of_2 {
+    // static_assert(x <= 512, "Only x <= 512 supported because I'm being lazy");
+    static constexpr uint8_t value = (x == 1   ? 0 :
+                                      x == 2   ? 1 :
+                                      x == 4   ? 2 :
+                                      x == 8   ? 3 :
+                                      x == 16  ? 4 :
+                                      x == 32  ? 5 :
+                                      x == 64  ? 6 :
+                                      x == 128 ? 7 :
+                                      x == 256 ? 8 :
+                                      x == 512 ? 9 : 255);
+    static_assert(value != 255, "x must be one of 2^{1, 2, 4, 8, ..., 512}");
+};
+
+static constexpr bool is_power_of_2(int64_t x) {
+    return (x & (x - 1)) == 0 && x > 0;
+}
+
+
+// TODO have output type be templated and intelligent upcast or
+// whatever based on the type
+//
+// https://godbolt.org/z/cP80FF
+template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=false>
+void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
+                   uint8_t* dists_out)
+{
+    static_assert(NBytes > 0, "Code length <= 0 is not valid");
+    static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
+    static_assert(UpcastEvery >= 2, "UpcastEvery must be >= 2");
+    static_assert(UpcastEvery <= 16, "UpcastEvery must be <= 16");
+    // static_assert(UpcastEvery == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
+    static constexpr int ncodebooks = 2 * NBytes;
+    static constexpr int ncols = NBytes;
+    static constexpr int actually_upcast_every = MIN(UpcastEvery, ncodebooks);
+    // static_assert(actually_upcast_every == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
+    static constexpr int colgroup_sz = actually_upcast_every / 2;
+    // static_assert(_log2_of_power_of_2<colgroup_sz>::value != 255,
+    static_assert(is_power_of_2(colgroup_sz),
+        "Invalid number of columns to unroll at once");
+    static constexpr int ncolgroups = ncols / colgroup_sz;
+    static_assert(colgroup_sz <= ncodebooks, "WTF, did some math wrong");
+    static_assert(ncols % colgroup_sz == 0,
+        "Size of column group must evenly number of columns");
+
+    // unpack 16B luts into 32B registers
+    __m256i luts_ar[ncodebooks];
+    auto lut_ptr = luts;
+    for (uint8_t j = 0; j < NBytes; j++) {
+        auto both_luts = load_si256i(lut_ptr);
+        lut_ptr += 32;
+        auto lut0 = _mm256_permute2x128_si256(both_luts, both_luts, 0 + (0 << 4));
+        auto lut1 = _mm256_permute2x128_si256(both_luts, both_luts, 1 + (1 << 4));
+        luts_ar[2 * j] = lut0;
+        luts_ar[2 * j + 1] = lut1;
+    }
+
+    for (int64_t i = 0; i < nblocks; i++) {
+        // used if ncolgroups > 1, in which case we have to upcast
+//        auto totals_dbg = _mm256_setzero_si256();
+        auto totals_0_15 = _mm256_setzero_si256();
+        auto totals_16_31 = _mm256_setzero_si256();
+
+        auto low_4bits_mask = _mm256_set1_epi8(0x0F); // not static so sits in reg
+
+        for (int g = 0; g < ncolgroups; g++) {
+
+            __m256i avg_prev1 = _mm256_undefined_si256();
+            __m256i avg_prev2 = _mm256_undefined_si256();
+            __m256i avg_prev4 = _mm256_undefined_si256();
+            __m256i avg_prev8 = _mm256_undefined_si256();
+            __m256i avg_prev16 = _mm256_undefined_si256();
+
+            #pragma unroll
+            for (int gg = 0; gg < colgroup_sz; gg++) {
+                auto j = (g * colgroup_sz) + gg;
+
+                auto x_col = load_si256i(codes);
+                // auto x_col = stream_load_si256i(codes);
+                codes += 32;
+
+                auto lut_low = luts_ar[2 * j];
+                auto lut_high = luts_ar[2 * j + 1];
+
+                auto x_low = _mm256_and_si256(x_col, low_4bits_mask);
+                auto x_shft = _mm256_srli_epi16(x_col, 4);
+                auto x_high = _mm256_and_si256(x_shft, low_4bits_mask);
+
+                auto dists_low = _mm256_shuffle_epi8(lut_low, x_low);
+                auto dists_high = _mm256_shuffle_epi8(lut_high, x_high);
+
+                auto avgs = _mm256_avg_epu8(dists_low, dists_high);
+
+                // update running averages; this is messy because if you
+                // need to current and previous average to be over the same
+                // number of values, or else it's a weird weighted average
+                // instead of a true average
+                // note that we need to use inline asm to get the right
+                // instruction here on my machine for unclear reasons
+                if (gg % 16 == 15) {
+                    auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
+                    auto new_avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
+                    auto new_avg_prev8 = avg_epu8(avg_prev4, new_avg_prev4);
+                    avg_prev16 = avg_epu8(avg_prev8, new_avg_prev8);
+                }
+                // if ((gg + 1) % 8 == 0) {
+                if (gg % 8 == 7) {
+                    auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
+                    auto new_avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
+                    avg_prev8 = avg_epu8(avg_prev4, new_avg_prev4);
+                }
+                // if ((gg + 1) % 4 == 0) {
+                if (gg % 4 == 3) {
+                    auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
+                    avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
+                }
+                // if ((gg + 1) % 2 == 0) {
+                if (gg % 2 == 1) {
+                    avg_prev2 = avg_epu8(avg_prev1, avgs);
+                } else {
+                    avg_prev1 = avgs;
+                }
+            }
+            auto group_avg = colgroup_sz == 1  ? avg_prev1 :
+                             colgroup_sz == 2  ? avg_prev2 :
+                             colgroup_sz == 4  ? avg_prev4 :
+                             colgroup_sz == 8  ? avg_prev8 :
+                             avg_prev16;
+
+            if (ncolgroups == 1 && !Force16BitOutput) { // write out 8b values
+                _mm256_store_si256((__m256i*)dists_out, group_avg);
+                dists_out += 32;
+            } else {
+                auto avgs_0_15 = _mm256_cvtepi8_epi16(
+                _mm256_extracti128_si256(group_avg, 0));
+                auto avgs_16_31 = _mm256_cvtepi8_epi16(
+                    _mm256_extracti128_si256(group_avg, 1));
+                totals_0_15 = _mm256_add_epi16(totals_0_15, avgs_0_15);
+                totals_16_31 = _mm256_add_epi16(totals_16_31, avgs_16_31);
+            }
+        }
+        // if (true) {
+        if (ncolgroups > 1 || Force16BitOutput) {
+            _mm256_store_si256((__m256i*)(dists_out + 0), totals_0_15);
+            _mm256_store_si256((__m256i*)(dists_out + 32), totals_16_31);
+            // _mm256_stream_si256((__m256i*)(dists_out + 0), totals_0_15);
+            // _mm256_stream_si256((__m256i*)(dists_out + 32), totals_16_31);
+            dists_out += 64;
+        }
+    }
+}
+
+template<int UpcastEvery=8>
+void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+                  const uint8_t* luts, uint8_t* dists_out)
+{
+    uint8_t* out = dists_out;
+    switch(ncodebooks) {
+        case 4: mithral_scan<2, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 8: mithral_scan<4, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 16: mithral_scan<8, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 32: mithral_scan<16, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 64: mithral_scan<32, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 128: mithral_scan<64, UpcastEvery>(codes, nblocks, luts, out); break;
     }
 }
 
