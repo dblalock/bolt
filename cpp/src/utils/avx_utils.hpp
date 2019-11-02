@@ -239,7 +239,10 @@ static inline void sgemm_colmajor_narrow_padded(
         b_subs[i] = _mm256_undefined_ps();
     }
 
-    // zero output buffer
+    // PRINT_VAR(N_orig);
+    // PRINT_VAR(D);
+    // PRINT_VAR(M);
+    // // zero output buffer
     // if (!add_to_output) {
     //     for (int i = 0; i < N_orig * M; i++) { out[i] = 0; }
     // }
@@ -274,6 +277,11 @@ static inline void sgemm_colmajor_narrow_padded(
                 // PRINT_VAR(pretty_ptr(b_col_starts[mm]));
 
                 if (!add_to_output) {  // zero this block of output buffer
+                    // PRINT_VAR(nchunks_N);
+                    // PRINT_VAR(n);
+                    // PRINT_VAR(N_orig % nrows_per_chunk);
+                    // PRINT_VAR(mm);
+                    // PRINT_VAR(N);
                     for (int i = 0; i < N; i++) {
                         out_col_starts[mm][i] = 0;
                     }

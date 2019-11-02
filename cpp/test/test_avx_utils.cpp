@@ -101,6 +101,7 @@ TEST_CASE("sgemm colmajor", "[utils]") {
     // _test_sgemm_colmajor<-1, -1>(1, 5, 1, true);
     // _test_sgemm_colmajor<-1, -1>(1, 1, 7, true);
     // _test_sgemm_colmajor<-1, -1>(1, 4, 5, true);
+    // _test_sgemm_colmajor<-1, -1>(1, 5, 3, true);
     // int N = 256 + 8;
     // // int N = 256 * 2;
     // int D = 4;

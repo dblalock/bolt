@@ -6,6 +6,7 @@
 void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
                     float* out)
 {
+    if (N < 1 || D < 1 || M < 1) { return; }
     if (D == 1 && M <= 6) {
         switch(M) {
             case 1: sgemm_colmajor_narrow_padded<1, 1>(A, B, N, D, M, out); return;
@@ -64,7 +65,60 @@ void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
     auto pos_M_round = M_round > 0;
     auto pos_round_mat = pos_D_round && pos_M_round;
 
-    sgemm_colmajor_narrow_padded<4, 3>(A, B, N, D_round, M_round, out, false, A_col_stride, B_col_stride, out_col_stride);
+    // PRINT_VAR(N);
+    // PRINT_VAR(D);
+    // PRINT_VAR(M);
+
+    if (D >= 4 && M >= 3) {
+        sgemm_colmajor_narrow_padded<4, 3>(A, B, N, D_round, M_round, out, false, A_col_stride, B_col_stride, out_col_stride);
+    } else if (D % 4 == 0) {
+        if (M % 2 == 0) {
+            sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D, M, out, false);
+            return;
+        } else {
+            sgemm_colmajor_narrow_padded<4, 1>(A, B, N, D, M, out, false);
+            return;
+        }
+    } else if (D % 3 == 0) {
+        if (M % 2 == 0) {
+            sgemm_colmajor_narrow_padded<3, 2>(A, B, N, D, M, out, false);
+            return;
+        } else {
+            sgemm_colmajor_narrow_padded<3, 1>(A, B, N, D, M, out, false);
+            return;
+        }
+    } else if (D % 2 == 0) {
+        if (M % 2 == 0) {
+            // printf("running special case; using <2, 2>\n");
+            sgemm_colmajor_narrow_padded<2, 2>(A, B, N, D, M, out, false);
+            return;
+        } else {
+            sgemm_colmajor_narrow_padded<2, 1>(A, B, N, D, M, out, false);
+            return;
+        }
+    } else {
+        // TODO break up into multiple matmuls using <4, 3> if possible
+        sgemm_colmajor_narrow_padded<1, 1>(A, B, N, D, M, out, false);
+        return;
+    }
+    // if (D < 4) { // M must be at least 5 or we would have handled this
+    //     switch(D) {
+    //         case 1:
+    //             sgemm_colmajor_narrow_padded<1, 3>(A, B, N, D, M_round, out, false, A_col_stride, B_col_stride, out_col_stride);
+    //             if (M_)
+    //             break;
+    //         case 2: sgemm_colmajor_narrow_padded<2, 3>(A, B, N, D, M_round, out, false, A_col_stride, B_col_stride, out_col_stride); break;
+    //         case 3: sgemm_colmajor_narrow_padded<3, 3>(A, B, N, D, M_round, out, false, A_col_stride, B_col_stride, out_col_stride); break;
+    //     }
+    // } else if (M < 3) { // D must be at least 5 or would have handled this
+    //     // switch(M) {
+    //     //     case 1: sgemm_colmajor_narrow_padded<4, 1>(A, B, N, D_round, M_round, out, false, A_col_stride, B_col_stride, out_col_stride); break;
+    //     //     case 2: sgemm_colmajor_narrow_padded<4, 2>(A, B, N, D_round, M_round, out, false, A_col_stride, B_col_stride, out_col_stride); break;
+    //     // }
+    // } else { // D >= 4 && M >= 3
+    //     // do this as many times as possible; stuff below handles trailing dims
+    //     sgemm_colmajor_narrow_padded<4, 3>(A, B, N, D_round, M_round, out, false, A_col_stride, B_col_stride, out_col_stride);
+    // }
 
     // printf("case %d\n", D_tail * 10 + M_tail);
     switch (D_tail * 10 + M_tail) {
