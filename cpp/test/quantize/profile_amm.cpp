@@ -467,15 +467,31 @@ TEST_CASE("amm lut+scan bolt", "[amm][matmul][bolt][profile]") {
     }
 }
 
-void _amm_mithral_unpacked(const float* X, int64_t nrows, int ncols,
+
+template<class InputT> struct input_type_traits {};
+template<> struct input_type_traits<float> {
+    using scales_type = float;
+    using offsets_type = float;
+    // using output_type = float;
+};
+template<> struct input_type_traits<int16_t> {
+    using scales_type = uint8_t;
+    using offsets_type = int16_t;
+    // using output_type = int16_t;
+};
+template<> struct input_type_traits<int8_t> {
+    using scales_type = uint8_t;    // doesn't matter; unused
+    using offsets_type = uint8_t;  // doesn't matter; unused
+    // using output_type = int8_t;
+};
+
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_unpacked(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, int8_t* luts,
     int16_t* out_mat, int out_ncols)
 {
-    // multisplit_encode_8b_colmajor(
-    //     X, nrows, ncols, splitdims, all_splitvals, scales,
-    //     offsets, ncodebooks, nsplits_per_codebook, out_enc);
     multisplit_encode_4b_colmajor(
         X, nrows, ncols, splitdims, all_splitvals, scales,
         offsets, ncodebooks, out_enc);
@@ -490,9 +506,10 @@ void _amm_mithral_unpacked(const float* X, int64_t nrows, int ncols,
     }
 }
 
-void _amm_mithral_packed(const float* X, int64_t nrows, int ncols,
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_packed(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
     int16_t* out_mat, int out_ncols)
 {
@@ -514,9 +531,10 @@ void _amm_mithral_packed(const float* X, int64_t nrows, int ncols,
     }
 }
 
-void _amm_mithral_bolt(const float* X, int64_t nrows, int ncols,
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_bolt(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
     int16_t* out_mat, int out_ncols)
 {
@@ -541,9 +559,10 @@ void _amm_mithral_bolt(const float* X, int64_t nrows, int ncols,
 
 
 // template<int UpcastEvery=4>
-void _amm_mithral_tile(const float* X, int64_t nrows, int ncols,
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_tile(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
     int16_t* out_mat, int out_ncols)
 {
@@ -564,9 +583,12 @@ void _amm_mithral_tile(const float* X, int64_t nrows, int ncols,
     // }
 }
 
-void _amm_mithral_just_enc(const float* X, int64_t nrows, int ncols,
+
+
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_just_enc(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
 {
     multisplit_encode_4b_colmajor(
@@ -575,30 +597,33 @@ void _amm_mithral_just_enc(const float* X, int64_t nrows, int ncols,
     // multisplit_encode_8b_colmajor(
     //     X, nrows, ncols, splitdims, all_splitvals, scales,
     //     offsets, ncodebooks, 4, out_enc);
-    zip4_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+    zip_bolt_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+    // zip4_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
     // memset(out_mat, 42, nrows * out_ncols * sizeof(out_mat[0]));
 }
 
-void _amm_mithral_just_zip(const float* X, int64_t nrows, int ncols,
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_just_zip(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
 {
     zip4_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
 }
 
-
-void _amm_mithral_just_zip2(const float* X, int64_t nrows, int ncols,
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_just_zip2(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
 {
     zip2_4b_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
 }
 
-void _amm_mithral_just_zip_bolt(const float* X, int64_t nrows, int ncols,
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_just_zip_bolt(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
-    const float* scales, const float* offsets,
+    const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed)
 {
     zip_bolt_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
@@ -629,6 +654,7 @@ void _amm_mithral_just_zip_bolt(const float* X, int64_t nrows, int ncols,
 //     // }
 // }
 
+template<class InputT=float>
 void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     // static const int N = 128 * 1000;
     // static const uint32_t D = 64;
@@ -639,7 +665,6 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     int total_nsplits = ncodebooks * nsplits_per_codebook;
     int group_id_nbits = 4;
     int max_ngroups = 1 << group_id_nbits;
-
     auto orig_N = N;
 
     if (N % 32 > 0) {
@@ -651,11 +676,15 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     //     D += ncodebooks - (D % ncodebooks);
     // }
 
+    using scales_t = typename input_type_traits<InputT>::scales_type;
+    using offsets_t = typename input_type_traits<InputT>::offsets_type;
+
+
     // printf("N, D, M, ncodebooks: %6d, %3d, %3d, %2d, \t", N, D, M, ncodebooks);
     // printf("total_nsplits: %d\n", total_nsplits);
 
     // create data + info needed for encoding
-    ColMatrix<float> X(N, D);
+    ColMatrix<InputT> X(N, D);
     X.setRandom();
     RowVector<uint32_t> splitdims_(total_nsplits);
     splitdims_.setRandom();
@@ -663,9 +692,9 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
         [=](const int x) { return x % D; });
     ColMatrix<int8_t> all_splitvals(max_ngroups, total_nsplits);
     all_splitvals.setRandom();
-    RowVector<float> scales(total_nsplits);
+    RowVector<scales_t> scales(total_nsplits);
     scales.setRandom();
-    RowVector<float> offsets(total_nsplits);
+    RowVector<offsets_t> offsets(total_nsplits);
     offsets.setRandom();
     ColMatrix<uint8_t> codes(N, ncodebooks);
     codes.setRandom();
@@ -681,6 +710,9 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     // storage for overall distances
     ColMatrix<int16_t> out_mat(N, out_ncols);
 
+    // ColMatrix<InputT> X_f(N, D);
+    // X_f.setRandom();
+
 //    std::string msg = string_with_format(
 //        "amm multisplit   N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
 //        orig_N, D, M, ncodebooks);
@@ -693,40 +725,47 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
     std::string msg;
     printf("----\n");
+    // switch(InputT)
+    std::string dtype_str("f32");
+    if (sizeof(InputT) == 1) {
+        dtype_str = "i8";
+    } else if (sizeof(InputT) == 2) {
+        dtype_str = "i16";
+    }
+
+    // msg = string_with_format(
+    //     "%s amm mithral tile N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    //     dtype_str.c_str(), orig_N, D, M, ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     out_mat.data(), out_mat.size(),
+    //     _amm_mithral_tile(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks,
+    //         codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
+
+    // msg = string_with_format(
+    //     "%s amm mithral unpa N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    //     dtype_str.c_str(), orig_N, D, M, ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     out_mat.data(), out_mat.size(),
+    //     _amm_mithral_unpacked(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks,
+    //         codes.data(), luts.data(), out_mat.data(), out_ncols));
+
+    // msg = string_with_format(
+    //     "%s amm mithral pack N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    //     dtype_str.c_str(), orig_N, D, M, ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     out_mat.data(), out_mat.size(),
+    //     _amm_mithral_packed(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks,
+    //         codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
 
     msg = string_with_format(
-        "amm mithral tile N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out_mat.data(), out_mat.size(),
-        _amm_mithral_tile(
-            X.data(), N, D, splitdims.data(), all_splitvals.data(),
-            scales.data(), offsets.data(), ncodebooks,
-            codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
-
-    msg = string_with_format(
-        "amm mithral unpa N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out_mat.data(), out_mat.size(),
-        _amm_mithral_unpacked(
-            X.data(), N, D, splitdims.data(), all_splitvals.data(),
-            scales.data(), offsets.data(), ncodebooks,
-            codes.data(), luts.data(), out_mat.data(), out_ncols));
-
-    msg = string_with_format(
-        "amm mithral pack N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out_mat.data(), out_mat.size(),
-        _amm_mithral_packed(
-            X.data(), N, D, splitdims.data(), all_splitvals.data(),
-            scales.data(), offsets.data(), ncodebooks,
-            codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
-
-    msg = string_with_format(
-        "amm mithral bolt N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
+        "%s amm mithral      N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
         _amm_mithral_bolt(
@@ -736,8 +775,8 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
     // X.setRandom();
     msg = string_with_format(
-        "amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
+        "%s amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         codes_packed.data(), codes_packed.size(),
         _amm_mithral_just_enc(
@@ -745,27 +784,27 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             scales.data(), offsets.data(), ncodebooks,
             codes.data(), codes_packed.data()));
 
+    // msg = string_with_format(
+    //     "%s amm mithral zip4 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    //     dtype_str.c_str(), orig_N, D, M, ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     codes_packed.data(), codes_packed.size(),
+    //     _amm_mithral_just_zip(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks,
+    //         codes.data(), codes_packed.data()));
+    // msg = string_with_format(
+    //     "%s amm mithral zip2 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+    //     dtype_str.c_str(), orig_N, D, M, ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     codes_packed.data(), codes_packed.size(),
+    //     _amm_mithral_just_zip2(
+    //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         scales.data(), offsets.data(), ncodebooks,
+    //         codes.data(), codes_packed.data()));
     msg = string_with_format(
-        "amm mithral zip4 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        codes_packed.data(), codes_packed.size(),
-        _amm_mithral_just_zip(
-            X.data(), N, D, splitdims.data(), all_splitvals.data(),
-            scales.data(), offsets.data(), ncodebooks,
-            codes.data(), codes_packed.data()));
-    msg = string_with_format(
-        "amm mithral zip2 N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        codes_packed.data(), codes_packed.size(),
-        _amm_mithral_just_zip2(
-            X.data(), N, D, splitdims.data(), all_splitvals.data(),
-            scales.data(), offsets.data(), ncodebooks,
-            codes.data(), codes_packed.data()));
-    msg = string_with_format(
-        "amm mithral zipb N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
-        orig_N, D, M, ncodebooks);
+        "%s amm mithral zipb N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         codes_packed.data(), codes_packed.size(),
         _amm_mithral_just_zip_bolt(
@@ -774,7 +813,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             codes.data(), codes_packed.data()));
 }
 
-TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][mithral][matmul][profile]") {
+TEST_CASE("amm actual matmul multisplit", "[amm][multisplit][mithral][matmul][profile]") {
     // _profile_multisplit(128 * 1000, 64, 32, 4);
     // std::vector<int> ncodebooks {4, 8, 16, 32, 64};
     // std::vector<int> ncodebooks {4, 64};
@@ -783,16 +822,14 @@ TEST_CASE("amm enc+scan multisplit", "[amm][multisplit][mithral][matmul][profile
     // std::vector<int> ncodebooks {4};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
-        // _profile_multisplit(128 * 1000, 64, 32, c);
-        _profile_multisplit(10000, 512, 10, c);     // cifar10
-
-        // TODO uncomment below
-
-        _profile_multisplit(10000, 512, 100, c);    // cifar100
-        _profile_multisplit(57593, 24, 3, c);       // ecg
-        // _profile_multisplit(115193, 24, 3, c);      // ecg
-        // _profile_multisplit(230393, 24, 3, c);      // ecg
-        _profile_multisplit(49284, 27, 2, c);       // caltech
+        _profile_multisplit<float>(10000, 512, 10, c);  // cifar10
+        _profile_multisplit<float>(10000, 512, 100, c); // cifar100
+        _profile_multisplit<float>(57593, 24, 3, c);  // ecg
+        _profile_multisplit<int16_t>(57593, 24, 3, c);  // ecg
+        // _profile_multisplit(115193, 24, 3, c);       // ecg
+        // _profile_multisplit(230393, 24, 3, c);       // ecg
+        _profile_multisplit<float>(49284, 27, 2, c);   // caltech
+        _profile_multisplit<int8_t>(49284, 27, 2, c);   // caltech
     }
 }
 

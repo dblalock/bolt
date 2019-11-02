@@ -569,6 +569,16 @@ void multisplit_encode_4b_colmajor(const int8_t* X, int64_t nrows, int ncols,
     // }
 }
 
+// wrapper for int8 version that can deal with scales and offsets provided
+void multisplit_encode_4b_colmajor(const int8_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const void* shifts_unused, const void* offsets_unused,
+    int ncodebooks, uint8_t* out)
+{
+    multisplit_encode_4b_colmajor(
+        X, nrows, ncols, splitdims, all_splitvals, ncodebooks, out);
+}
+
 // version with int16 data
 template<int Layout=Layouts::ColMajorNoPack>
 void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,

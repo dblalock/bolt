@@ -97,8 +97,8 @@ static inline void print_dist_stats(const std::string& name, int64_t N,
                 prevent_optimizing_away_dists(DISTS_PTR, NUM_DISTS);    \
                 __t_min = __t < __t_min ? __t : __t_min;                \
             }                                                           \
-            printf("%.5g (%lld/s), ", __t_min,                          \
-                static_cast<int64_t>(NUM_DISTS * 1e3 / __t_min));       \
+            printf("%.3f (%.3e/s), ", __t_min,                          \
+                static_cast<double>(NUM_DISTS * 1e3 / __t_min));        \
         }                                                               \
         printf("\n");                                                   \
     } while (0);
