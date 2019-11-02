@@ -148,6 +148,11 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
     ColMatrix<int16_t> X_i16(N, D);
     X_i16.setRandom();
 
+    RowVector<int16_t> offsets_i16(total_nsplits);
+    offsets_i16.setRandom();
+    RowVector<uint8_t> shifts(total_nsplits);
+    shifts.setRandom();
+
     // multisplit_encode_4b_colmajor_v2(
     //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
     //         scales.data(), offsets.data(), ncodebooks, out.data(), X_i8.data());
@@ -159,14 +164,14 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
     // printf("sum of out: %d\n", out.sum());
 
     // printf("out.size(): %lu\n", out.size());
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 8b ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 8b         ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_8b_colmajor(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, nsplits_per_codebook,
             out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 4b ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit encode 4b         ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
@@ -178,31 +183,31 @@ TEST_CASE("amm profile multisplit encode", "[amm][encode][multisplit][profile]")
     //         X.data(), N, D, splitdims.data(), all_splitvals.data(),
     //         scales.data(), offsets.data(), ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 4b ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 4b         ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor(
             X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
             ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 bolt 4b ", kNtrials,
-        out.data(), out.size(),
-        multisplit_encode_4b_colmajor<Layouts::BoltNoPack>(
-            X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
-            ncodebooks, out.data()));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i8 bolt 4b    ", kNtrials,
+    //     out.data(), out.size(),
+    //     multisplit_encode_4b_colmajor<Layouts::BoltNoPack>(
+    //         X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i16 4b", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i16 4b        ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor(
             X_i16.data(), N, D, splitdims.data(), all_splitvals.data(),
-            ncodebooks, out.data()));
+            shifts.data(), offsets_i16.data(), ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i16 bolt 4b ", kNtrials,
-        out.data(), out.size(),
-        multisplit_encode_4b_colmajor<Layouts::BoltNoPack>(
-            X_i16.data(), N, D, splitdims.data(), all_splitvals.data(),
-            ncodebooks, out.data()));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc i16 bolt 4b   ", kNtrials,
+    //     out.data(), out.size(),
+    //     multisplit_encode_4b_colmajor<Layouts::BoltNoPack>(
+    //         X_i16.data(), N, D, splitdims.data(), all_splitvals.data(),
+    //         shifts.data(), offsets_i16.data(), ncodebooks, out.data()));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc f v2  ", kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "multisplit enc f v2          ", kNtrials,
         out.data(), out.size(),
         multisplit_encode_4b_colmajor_v2(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),

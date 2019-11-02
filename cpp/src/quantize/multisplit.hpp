@@ -134,8 +134,8 @@ void split_encode_4b_colmajor(const float* X, int64_t nrows, int ncols,
             auto splitval = splitvals[split_idx + s];
             x_ptrs[s] = X + (x_col_stride * splitdim);
             current_vsplitvals[s] = _mm256_set1_epi8(splitval);
-            current_vscales[s] = _mm256_set1_epi8(scales[split_idx + s]);
-            current_voffsets[s] = _mm256_set1_epi8(offsets[split_idx + s]);
+            current_vscales[s] = _mm256_set1_ps(scales[split_idx + s]);
+            current_voffsets[s] = _mm256_set1_ps(offsets[split_idx + s]);
         }
         split_idx += nsplits_per_codebook;
 
@@ -215,9 +215,8 @@ void split_encode_4b_colmajor_alt(const float* X, int64_t nrows, int ncols,
         auto out_ptr = out + (out_col_stride * c);
         for (int s = 0; s < nsplits_per_codebook; s++) {
             auto splitdim = splitdims[split_idx + s];
-            auto splitval = splitvals[split_idx + s];
             x_ptrs[s] = X + (x_col_stride * splitdim);
-            current_vsplitvals[s] = _mm256_set1_ps(splitval);
+            current_vsplitvals[s] = _mm256_set1_ps(splitvals[split_idx + s]);
         }
         split_idx += nsplits_per_codebook;
 
@@ -425,8 +424,8 @@ void multisplit_encode_4b_colmajor(
             auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
             current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
                 load_si128i((const __m128i*)splitvals_ptr));
-            current_vscales[s] = _mm256_set1_epi8(scales[split_idx + s]);
-            current_voffsets[s] = _mm256_set1_epi8(offsets[split_idx + s]);
+            current_vscales[s] = _mm256_set1_ps(scales[split_idx + s]);
+            current_voffsets[s] = _mm256_set1_ps(offsets[split_idx + s]);
         }
         split_idx += nsplits_per_codebook;
 
@@ -574,6 +573,7 @@ void multisplit_encode_4b_colmajor(const int8_t* X, int64_t nrows, int ncols,
 template<int Layout=Layouts::ColMajorNoPack>
 void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
+    const uint8_t* shifts, const int16_t* offsets,
     int ncodebooks, uint8_t* out)
     // const float* scales, int ncodebooks, uint8_t* out)
 {
@@ -589,6 +589,8 @@ void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,
     size_t splitval_luts_stride = vals_per_split;
     const int16_t* x_ptrs[nsplits_per_codebook];
     __m256i current_vsplitval_luts[nsplits_per_codebook];
+    uint8_t current_shifts[nsplits_per_codebook];
+    __m256i current_voffsets[nsplits_per_codebook];
 
     int split_idx = 0;
     for (int c = 0; c < ncodebooks; c++) {
@@ -609,6 +611,8 @@ void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,
             auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
             current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
                 load_si128i((const __m128i*)splitvals_ptr));
+            current_shifts[s] = shifts[split_idx + s];
+            current_voffsets[s] = _mm256_set1_epi16(offsets[split_idx + s]);
         }
         split_idx += nsplits_per_codebook;
 
@@ -616,6 +620,9 @@ void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,
             __m256i codes = _mm256_setzero_si256();
             #pragma unroll
             for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto shift = current_shifts[s];
+                auto voffsets = current_voffsets[s];
+
                 auto vsplitvals_lut = current_vsplitval_luts[s];
                 auto vsplitvals = _mm256_shuffle_epi8(
                         vsplitvals_lut, codes); // codes = group_ids
@@ -623,6 +630,12 @@ void multisplit_encode_4b_colmajor(const int16_t* X, int64_t nrows, int ncols,
                 auto x_i16_0_15 = load_si256i(x_ptrs[s]);
                 auto x_i16_16_31 = load_si256i(x_ptrs[s] + 16);
                 x_ptrs[s] += 32;
+
+                // offset and shift to get to i8 range
+                x_i16_0_15 = _mm256_adds_epi16(x_i16_0_15, voffsets);
+                x_i16_16_31 = _mm256_adds_epi16(x_i16_16_31, voffsets);
+                x_i16_0_15 = _mm256_srai_epi16(x_i16_0_15, shift);
+                x_i16_16_31 = _mm256_srai_epi16(x_i16_16_31, shift);
 
                 // convert i16 to i8; note that this puts it in a weird
                 // order
