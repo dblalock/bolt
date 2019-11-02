@@ -224,9 +224,10 @@ def _hparams_for_method(method_id):
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
     if method_id in VQ_METHODS:
-        mvals = [1, 2, 4, 8, 16, 32, 64]
+        # mvals = [1, 2, 4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
+        mvals = [8, 16] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
@@ -275,10 +276,10 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
             print("-------- running task: {} ({}/{})".format(
                 task.name, i + 1, ntasks))
         task.validate_shapes()  # fail fast if task is ill-formed
-        metrics_for_task = []
         for method_id in methods:
             ntrials = _ntrials_for_method(method_id=method_id, ntasks=ntasks)
             # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
+            metrics_dicts = []
             for hparams_dict in _hparams_for_method(method_id):
                 if verbose > 1:
                     print("running method: ", method_id)
@@ -302,16 +303,16 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                         metrics.update(est.get_params())
                         print("got metrics: ")
                         pprint.pprint(metrics)
-                        metrics_for_task.append(metrics)
+                        metrics_dicts.append(metrics)
                 except amm.InvalidParametersException as e:
                     # hparams don't make sense for this task (eg, D < d)
                     if verbose > 2:
                         print("hparams apparently invalid: {}".format(e))
 
-        if len(metrics_for_task):
-            pyn.save_dicts_as_data_frame(
-                metrics_for_task, save_dir='results/amm', name=saveas,
-                dedup_cols=independent_vars)
+            if len(metrics_dicts):
+                pyn.save_dicts_as_data_frame(
+                    metrics_dicts, save_dir='results/amm', name=saveas,
+                    dedup_cols=independent_vars)
 
         if i + 1 >= limit_ntasks:
             return
@@ -320,7 +321,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 limit_ntasks=10, compression_metrics=True)
+                 # limit_ntasks=10, compression_metrics=True)
+                 limit_ntasks=10, compression_metrics=False)
 
 
 def main_caltech(methods=None, saveas='caltech'):
@@ -349,6 +351,7 @@ def main_all(methods=None):
 def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar100(methods=['Bolt', 'Exact'])
+    main_ecg(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['OPQ', 'Exact'])
     # main_cifar100(methods=['PQ', 'Exact'])
     # main_cifar10(methods=VQ_METHODS)
@@ -373,7 +376,7 @@ def main():
     # main_cifar10()
     # main_cifar100()
     # main_ecg()
-    main_caltech()
+    # main_caltech()
     # main_ecg(methods=['Bolt+Perm', 'Bolt+CorrPerm', 'Bolt'])
     # main_ecg(methods=['PQ', 'Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Exact'])

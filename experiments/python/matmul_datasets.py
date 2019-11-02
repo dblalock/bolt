@@ -7,7 +7,7 @@ import numpy as np
 # import pathlib as pl
 from sklearn import linear_model
 
-from python.datasets import caltech, sharee
+from python.datasets import caltech, sharee, incart
 from python import window
 
 from joblib import Memory
@@ -67,7 +67,7 @@ class MatmulTask(object):
             assert mse < mse_thresh
 
 
-# ================================================================ ECG (sharee)
+# ================================================================ ECG
 
 def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 
@@ -146,27 +146,54 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 #         limit_nhours=limit_nhours, generator=generator)
 
 
+# ------------------------------------------------ sharee
+
 # @_memory.cache()  # caching is no faster than just recomputing
-def load_ecg_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=.5):
+def load_sharee_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=.5):
     rec = sharee.load_recording(rec_id, limit_nhours=limit_nhours)
     return _load_x_y_w_for_ar_model(rec, window_len=window_len)
 
 
-def load_ecg_tasks(window_len=8, validate=False, **kwargs):
-    # recordings = load_ecg_recordings(**kwargs)
+def load_sharee_tasks(window_len=8, validate=False, **kwargs):
     rec_ids = sharee.load_recording_ids()
-    # for i, rec_id in list(enumerate(rec_ids))[:10]: # TODO rm
-    # tasks = []
     for i, rec_id in enumerate(rec_ids):
-        task = load_ecg_x_y_w_for_recording_id(rec_id, window_len=window_len)
+        task = load_sharee_x_y_w_for_recording_id(
+            rec_id, window_len=window_len)
         # task.info = {'rec_id: ', rec_id}
         task.name = rec_id
         if validate:
             print("validating ecg task {}/{}...".format(i + 1, len(rec_ids)))
             task.validate(mse_thresh=.25)  # normalized mse; >0 since lstsq
         yield task
-        # tasks.append(task)
-    # return tasks
+
+
+# ------------------------------------------------ incart
+
+def load_incart_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=1):
+    rec = incart.load_recording(rec_id, limit_nhours=limit_nhours)
+    return _load_x_y_w_for_ar_model(rec, window_len=window_len)
+
+
+def load_incart_tasks(window_len=8, validate=False, **kwargs):
+    rec_ids = incart.load_recording_ids()
+    for i, rec_id in enumerate(rec_ids):
+        task = load_incart_x_y_w_for_recording_id(
+            rec_id, window_len=window_len)
+        task.name = rec_id
+        if validate:
+            print("validating ecg task {}/{}...".format(i + 1, len(rec_ids)))
+            task.validate(mse_thresh=.25)  # normalized mse; >0 since lstsq
+        yield task
+
+
+# ------------------------------------------------ wrapper
+
+def load_ecg_x_y_w_for_recording_id(*args, **kwargs):
+    return load_incart_x_y_w_for_recording_id(*args, **kwargs)
+
+
+def load_ecg_tasks(*args, **kwargs):
+    return load_incart_tasks(*args, **kwargs)
 
 
 # ================================================================ caltech

@@ -57,4 +57,5 @@ CALTECH_256 = to_path('caltech', '256_ObjectCategories')
 
 # SHAREE Database
 SHAREE_ECG = to_path('sharee-ecg-database')
+INCART_ECG = to_path('incart-12-lead-ecg')
 

@@ -16,13 +16,12 @@ from joblib import Memory
 _memory = Memory('.', verbose=0)
 
 
-DATA_DIR = paths.SHAREE_ECG
-NUM_RECORDINGS = 139
-NUM_CHANNELS = 3
-RAW_DTYPE = np.uint16
-# RAW_DTYPE = np.int16
+DATA_DIR = paths.INCART_ECG
+NUM_RECORDINGS = 75
+NUM_CHANNELS = 12
+RAW_DTYPE = np.int16
 
-SAMPLES_PER_SEC = 128
+SAMPLES_PER_SEC = 257
 SAMPLES_PER_MIN = SAMPLES_PER_SEC * 60
 SAMPLES_PER_HOUR = SAMPLES_PER_MIN * 60
 
@@ -36,12 +35,10 @@ def load_recording_ids():
 
 @_memory.cache
 def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
-    # dtype = np.float32 if dtype is None else dtype
     path = os.path.join(DATA_DIR, rec_id)
     a = np.fromfile(path, dtype=RAW_DTYPE)
     assert len(a) % NUM_CHANNELS == 0
-    a = a.reshape(-1, NUM_CHANNELS)  # looks like it's rowmajor
-    # a = a.reshape(NUM_CHANNELS, -1).T  # is colmajor clearly wrong? EDIT: yes
+    a = a.reshape(-1, NUM_CHANNELS)  # yep, clearly rowmajor when plotted
 
     if limit_nhours and limit_nhours > 0:
         a = a[:int(limit_nhours * SAMPLES_PER_HOUR)]
@@ -58,7 +55,6 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
     return a
 
 
-# def load_recordings(generator=False, plot=False, **kwargs):
 def load_recordings(plot=False, **kwargs):
     rec_ids = load_recording_ids()
     recs = []
@@ -69,9 +65,10 @@ def load_recordings(plot=False, **kwargs):
 
         if plot:
             if i < 5:
-                offset = SAMPLES_PER_MIN
+                offset = 0
                 a = rec[offset:(offset + 1000)]
-                print('about to plot recording', rec_id)
+                print("plotting recording {} with shape: {}".format(
+                      rec_id, rec.shape))
                 plt.figure(figsize=(9, 7))
                 plt.plot(a)
                 plt.show()
@@ -82,8 +79,6 @@ def load_recordings(plot=False, **kwargs):
 
 
 if __name__ == '__main__':
-    # print("done")
     print("about to call load_recordings")
     load_recordings(plot=True)
-    # print("rec ids: ", load_recording_ids())
     print("called load_recordings")
