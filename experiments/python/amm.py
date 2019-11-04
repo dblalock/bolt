@@ -3,6 +3,10 @@
 import abc
 import numpy as np
 from sklearn.utils.extmath import randomized_svd
+import numba  # conda install numba
+
+# import ffht  # https://github.com/FALCONN-LIB/FFHT; python setup.py install
+import scipy
 
 KEY_NMULTIPLIES = 'muls'
 
@@ -213,7 +217,7 @@ class SvdSketch(SketchedMatmul):
         return {KEY_NMULTIPLIES: total}
 
 
-# ================================================================ samplings
+# ================================================================ drineas06
 
 def _compute_dim_scores(A, B, A_col_norms=None, B_row_norms=None):
     if A_col_norms is None:
@@ -225,26 +229,32 @@ def _compute_dim_scores(A, B, A_col_norms=None, B_row_norms=None):
 
 def sketch_sq_sample(A, B, d):
     scores = _compute_dim_scores(A, B)  # TODO uncomment after debug
+    idxs, weights = importance_sample(scores, d)
+    # idxs, weights = sample_varopt_1d(scores, d)  # doesn't help
+    return A[:, idxs] / weights, B[idxs]
+    # weights = np.sqrt(weights)
+    # return A[:, idxs] / weights, B[idxs] / weights.reshape(-1, 1)
+
     # scores = np.ones(A.shape[1]) # TODO rm after debug
-    probs = scores / np.sum(scores)
+    # probs = scores / np.sum(scores)
 
-    D = A.shape[1]
-    keep_idxs = np.random.choice(D, size=d, p=probs)
-    # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)  # TODO rm
-    # keep_idxs = np.random.choice(D, size=d, replace=False)  # TODO rm
-    # keep_idxs = np.arange(D-1)  # TODO rm
-    # keep_idxs = np.arange(1, D)  # TODO rm
-    # keep_idxs = np.arange(D)  # TODO rm
+    # D = A.shape[1]
+    # keep_idxs = np.random.choice(D, size=d, p=probs)
+    # # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)  # TODO rm
+    # # keep_idxs = np.random.choice(D, size=d, replace=False)  # TODO rm
+    # # keep_idxs = np.arange(D-1)  # TODO rm
+    # # keep_idxs = np.arange(1, D)  # TODO rm
+    # # keep_idxs = np.arange(D)  # TODO rm
 
-    weights = np.sqrt(d * probs)  # what the paper says; huge errors
-    # weights = np.sqrt(D * probs)  # slightly less bad
-    # weights = np.sqrt(np.sqrt(d * probs))
-    # weights = np.ones(D)
-    A = np.copy(A) / weights
-    B = np.copy(B) / weights.reshape(-1, 1)
+    # weights = np.sqrt(d * probs)  # what the paper says; huge errors
+    # # weights = np.sqrt(D * probs)  # slightly less bad
+    # # weights = np.sqrt(np.sqrt(d * probs))
+    # # weights = np.ones(D)
+    # A = np.copy(A) / weights
+    # B = np.copy(B) / weights.reshape(-1, 1)
 
     # return np.copy(A[:, keep_idxs]), np.copy(B[keep_idxs])
-    return A[:, keep_idxs], B[keep_idxs]
+    # return A[:, keep_idxs], B[keep_idxs]
     # return A, B
 
 
@@ -291,6 +301,246 @@ def test_sketch_sq_sample():
         print('d = {}, err = {:.3f}'.format(d, normed_err_sq))
         assert normed_err_sq < 2.
         assert normed_err_sq < (prev_normed_err + .05)  # should usually hold
+        prev_normed_err = normed_err_sq
+
+
+# ================================================================ sampling
+
+# wait, this just returns points summing to the true sample sum
+# deterministically...
+def importance_sample(sample_weights, m, replace=False):
+    probs = sample_weights / sample_weights.sum()
+    idxs = np.random.choice(
+        np.arange(len(sample_weights)), p=probs, replace=replace, size=m)
+    weights = 1. / (probs[idxs] * m)
+    return idxs, weights
+
+
+def _invert_permutation(permutation):
+    return np.arange(len(permutation))[np.argsort(permutation)]
+
+
+def _sum_for_tau(x, tau):
+    above_tau = x > tau
+    return x[above_tau].sum() + (x[~above_tau] / tau).sum()
+
+
+def _compute_new_tau(x_sorted_desc, m, tau=0):
+    x = x_sorted_desc
+    current_sum = _sum_for_tau(x, tau)
+    assert current_sum >= m
+    while current_sum > m:
+        x = x[:-1]
+        current_sum = _sum_for_tau(x, tau)
+
+
+def sample_varopt_1d(x, m):
+    # varopt sampling; original paper (see Algorithm 1 on p16):
+    #   https://arxiv.org/pdf/0803.0473.pdf
+    # better intuition:
+    #   https://datasketches.github.io/docs/Sampling/VarOptSampling.html
+    #
+    # unlike paper, we're just going to do it all at once since that will
+    # be simpler and vectorize way better; basically just recursively
+    # take largest point w_i if w_i > (m / sum_i w_i), with m decremented
+    # by 1 each time; if this doesn't take all the points, importance sample
+    # from the remaining points (with probs proportional to their weights)
+    #
+    # EDIT: this sucks unless really heavy tailed, so probably not a
+    # correct impl?
+    x = np.asarray(x, dtype=np.float32)
+    n = len(x)
+
+    if m >= n:
+        return np.arange(n)
+
+    maxval = np.max(x)
+    minval = np.min(x)
+    assert minval >= 0  # needs nonnegative entries
+    if minval == maxval or m == 1:
+        return np.random.choice(np.arange(n), size=m)
+
+    sort_idxs = np.argsort(x)[::-1]  # in descending order
+    x_sorted = x[sort_idxs]
+    unsort_idxs = _invert_permutation(sort_idxs)
+
+    q = x_sorted * (m / np.sum(x_sorted))  # sums to m
+
+    # q_tailsums = np.cumsum(q[::-1])[::-1]
+
+    # next_val = x_sorted[0]
+    head_sz = 0
+    for i in range(m):
+        if q[0] >= 1.:
+            head_sz += 1
+            q = q[1:] * ((m - 1) / q[1:].sum())
+            # TODO just compute tail sums once for renormalization (below)
+            # q_mass_eliminated = q[i]
+            # next_val = q[i + 1] * (m - head_sz) / m * ()
+            # renormalize such that tail sums to m - 1
+        else:
+            break
+
+    # head_sz = 0; # TODO rm
+
+    tail_sz = m - head_sz
+    # print("m, head_sz, tail_sz:", m, head_sz, tail_sz)
+    # print("len(q)", len(q))
+
+    # probs = q / np.sum(q)
+    probs = x_sorted[head_sz:] / np.sum(x_sorted[head_sz:])
+    tail_idxs = np.random.choice(
+        np.arange(head_sz, n), p=probs, replace=False, size=tail_sz)
+    idxs = list(tail_idxs)
+    # idxs = tail_idxs
+    # tau = tail_sz / np.sum(x_sorted[head_sz:])
+    # print("tau: ", tau)
+    # print("x_sorted[:head_sz + 1]: ", x_sorted[:head_sz + 1])
+    # tau = x_sorted[head_sz]
+    true_probs = probs[tail_idxs - head_sz] * (tail_sz / m)
+    weights = list(1. / (m * true_probs))  # small err; definitely right
+    # weights = [tau] * tail_sz
+
+    if head_sz > 0:
+        head_idxs = list(np.arange(head_sz))
+        head_weights = list(np.ones(head_sz))
+        idxs = head_idxs + idxs
+        weights = head_weights + weights
+
+    return unsort_idxs[idxs], np.array(weights)
+
+
+# ============================================================ random sketches
+
+# sketch both A and B jointly using the same matrix to amortize overhead and
+# because it seems like this should help accuracy
+# @numba.jit(nopython=True)
+def fastjl_sketch(A, B, d, P=None):
+    N, D = A.shape
+    M = B.shape[1]
+
+    # pad A and B for FHT
+    log2_D = int(np.ceil(np.log2(D)))
+    D_pad = 2 ** log2_D
+    A_pad = np.zeros((N, D_pad), dtype=np.float32)
+    A_pad[:, :D] = A
+    B_pad = np.zeros((D_pad, M), dtype=np.float32)
+    B_pad[:D] = B
+
+    # construct and apply random signs for each dim
+    randsigns = np.random.randint(0, 2, size=D_pad) * 2 - 1
+    # scale now instead of scaling FHT mat, so only O(D) multiplies
+    randsigns = randsigns.astype(np.float32) * (1. / np.sqrt(D_pad))
+    A_pad *= randsigns
+    B_pad *= randsigns.reshape(-1, 1)
+
+    # # apply fast hadamard transform
+    H = scipy.linalg.hadamard(D_pad, dtype=np.float32)
+    # H = scipy.linalg.hadamard(D_pad, dtype=np.float32) / np.sqrt(D_pad)
+    A_pad = A_pad @ H
+    B_pad = H @ B_pad
+
+    # dimensionalty reduction
+    if P is None:
+        logd = np.log2(D_pad)
+        keep_prob = logd * logd / D_pad
+        # if (keep_prob) >= 1:
+        # print("WARNING: FastJL returning all zeros mat...")
+        P = (np.random.uniform(size=(D_pad, d)) > keep_prob).astype(np.float32)
+        # P *= np.random.randn(*P.shape) * (d / keep_prob)
+        # scaling sigma totally fails; need norm to actually be 1, not just
+        # have expected value of 1
+        P *= np.random.randn(*P.shape)
+        P *= (1. / np.linalg.norm(P, axis=0))
+
+    # print("P shape, Apad shape, Bpad shape: ", P.shape, A_pad.shape, B_pad.shape)
+    return A_pad @ P, P.T @ B_pad
+
+
+@numba.jit(nopython=True)
+def hash_sketch(A, B, d, share_projections=True):
+    N, D = A.shape
+    D, M = B.shape
+    A_hat = np.zeros((N, d), dtype=A.dtype)
+    B_hat = np.zeros((d, M), dtype=B.dtype)
+
+    for j in range(D):
+        idx = np.random.randint(d)
+        sign = (np.random.randint(0, 2) * 2) - 1
+        coeff = sign  # worse than chance, especially for small d
+        # coeff = sign * np.sqrt(d / D)  # best for small d / D
+        # coeff = sign * d / D  # best for larger d / D
+        A_hat[:, idx] += A[:, j] * coeff
+        if share_projections:
+            B_hat[idx] += B[j] * coeff
+            continue
+
+        # use a different projection for B
+        idx = np.random.randint(d)
+        sign = (np.random.randint(0, 2) * 2) - 1
+        B_hat[idx] += B[j] * sign
+
+    # using unscaled signs preserves norms really well, at least for
+    # random matrices
+    # print("A norm, A_hat norm:", np.linalg.norm(A), np.linalg.norm(A_hat))
+    # print("B norm, B_hat norm:", np.linalg.norm(B), np.linalg.norm(B_hat))
+    # A_norm = np.linalg.norm(A)
+    # B_norm = np.linalg.norm(B)
+    # A_hat *= np.linalg.norm(A) / np.linalg.norm(A_hat)
+    # B_hat *= np.linalg.norm(B) / np.linalg.norm(B_hat)
+
+    return A_hat, B_hat
+
+
+def osnap_sketch(A, B, d, s=4):
+    N, D = A.shape
+    D, M = B.shape
+    s = max(1, min(d // 2, s))  # handle s too large relative to d
+    A_hat = np.zeros((N, d), dtype=A.dtype)
+    B_hat = np.zeros((d, M), dtype=B.dtype)
+
+    subspace_len = (d + s - 1) // s  # round up
+    for ss in range(s):
+        start_idx = ss * subspace_len
+        end_idx = min(D, start_idx + subspace_len)
+        A_hat[:, start_idx:end_idx], B_hat[start_idx:end_idx] = \
+            hash_sketch(A, B, subspace_len)
+
+    return A_hat, B_hat
+
+
+def test_rand_sketches():
+    print("test_svd_sketches")
+    N, M, D = 100, 80, 50
+    np.random.seed(1234)
+    A = np.random.randint(5, size=(N, D)).astype(np.float32)
+    B = np.random.randint(5, size=(D, M)).astype(np.float32)
+    A -= np.mean(A)
+    B -= np.mean(B)
+
+    AB = A @ B
+    orig_frob_sq = np.sum(AB * AB)
+
+    prev_normed_err = np.inf
+    # for d in [10]:
+    for d in (1, 2, 4, 8, 16, 32):
+        # (Ua, SVTa), (Ub, SVTb) = svd_sketches(A, B, d)
+        # AB_hat = Ua @ (SVTa @ Ub) @ SVTb
+        A_hat, B_hat = fastjl_sketch(A, B, d)
+        # A_hat, B_hat = hash_sketch(A, B, d)  # sharing projections helps
+        # A_hat, B_hat = hash_sketch(A, B, d, share_projections=False)
+        # A_hat, B_hat = osnap_sketch(A, B, d)
+        AB_hat = A_hat @ B_hat
+
+        # print("fused mats shapes: ")
+        # print(Ua.shape, SVTa.shape, Ub.shape, SVTb.shape)
+
+        diffs = AB - AB_hat
+        err_frob_sq = np.sum(diffs * diffs)
+        normed_err_sq = err_frob_sq / orig_frob_sq
+        print('d = {}, err = {:.5f}'.format(d, normed_err_sq))
+        # assert normed_err_sq < 1.
+        # assert normed_err_sq < prev_normed_err + .001
         prev_normed_err = normed_err_sq
 
 
@@ -396,7 +646,7 @@ def test_svd_sketches():
         prev_normed_err = normed_err_sq
 
 
-# ================================================================ FD-amm
+# ================================================================ FD methods
 
 # TODO impl fast-FD, which zeros out half the entries
 def frequent_directions(A, d, variant=None):
@@ -431,6 +681,59 @@ def frequent_directions(A, d, variant=None):
     return H
 
 
+def fast_frequent_directions(A, d, variant=None, alpha=.5):
+    N, D = A.shape
+    # H = np.zeros((d, D))
+    H = np.copy(A[:d])
+
+    assert N >= d
+    assert D >= d
+
+    cutoff_idx = int(d * (1 - alpha))
+    cutoff_idx = min(d - 1, cutoff_idx)  # always zero at least last element
+    ntrailing_zeros = d - cutoff_idx
+
+    i = d
+    while i < N:
+        try:
+            U, S, Vt = np.linalg.svd(H, full_matrices=False)  # d x d, d, d x D
+        except np.linalg.LinAlgError as e:
+            print("SVD failed at iter ", i - (d - 1))
+            print("H shape: ", H.shape)
+            print("A shape: ", A.shape)
+            print("d: ", d)
+            # print("svd mat shape: ", U.shape, S.shape, Vt.shape)
+            raise e
+
+        cutoff = S[cutoff_idx]
+        if variant == 'parametrized':
+            raise NotImplementedError()
+        else:
+            S = np.sqrt(np.maximum(S - cutoff, 0) ** 2)
+            S = np.sqrt((S - S[-1]) ** 2)  # note that last entry is dth entry
+            # print("new S shape: ", S.shape)
+        # H = np.diag(S) @ Vt  # d x D
+        H = Vt * S.reshape(-1, 1)  # d x D; equivalent to np.diag(S) @ Vt
+
+        # replace zeroed-out rows of H with next rows of A
+        end_dim = min(N, i + ntrailing_zeros)
+        nrows_to_copy = end_dim - i
+        end_row = cutoff_idx + nrows_to_copy
+        assert nrows_to_copy <= ntrailing_zeros
+        assert end_row <= d
+        H[-nrows_to_copy:] = A[i:end_dim]
+        i = end_dim
+
+    return H
+
+
+def parametrized_fd_sketches(A, B, d):
+    # from "Improved Practical Matrix Sketching with Guarantees"
+    A_hat = fast_frequent_directions(A.T, d, variant='parametrized', alpha=.2)
+    B_hat = fast_frequent_directions(B.T, d, variant='parametrized', alpha=.2)
+    return A_hat.T, B_hat.T
+
+
 def fd_amm_sketches(A, B, d):
     # print("A shape: ", A.shape)
     # print("B shape: ", B.shape)
@@ -441,8 +744,27 @@ def fd_amm_sketches(A, B, d):
     D = H[:, A.shape[0]:]  # d x M
     return C.T, D
 
-# TODO this is runtime for fast-fd, not FD
+
+def fast_fd_amm_sketches(A, B, d):
+    # print("A shape: ", A.shape)
+    # print("B shape: ", B.shape)
+    G = np.hstack((A.T, B))   # D x (N + M)
+    H = fast_frequent_directions(G, d)
+    assert H.shape == (d, A.shape[0] + B.shape[1])
+    C = H[:, :A.shape[0]]  # d x N
+    D = H[:, A.shape[0]:]  # d x M
+    return C.T, D
+
+
 def _nmultiplies_frequent_directions(N, D, d):
+    niters = N - d + 1
+    iter_svd_cost = _nmultiplies_svd(d, D)
+    iter_reweight_cost = d * D
+    iter_cost = iter_svd_cost + iter_reweight_cost
+    return niters * iter_cost
+
+
+def _nmultiplies_fast_frequent_directions(N, D, d):
     niters = int(np.ceil(N / d))
     iter_svd_cost = _nmultiplies_svd(d, D)
     iter_reweight_cost = d * D
@@ -599,7 +921,35 @@ def test_cooccur_sketches():
 
 
 if __name__ == '__main__':
+    np.set_printoptions(formatter={'float': lambda f: "{:.3}".format(f)})
     # test_sketch_sq_sample()
     # test_svd_sketches()
     # test_fd_amm_sketches()
-    test_cooccur_sketches()
+    # test_cooccur_sketches()
+    test_rand_sketches()
+
+    # # N = 1000
+    # # N = 100
+    # N = 20
+    # # N = 10
+    # M = 10
+    # # M = 5
+
+    # x = np.arange(N)
+    # # x *= x
+    # # x *= x
+    # # x = np.sqrt(x)
+    # # x = 1.1 ** x
+    # # x = 1.15 ** x
+    # x = 2 ** x
+    # # print("x = ", x)
+    # # idxs, weights = sample_varopt_1d(x, M)
+    # idxs, weights = importance_sample(x, M)
+    # y = x[idxs] * weights
+    # xsum, ysum = x.sum(), y.sum()
+    # # print("idxs = ", idxs)
+    # print("vals = ", x[idxs])
+    # print("weights = ", weights)
+    # print("vals * weights", y)
+    # # print("true sum, sample sum: ", xsum, ysum)
+    # print("sum rel err: ", (xsum - ysum) / xsum)
