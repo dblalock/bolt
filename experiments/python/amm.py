@@ -2,6 +2,7 @@
 
 import abc
 import numpy as np
+from sklearn.decomposition import PCA
 from sklearn.utils.extmath import randomized_svd
 import numba  # conda install numba
 
@@ -215,6 +216,46 @@ class SvdSketch(SketchedMatmul):
         total += d * d * M  # (above) @ SVTb, d x d @ d x M
         total += N * d * M  # Ua @ (above), N x d @ d x M
         return {KEY_NMULTIPLIES: total}
+
+
+class TrainedPcaSketch(ApproxMatmul):
+    __slots__ = 'pca d A B'.split()
+
+    def __init__(self, d):
+        self.pca = PCA(n_components=d)
+        self.d = d
+        self.A = None
+        self.B = None
+
+    def fit(self, A, B, Y=None):  # Y = A @ B if not specified
+        self.pca.fit(A)
+
+    def set_A(self, A):
+        self.A = self.pca.transform(A)
+
+    def set_B(self, B):
+        self.B = self.pca.transform(B.T).T
+
+    def __call__(self, A, B):
+        if (self.A is None):
+            self.set_A(A)
+        if (self.B is None):
+            self.set_B(B)
+        return self.A @ self.B
+
+    def get_params(self):
+        return {'d': self.d}
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        N, D = A.shape
+        D, M = B.shape
+        d = self.d
+        nmuls = N * d * M  # assuming matrices already sketched
+        if not fixedA:
+            nmuls += N * D * d
+        if not fixedB:
+            nmuls += D * M * d
+        return {KEY_NMULTIPLIES: nmuls}
 
 
 # ================================================================ drineas06

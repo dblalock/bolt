@@ -20,6 +20,7 @@ METHOD_SKETCH_SQ_SAMPLE = 'SketchSqSample'
 METHOD_SVD = 'SVD'
 METHOD_FD_AMM = 'FD-AMM'
 METHOD_COOCCUR = 'CooccurSketch'
+METHOD_PCA = 'PCA'
 METHOD_OPQ = 'OPQ'
 METHOD_BOLT = 'Bolt'
 METHOD_BOLT_PERM = 'Bolt+Perm'
@@ -39,8 +40,8 @@ METHOD_BOLT_GEHT_COR_TOPK = 'Bolt_CorTopk'
 METHOD_BOLT_GEHT_COR_SAMP = 'Bolt_CorSamp'
 
 DEFAULT_METHODS = (METHOD_EXACT, METHOD_SVD, METHOD_FD_AMM,
-                   METHOD_COOCCUR, METHOD_PQ, METHOD_BOLT,
-                   METHOD_BOLT_MULTISPLITS)
+                   METHOD_COOCCUR, METHOD_PCA, METHOD_PQ,
+                   METHOD_BOLT, METHOD_BOLT_MULTISPLITS)
 
 _METHOD_TO_ESTIMATOR = {
     METHOD_EXACT: amm.ExactMatMul,
@@ -48,6 +49,7 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_SVD: amm.SvdSketch,
     METHOD_FD_AMM: amm.FdAmm,
     METHOD_COOCCUR: amm.CooccurSketch,
+    METHOD_PCA: amm.TrainedPcaSketch,
     METHOD_PQ: vq_amm.PQMatmul,
     METHOD_BOLT: vq_amm.BoltMatmul,
     METHOD_OPQ: vq_amm.OPQMatmul,
@@ -74,7 +76,7 @@ _ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_TOPK)
 _ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_SAMP)
 
 SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
-                  METHOD_FD_AMM, METHOD_COOCCUR)
+                  METHOD_FD_AMM, METHOD_COOCCUR, METHOD_PCA)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
 BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM,
@@ -90,6 +92,33 @@ NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
 
 def _estimator_for_method_id(method_id, **method_hparams):
     return _METHOD_TO_ESTIMATOR[method_id](**method_hparams)
+
+
+def _hparams_for_method(method_id):
+    if method_id in SKETCH_METHODS:
+        dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
+        # dvals = [4, 8, 16, 32, 64, 128]
+        # dvals = [32] # TODO rm after debug
+        return [{'d': dval} for dval in dvals]
+    if method_id in VQ_METHODS:
+        # mvals = [1, 2, 4, 8, 16, 32, 64]
+        # mvals = [1, 2, 4, 8, 16]
+        # mvals = [1, 2, 4, 8]
+        # mvals = [8, 16] # TODO rm after debug
+        mvals = [8, 16, 64] # TODO rm after debug
+        # mvals = [16] # TODO rm after debug
+        # mvals = [8] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
+        # mvals = [1] # TODO rm after debug
+        return [{'ncodebooks': m} for m in mvals]
+    return [{}]
+
+
+def _ntrials_for_method(method_id, ntasks):
+    # return 1 # TODO rm
+    if ntasks > 1:  # no need to avg over trials if avging over multiple tasks
+        return 1
+    return NUM_TRIALS if method_id in NONDETERMINISTIC_METHODS else 1
 
 
 # ================================================================ metrics
@@ -217,32 +246,6 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
     return metrics
 
 
-def _hparams_for_method(method_id):
-    if method_id in SKETCH_METHODS:
-        dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        # dvals = [4, 8, 16, 32, 64, 128]
-        # dvals = [32] # TODO rm after debug
-        return [{'d': dval} for dval in dvals]
-    if method_id in VQ_METHODS:
-        # mvals = [1, 2, 4, 8, 16, 32, 64]
-        # mvals = [1, 2, 4, 8, 16]
-        # mvals = [1, 2, 4, 8]
-        mvals = [8, 16] # TODO rm after debug
-        # mvals = [16] # TODO rm after debug
-        # mvals = [8] # TODO rm after debug
-        # mvals = [4] # TODO rm after debug
-        # mvals = [1] # TODO rm after debug
-        return [{'ncodebooks': m} for m in mvals]
-    return [{}]
-
-
-def _ntrials_for_method(method_id, ntasks):
-    # return 1 # TODO rm
-    if ntasks > 1:  # no need to avg over trials if avging over multiple tasks
-        return 1
-    return NUM_TRIALS if method_id in NONDETERMINISTIC_METHODS else 1
-
-
 def _get_all_independent_vars():
     independent_vars = set(['task_id', 'method', 'trial'])
     for method_id in _ALL_METHODS:
@@ -350,8 +353,11 @@ def main_all(methods=None):
 
 def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
+    main_cifar10(methods=['PCA', 'Exact'])
+    main_cifar100(methods=['PCA', 'Exact'])
     # main_cifar100(methods=['Bolt', 'Exact'])
-    main_ecg(methods=['Bolt', 'Exact'])
+    # main_ecg(methods=['Bolt', 'Exact'])
+    # main_ecg(methods='Exact')
     # main_cifar10(methods=['OPQ', 'Exact'])
     # main_cifar100(methods=['PQ', 'Exact'])
     # main_cifar10(methods=VQ_METHODS)

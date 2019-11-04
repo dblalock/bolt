@@ -45,12 +45,14 @@ def load_recording(rec_id, limit_nhours=None, dtype=np.float32):
     a = a[SAMPLES_PER_MIN:]  # often a bunch of garbage at the beginning
     a = a.astype(dtype)
 
+    a -= a.mean(axis=0)  # just so r_sq values are more meaningful
+
     # small amount of smoothing since heavily oversampled + noisy
     # filt = np.hamming(5).astype(np.float32)
-    filt = np.hamming(5).astype(np.float32)
-    filt /= np.sum(filt)
-    for j in range(a.shape[1]):
-        a[:, j] = np.convolve(a[:, j], filt, mode='same')
+    # filt = np.hamming(5).astype(np.float32)
+    # filt /= np.sum(filt)
+    # for j in range(a.shape[1]):
+    #     a[:, j] = np.convolve(a[:, j], filt, mode='same')
 
     return a
 
