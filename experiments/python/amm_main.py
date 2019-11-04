@@ -21,6 +21,9 @@ METHOD_SVD = 'SVD'
 METHOD_FD_AMM = 'FD-AMM'
 METHOD_COOCCUR = 'CooccurSketch'
 METHOD_PCA = 'PCA'
+METHOD_FASTJL = 'FastJL'
+METHOD_HASHJL = 'HashJL'
+METHOD_OSNAP = 'OSNAP'
 METHOD_OPQ = 'OPQ'
 METHOD_BOLT = 'Bolt'
 METHOD_BOLT_PERM = 'Bolt+Perm'
@@ -50,6 +53,9 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_FD_AMM: amm.FdAmm,
     METHOD_COOCCUR: amm.CooccurSketch,
     METHOD_PCA: amm.TrainedPcaSketch,
+    METHOD_FASTJL: amm.FastJlSketch,
+    METHOD_HASHJL: amm.HashJlSketch,
+    METHOD_OSNAP: amm.OsnapSketch,
     METHOD_PQ: vq_amm.PQMatmul,
     METHOD_BOLT: vq_amm.BoltMatmul,
     METHOD_OPQ: vq_amm.OPQMatmul,
@@ -76,7 +82,8 @@ _ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_TOPK)
 _ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_SAMP)
 
 SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
-                  METHOD_FD_AMM, METHOD_COOCCUR, METHOD_PCA)
+                  METHOD_FD_AMM, METHOD_COOCCUR, METHOD_PCA,
+                  METHOD_FASTJL, METHOD_HASHJL, METHOD_OSNAP)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
 # VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
 BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM,
@@ -96,8 +103,8 @@ def _estimator_for_method_id(method_id, **method_hparams):
 
 def _hparams_for_method(method_id):
     if method_id in SKETCH_METHODS:
-        dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        # dvals = [4, 8, 16, 32, 64, 128]
+        # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
+        dvals = [4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
     if method_id in VQ_METHODS:
@@ -353,8 +360,9 @@ def main_all(methods=None):
 
 def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
-    main_cifar10(methods=['PCA', 'Exact'])
-    main_cifar100(methods=['PCA', 'Exact'])
+    # main_cifar10(methods=['PCA', 'Exact'])
+    main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
+    # main_cifar100(methods=['PCA', 'Exact'])
     # main_cifar100(methods=['Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Exact'])
     # main_ecg(methods='Exact')

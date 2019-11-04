@@ -139,6 +139,33 @@ class CooccurSketch(SketchedMatmul):
         return _nmultiplies_cooccur_sketches(N, D, M, d)
 
 
+class FastJlSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        return fastjl_sketches(A, B, self.d)
+
+    def _get_nmuls(self, N, D, M, d, **sink):
+        return _nmultiplies_fastjl_sketches(N, D, M, d)
+
+
+class HashJlSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        return hash_sketches(A, B, self.d)
+
+    def _get_nmuls(self, N, D, M, d, **sink):
+        return _nmultiplies_hash_sketches(N, D, M, d)
+
+
+class OsnapSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        return osnap_sketches(A, B, self.d)
+
+    def _get_nmuls(self, N, D, M, d, **sink):
+        return _nmultiplies_osnap_sketches(N, D, M, d)
+
+
 class SvdSketch(SketchedMatmul):
     __slots__ = 'd niters Ua SVTa Ub SVTb'.split()
 
@@ -456,7 +483,7 @@ def sample_varopt_1d(x, m):
 # sketch both A and B jointly using the same matrix to amortize overhead and
 # because it seems like this should help accuracy
 # @numba.jit(nopython=True)
-def fastjl_sketch(A, B, d, P=None):
+def fastjl_sketches(A, B, d, P=None):
     N, D = A.shape
     M = B.shape[1]
 
@@ -483,8 +510,8 @@ def fastjl_sketch(A, B, d, P=None):
 
     # dimensionalty reduction
     if P is None:
-        logd = np.log2(D_pad)
-        keep_prob = logd * logd / D_pad
+        # logd = np.log2(D_pad)
+        keep_prob = log2_D * log2_D / D_pad
         # if (keep_prob) >= 1:
         # print("WARNING: FastJL returning all zeros mat...")
         P = (np.random.uniform(size=(D_pad, d)) > keep_prob).astype(np.float32)
@@ -498,8 +525,25 @@ def fastjl_sketch(A, B, d, P=None):
     return A_pad @ P, P.T @ B_pad
 
 
+def _nmultiplies_fastjl_sketches(N, D, M, d):  # avg, not exact, since P sparse
+    # technically adds or subs, but you'd do fma ops regardless for floats
+    log2_D = int(np.ceil(np.log2(D)))
+    D_pad = 2 ** log2_D
+
+    fht_nmuls = D_pad * np.log2(D_pad)
+    sign_nmuls = D_pad
+
+    # trickier part; expected number of madds (or similar ops) to mul by P
+    construct_P_nmuls = D_pad * d  # assuming only 1 mul for rng + threshold
+    keep_prob = log2_D * log2_D / D_pad
+    nnz_p = min(1, keep_prob) * D_pad  # expected nnz per row of P
+    p_nmuls = N * nnz_p * d + d * nnz_p * M
+
+    return fht_nmuls + sign_nmuls + construct_P_nmuls + p_nmuls
+
+
 @numba.jit(nopython=True)
-def hash_sketch(A, B, d, share_projections=True):
+def hash_sketches(A, B, d, share_projections=True):
     N, D = A.shape
     D, M = B.shape
     A_hat = np.zeros((N, d), dtype=A.dtype)
@@ -533,7 +577,7 @@ def hash_sketch(A, B, d, share_projections=True):
     return A_hat, B_hat
 
 
-def osnap_sketch(A, B, d, s=4):
+def osnap_sketches(A, B, d, s=4):
     N, D = A.shape
     D, M = B.shape
     s = max(1, min(d // 2, s))  # handle s too large relative to d
@@ -545,9 +589,18 @@ def osnap_sketch(A, B, d, s=4):
         start_idx = ss * subspace_len
         end_idx = min(D, start_idx + subspace_len)
         A_hat[:, start_idx:end_idx], B_hat[start_idx:end_idx] = \
-            hash_sketch(A, B, subspace_len)
+            hash_sketches(A, B, subspace_len)
 
     return A_hat, B_hat
+
+
+def _nmultiplies_hash_sketches(N, D, M, d):
+    # technically adds or subs, but you'd do fma ops regardless for floats
+    return N * D + D * M
+
+
+def _nmultiplies_osnap_sketches(N, D, M, d):
+    return _nmultiplies_hash_sketches(N, D, M, d)
 
 
 def test_rand_sketches():
@@ -567,10 +620,10 @@ def test_rand_sketches():
     for d in (1, 2, 4, 8, 16, 32):
         # (Ua, SVTa), (Ub, SVTb) = svd_sketches(A, B, d)
         # AB_hat = Ua @ (SVTa @ Ub) @ SVTb
-        A_hat, B_hat = fastjl_sketch(A, B, d)
-        # A_hat, B_hat = hash_sketch(A, B, d)  # sharing projections helps
-        # A_hat, B_hat = hash_sketch(A, B, d, share_projections=False)
-        # A_hat, B_hat = osnap_sketch(A, B, d)
+        A_hat, B_hat = fastjl_sketches(A, B, d)
+        # A_hat, B_hat = hash_sketches(A, B, d)  # sharing projections helps
+        # A_hat, B_hat = hash_sketches(A, B, d, share_projections=False)
+        # A_hat, B_hat = osnap_sketches(A, B, d)
         AB_hat = A_hat @ B_hat
 
         # print("fused mats shapes: ")
