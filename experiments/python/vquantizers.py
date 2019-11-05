@@ -98,17 +98,17 @@ def ensure_num_cols_multiple_of(X, multiple_of):
 
 # ------------------------------------------------ Product Quantization
 
-def _learn_centroids(X, ncentroids, nsubvects, subvect_len):
-    ret = np.empty((ncentroids, nsubvects, subvect_len))
+def _learn_centroids(X, ncentroids, ncodebooks, subvect_len):
+    ret = np.empty((ncentroids, ncodebooks, subvect_len))
     # print("_learn_centroids(): running kmeans...")
     tot_sse = 0
     X_bar = X - np.mean(X, axis=0)
     col_sses = np.sum(X_bar * X_bar, axis=0) + 1e-14
     tot_sse_using_mean = np.sum(col_sses)
 
-    for i in range(nsubvects):
+    for i in range(ncodebooks):
         print("running kmeans in subspace {}/{}...".format(
-            i + 1, nsubvects), end=" ")
+            i + 1, ncodebooks), end=" ")
         start_col = i * subvect_len
         end_col = start_col + subvect_len
         X_in = X[:, start_col:end_col]
@@ -119,7 +119,7 @@ def _learn_centroids(X, ncentroids, nsubvects, subvect_len):
         # sse_using_mean = np.sum(X_bar * X_bar) + 1e-14
         subspace_sse = np.sum(col_sses[start_col:end_col])
         print("mse / {{var(X_subs), var(X)}}: {:.3g}, {:.3g}".format(
-            sse / subspace_sse, sse * nsubvects / tot_sse_using_mean))
+            sse / subspace_sse, sse * ncodebooks / tot_sse_using_mean))
         tot_sse += sse
         # print("centroids shape: ", centroids.shape)
         # print("ret shape: ", ret.shape)
@@ -130,27 +130,27 @@ def _learn_centroids(X, ncentroids, nsubvects, subvect_len):
     return ret
 
 
-def _parse_codebook_params(D, code_bits=-1, bits_per_subvect=-1, nsubvects=-1):
-    if nsubvects < 0:
-        nsubvects = code_bits // bits_per_subvect
+def _parse_codebook_params(D, code_bits=-1, bits_per_subvect=-1, ncodebooks=-1):
+    if ncodebooks < 0:
+        ncodebooks = code_bits // bits_per_subvect
     elif code_bits < 1:
-        code_bits = bits_per_subvect * nsubvects
+        code_bits = bits_per_subvect * ncodebooks
     elif bits_per_subvect < 1:
-        bits_per_subvect = code_bits // nsubvects
+        bits_per_subvect = code_bits // ncodebooks
 
     ncentroids = int(2 ** bits_per_subvect)
-    subvect_len = D // nsubvects
+    subvect_len = D // ncodebooks
 
     assert code_bits % bits_per_subvect == 0
     if D % subvect_len:
-        print("D, nsubvects, subvect_len = ", D, nsubvects, subvect_len)
+        print("D, ncodebooks, subvect_len = ", D, ncodebooks, subvect_len)
         assert D % subvect_len == 0  # TODO rm this constraint
 
-    return nsubvects, ncentroids, subvect_len
+    return ncodebooks, ncentroids, subvect_len
 
 
 def _fit_pq_lut(q, centroids, elemwise_dist_func):
-    _, nsubvects, subvect_len = centroids.shape
+    _, ncodebooks, subvect_len = centroids.shape
     # print("q shape: ", q.shape)
     # print("centroids shape: ", centroids.shape)
 
@@ -158,40 +158,40 @@ def _fit_pq_lut(q, centroids, elemwise_dist_func):
 
     # q = ensure_num_cols_multiple_of(np.atleast_2d(q), subvect_len)
     # Q = np.atleast_2d(Q)
-    # assert len(q) == nsubvects * subvect_len
-    q = q.reshape((1, nsubvects, subvect_len))
+    # assert len(q) == ncodebooks * subvect_len
+    q = q.reshape((1, ncodebooks, subvect_len))
     # q_dists_ = elemwise_dist_func(centroids, q)
     # q_dists = np.sum(q_dists, axis=-1)
     q_dists = np.sum(centroids * q, axis=-1)
 
-    # return np.asfortranarray(q_dists_)  # ncentroids, nsubvects, col-major
-    return q_dists  # ncentroids, nsubvects, row-major
+    # return np.asfortranarray(q_dists_)  # ncentroids, ncodebooks, col-major
+    return q_dists  # ncentroids, ncodebooks, row-major
 
 
 # class PQEncoder(object):
 
 #     def __init__(self, dataset, code_bits=-1, bits_per_subvect=-1,
-#                  nsubvects=-1, elemwise_dist_func=dists_elemwise_sq):
+#                  ncodebooks=-1, elemwise_dist_func=dists_elemwise_sq):
 #         X = dataset.X_train
 #         self.elemwise_dist_func = elemwise_dist_func
 
 #         tmp = _parse_codebook_params(X.shape[1], code_bits=code_bits,
 #                                      bits_per_subvect=bits_per_subvect,
-#                                      nsubvects=nsubvects)
-#         self.nsubvects, self.ncentroids, self.subvect_len = tmp
+#                                      ncodebooks=ncodebooks)
+#         self.ncodebooks, self.ncentroids, self.subvect_len = tmp
 #         self.code_bits = int(np.log2(self.ncentroids))
 
 #         # for fast lookups via indexing into flattened array
-#         self.offsets = np.arange(self.nsubvects, dtype=np.int) * self.ncentroids
+#         self.offsets = np.arange(self.ncodebooks, dtype=np.int) * self.ncentroids
 
-#         self.centroids = _learn_centroids(X, self.ncentroids, self.nsubvects,
+#         self.centroids = _learn_centroids(X, self.ncentroids, self.ncodebooks,
 #                                           self.subvect_len)
 
 #     def name(self):
-#         return "PQ_{}x{}b".format(self.nsubvects, self.code_bits)
+#         return "PQ_{}x{}b".format(self.ncodebooks, self.code_bits)
 
 #     def params(self):
-#         return {'_preproc': 'PQ', '_ncodebooks': self.nsubvects,
+#         return {'_preproc': 'PQ', '_ncodebooks': self.ncodebooks,
 #                 '_code_bits': self.code_bits}
 
 #     def encode_X(self, X, **sink):
@@ -217,12 +217,14 @@ def _fit_pq_lut(q, centroids, elemwise_dist_func):
 
 
 def _learn_best_quantization(luts):  # luts can be a bunch of vstacked luts
+    assert luts.ndim == 2
     best_loss = np.inf
     best_alpha = None
     best_floors = None
     best_scale_by = None
     for alpha in [.001, .002, .005, .01, .02, .05, .1]:
-        alpha_pct = int(100 * alpha)
+        # alpha_pct = int(100 * alpha)
+        alpha_pct = 100 * alpha
 
         # compute quantized luts this alpha would yield
         floors = np.percentile(luts, alpha_pct, axis=0)
@@ -249,49 +251,53 @@ def _learn_best_quantization(luts):  # luts can be a bunch of vstacked luts
 
 class PQEncoder(object):
 
-    def __init__(self, nsubvects, ncentroids=256,
+    def __init__(self, ncodebooks, ncentroids=256,
                  elemwise_dist_func=dists_elemwise_dot,
                  preproc='PQ', quantize_lut=False, encode_algo=None,
+                 upcast_every=-1, accumulate_how='sum',
                  **preproc_kwargs):
-        self.nsubvects = nsubvects
+        self.ncodebooks = ncodebooks
         self.ncentroids = ncentroids
         self.elemwise_dist_func = elemwise_dist_func
         self.preproc = preproc
         self.quantize_lut = quantize_lut
         self.encode_algo = encode_algo
+        self.upcast_every = upcast_every if upcast_every >= 1 else 1
+        self.upcast_every = min(self.ncodebooks, upcast_every)
+        self.accumulate_how = accumulate_how
         self.preproc_kwargs = preproc_kwargs
 
         self.code_bits = int(np.log2(self.ncentroids))
 
         # for fast lookups via indexing into flattened array
-        self.offsets = (np.arange(self.nsubvects, dtype=np.int) *
+        self.offsets = (np.arange(self.ncodebooks, dtype=np.int) *
                         self.ncentroids)
 
     def _pad_ncols(self, X):
-        return ensure_num_cols_multiple_of(X, self.nsubvects)
+        return ensure_num_cols_multiple_of(X, self.ncodebooks)
 
     def fit(self, X, Q=None, **preproc_kwargs):
-        self.subvect_len = int(np.ceil(X.shape[1] / self.nsubvects))
+        self.subvect_len = int(np.ceil(X.shape[1] / self.ncodebooks))
         # print("orig X shape: ", X.shape)
         # print("initial X_train shape: ", X.shape)
-        # print("ncodebooks:", self.nsubvects)
+        # print("ncodebooks:", self.ncodebooks)
         X = self._pad_ncols(X)
         # print("X_train shape after padding: ", X.shape)
-        # print("nsubvects: ", self.nsubvects)
+        # print("ncodebooks: ", self.ncodebooks)
         # print("subvect_len: ", self.subvect_len)
         # print("------------------------")
 
         self.centroids = None
         # if self.preproc == 'PQ':
         #     self.centroids = _learn_centroids(
-        #         X, self.ncentroids, self.nsubvects, self.subvect_len)
+        #         X, self.ncentroids, self.ncodebooks, self.subvect_len)
         if self.preproc == 'BOPQ':
             self.centroids, _, self.rotations = pq.learn_bopq(
-                X, ncodebooks=self.nsubvects, codebook_bits=self.code_bits,
+                X, ncodebooks=self.ncodebooks, codebook_bits=self.code_bits,
                 **self.preproc_kwargs)
         elif self.preproc == 'OPQ':
             self.centroids, _, self.R = pq.learn_opq(
-                X, ncodebooks=self.nsubvects, codebook_bits=self.code_bits,
+                X, ncodebooks=self.ncodebooks, codebook_bits=self.code_bits,
                 **self.preproc_kwargs)
         elif self.preproc == 'GEHT':
             self.perm = subs.greedy_eigenvector_threshold(
@@ -305,7 +311,7 @@ class PQEncoder(object):
             X = X[:, self.perm]
             # # just normal PQ after permuting
             # self.centroids = _learn_centroids(
-            #     X, self.ncentroids, self.nsubvects, self.subvect_len)
+            #     X, self.ncentroids, self.ncodebooks, self.subvect_len)
         # else:
         #     raise ValueError("unrecognized preproc: '{}'".format(self.preproc))
 
@@ -317,11 +323,12 @@ class PQEncoder(object):
                         nsplits_per_subs=self.code_bits, algo=self.encode_algo)
             else:
                 self.centroids = _learn_centroids(
-                    X, self.ncentroids, self.nsubvects, self.subvect_len)
+                    X, self.ncentroids, self.ncodebooks, self.subvect_len)
 
         if self.quantize_lut:  # TODO put this logic in separate function
             print("learning quantization...")
 
+            # print("initial Q: ", Q)
             if Q is None:
                 # num_rows = min(10 * 1000, len(X) // 2)
                 # _, queries = extract_random_rows(
@@ -329,28 +336,53 @@ class PQEncoder(object):
                 # X = X[:num_rows]  # limit to first 10k rows of X
                 _, Q = extract_random_rows(
                     X, how_many=1000, remove_from_X=False)
+                Q = Q.T  # want each row to be one query, not each col
+
+            # Q = self._pad_ncols(Q)
+            # if self.preproc == 'OPQ':
+            #     Q = pq.opq_rotate(Q, self.R)
+            # elif self.preproc == 'BOPQ':
+            #     Q = pq.bopq_rotate(Q, self.rotations)
+            # elif self.preproc == 'GEHT':
+            #     Q = Q[:, self.perm]
+
+            # print("Q shape: ", Q.shape)
 
             # compute luts for all the queries
             # luts = [self.encode_Q(q, quantize=False) for q in Q]
-            luts = self.encode_Q(Q)
-            luts = np.vstack(luts)
-            assert luts.shape == (self.ncentroids * len(Q),
-                                  self.nsubvects)
+            luts = self.encode_Q(Q, quantize=False)
+            # luts = np.vstack(luts)
+            print("ncodebooks: ", self.ncodebooks)
+            print("luts shape: ", luts.shape)
+            assert luts.shape == (len(Q), self.ncodebooks, self.ncentroids)
+            luts = np.moveaxis(luts, 2, 1)
+            assert luts.shape == (len(Q), self.ncentroids, self.ncodebooks)
+            luts = luts.reshape(len(Q) * self.ncentroids, self.ncodebooks)
 
             self.lut_offsets, self.scale_by, _ = _learn_best_quantization(luts)
+            print("self.lut_offsets.shape", self.lut_offsets.shape)
+            # print("self.scale_by.shape", self.scale_by.shape)
+            print("self.scale_by", self.scale_by)
+            assert self.lut_offsets.shape == (self.ncodebooks,)
+            # self.lut_offsets = self.lut_offsets[:, np.newaxis]
             self.total_lut_offset = np.sum(self.lut_offsets)
+            print("lut offsets: ", self.lut_offsets)
 
     def name(self):
         return "{}_{}x{}b_iters={}_quantize={}".format(
-            self.preproc, self.nsubvects, self.code_bits, self.opt_iters,
+            self.preproc, self.ncodebooks, self.code_bits, self.opt_iters,
             int(self.quantize_lut))
 
     def params(self):
-        return {'_preproc': self.preproc, '_ncodebooks': self.nsubvects,
+        return {'_preproc': self.preproc, '_ncodebooks': self.ncodebooks,
                 '_code_bits': self.code_bits, 'opt_iters': self.opt_iters,
                 '_quantize': self.quantize_lut}
 
-    def encode_Q(self, Q):
+    def encode_Q(self, Q, quantize=True):
+        # quantize param enables quantization if set in init; separate since
+        # quantization learning needs to call this func, but vars like
+        # lut_offsets aren't set when this function calls it
+
         # was_1d = Q.ndim == 1
         Q = np.atleast_2d(Q)
         # if was_1d:
@@ -376,22 +408,22 @@ class PQEncoder(object):
         # print("Q shape: ", Q.shape)
         # luts = []
 
-        # luts = np.zeros((Q.shape[0], self.ncentroids, self.nsubvects))
-        luts = np.zeros((Q.shape[0], self.nsubvects, self.ncentroids))
+        # luts = np.zeros((Q.shape[0], self.ncentroids, self.ncodebooks))
+        luts = np.zeros((Q.shape[0], self.ncodebooks, self.ncentroids))
         # luts = []
+        print("Q shape: ", Q.shape)
         for i, q in enumerate(Q):
-            # print("q shape: ", q.shape)
             lut = _fit_pq_lut(q, centroids=self.centroids,
                               elemwise_dist_func=self.elemwise_dist_func)
-            if self.quantize_lut:
-                assert False # TODO rm after debug
+            if self.quantize_lut and quantize:
+                # assert False # TODO rm after debug
                 lut = np.maximum(0, lut - self.lut_offsets)
                 lut = np.floor(lut * self.scale_by).astype(np.int)
                 lut = np.minimum(lut, 255)
             # luts.append(lut)
             # luts[i] = lut
             luts[i] = lut.T
-            # luts.append(lut.T)  # nsubvects x ncentroids
+            # luts.append(lut.T)  # ncodebooks x ncentroids
 
         # if was_1d:
         #     return luts[0]
@@ -494,7 +526,22 @@ class PQEncoder(object):
             centroid_dists = lut.ravel()[X_enc.ravel()]
             # centroid_dists = lut.T.ravel()[X_enc.ravel()]
             # print("centroid dists has shape: ", centroid_dists.shape)
-            dists = centroid_dists.reshape(X_enc.shape).sum(axis=-1)
+            dists = centroid_dists.reshape(X_enc.shape)
+            if self.upcast_every < 2 or not self.quantize_lut:
+                dists = dists.sum(axis=-1)
+            else:
+                dists = dists.reshape(dists.shape[0], -1, self.upcast_every)
+                if self.accumulate_how == 'sum':
+                    # sum upcast_every vals, then clip to mirror saturating
+                    # unsigned addition, then sum without saturation (like u16)
+                    dists = dists.sum(-1)
+                elif accumulate_how == 'mean':
+                    # mirror hierarchical avg_epu8
+                    while dists.shape[-1] > 1:
+                        dists = (dists[:, :, ::2] + dists[:, :, ::2] + 1) / 2
+                else:
+                    raise ValueError("accumulate_how must be 'sum' or 'mean'")
+                dists = np.clip(dists, 0, 255).sum(axis=-1)
 
             # # # TODO rm
             # true_dists = true_prods[:, i]
@@ -533,10 +580,10 @@ class PQEncoder(object):
             #         # print("x_enc:", x_enc)
             #         true_prod = true_prods[n, i]
             #         prod_hat = 0
-            #         true_subs_prods = np.zeros(self.nsubvects)
-            #         subs_prods = np.zeros(self.nsubvects)
-            #         quantize_errs = np.zeros(self.nsubvects)
-            #         for m in range(self.nsubvects):
+            #         true_subs_prods = np.zeros(self.ncodebooks)
+            #         subs_prods = np.zeros(self.ncodebooks)
+            #         quantize_errs = np.zeros(self.ncodebooks)
+            #         for m in range(self.ncodebooks):
             #             idx = x_enc[m]
 
             #             # compute estimated product in this subspace
@@ -565,7 +612,7 @@ class PQEncoder(object):
             #         # print("quantize errs:", quantize_errs / 1000)
 
             if self.quantize_lut and unquantize:
-                assert False  # make sure not accidentally quantizing for now
+                # assert False  # make sure not accidentally quantizing for now
                 dists = (dists / self.scale_by) + self.total_lut_offset
             all_dists[i] = dists
 

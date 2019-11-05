@@ -18,7 +18,7 @@ class PQMatmul(amm.ApproxMatmul):
         self._reset()
 
     def _create_encoder(self, ncodebooks):  # to be overriden by subclasses
-        return vq.PQEncoder(nsubvects=ncodebooks, ncentroids=self.ncentroids,
+        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
                             **self._get_encoder_kwargs())
 
     def _get_encoder_kwargs(self):  # to be overriden by subclasses
@@ -32,7 +32,7 @@ class PQMatmul(amm.ApproxMatmul):
         self.luts = None
 
     def fit(self, A, B, Y=None):
-        self.enc.fit(A, B)
+        self.enc.fit(A, B.T)
 
     def set_A(self, A):
         self.A_enc = self.enc.encode_X(A)
@@ -82,7 +82,9 @@ class BoltMatmul(PQMatmul):
         self._reset()
 
     def _create_encoder(self, ncodebooks):
-        return vq.PQEncoder(nsubvects=ncodebooks, ncentroids=self.ncentroids,
+        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
+                            quantize_lut=True,
+                            # accumulate_how='mean',
                             # TODO set quantize_lut=True after debug
                             **self._get_encoder_kwargs())
 
