@@ -216,8 +216,9 @@ def _fit_pq_lut(q, centroids, elemwise_dist_func):
 #         return np.sum(centroid_dists.reshape(X_enc.shape), axis=-1)
 
 
-def _learn_best_quantization(luts):  # luts can be a bunch of vstacked luts
-    assert luts.ndim == 2
+# def _learn_best_quantization(luts, only_shift=False):
+def _learn_best_quantization(luts):
+    assert luts.ndim == 2  # luts can be a bunch of vstacked luts, but not 3D
     best_loss = np.inf
     best_alpha = None
     best_floors = None
@@ -232,6 +233,8 @@ def _learn_best_quantization(luts):  # luts can be a bunch of vstacked luts
 
         ceil = np.percentile(luts_offset, 100 - alpha_pct)
         scale_by = 255. / ceil
+        # if only_shift:
+        #     scale_by = 1 << int(np.log2(scale_by))
         luts_quantized = np.floor(luts_offset * scale_by).astype(np.int)
         luts_quantized = np.minimum(255, luts_quantized)
 
@@ -263,6 +266,7 @@ class PQEncoder(object):
         self.quantize_lut = quantize_lut
         self.encode_algo = encode_algo
         self.upcast_every = upcast_every if upcast_every >= 1 else 1
+        assert self.upcast_every in (1, 2, 4, 8, 16, 32, 64, 128, 256)
         self.upcast_every = min(self.ncodebooks, upcast_every)
         self.accumulate_how = accumulate_how
         self.preproc_kwargs = preproc_kwargs
@@ -352,21 +356,21 @@ class PQEncoder(object):
             # luts = [self.encode_Q(q, quantize=False) for q in Q]
             luts = self.encode_Q(Q, quantize=False)
             # luts = np.vstack(luts)
-            print("ncodebooks: ", self.ncodebooks)
-            print("luts shape: ", luts.shape)
+            # print("ncodebooks: ", self.ncodebooks)
+            # print("luts shape: ", luts.shape)
             assert luts.shape == (len(Q), self.ncodebooks, self.ncentroids)
             luts = np.moveaxis(luts, 2, 1)
             assert luts.shape == (len(Q), self.ncentroids, self.ncodebooks)
             luts = luts.reshape(len(Q) * self.ncentroids, self.ncodebooks)
 
             self.lut_offsets, self.scale_by, _ = _learn_best_quantization(luts)
-            print("self.lut_offsets.shape", self.lut_offsets.shape)
+            # print("self.lut_offsets.shape", self.lut_offsets.shape)
             # print("self.scale_by.shape", self.scale_by.shape)
-            print("self.scale_by", self.scale_by)
+            # print("self.scale_by", self.scale_by)
             assert self.lut_offsets.shape == (self.ncodebooks,)
             # self.lut_offsets = self.lut_offsets[:, np.newaxis]
             self.total_lut_offset = np.sum(self.lut_offsets)
-            print("lut offsets: ", self.lut_offsets)
+            # print("lut offsets: ", self.lut_offsets)
 
     def name(self):
         return "{}_{}x{}b_iters={}_quantize={}".format(
@@ -534,14 +538,25 @@ class PQEncoder(object):
                 if self.accumulate_how == 'sum':
                     # sum upcast_every vals, then clip to mirror saturating
                     # unsigned addition, then sum without saturation (like u16)
-                    dists = dists.sum(-1)
-                elif accumulate_how == 'mean':
+                    dists = dists.sum(2)
+                    dists = np.clip(dists, 0, 255).sum(axis=-1)
+                    # assert False # TODO rm
+                elif self.accumulate_how == 'mean':
                     # mirror hierarchical avg_epu8
-                    while dists.shape[-1] > 1:
-                        dists = (dists[:, :, ::2] + dists[:, :, ::2] + 1) / 2
+                    # while dists.shape[-1] > 2:
+                    # assert dists.shape[-1] in (2, 4, 8, 16, 32, 64, 128, 256)
+                    # while dists.shape[-1] > 1:
+                    print("reducing using mean!")
+                    while dists.shape[-1] > 2:
+                        dists = (dists[:, :, ::2] + dists[:, :, 1::2] + 1) / 2
+                    # dists = dists.reshape(dists.shape[:2])  # last dim is 1
+                    dists = (dists[:, :, 0] + dists[:, :, 1] + 1) / 2
+                    dists = dists.sum(axis=-1)  # clipping not needed
+                    dists *= self.upcast_every  # convert mean to sum
                 else:
                     raise ValueError("accumulate_how must be 'sum' or 'mean'")
-                dists = np.clip(dists, 0, 255).sum(axis=-1)
+                #
+                # dists = dists.sum(axis=-1) # TODO rm after debug
 
             # # # TODO rm
             # true_dists = true_prods[:, i]

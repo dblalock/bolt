@@ -112,10 +112,10 @@ def _hparams_for_method(method_id):
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
-        # mvals = [8, 16, 64] # TODO rm after debug
+        mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        mvals = [4] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
         return [{'ncodebooks': m} for m in mvals]
     return [{}]
@@ -359,11 +359,11 @@ def main_all(methods=None):
 
 
 def main():
-    main_cifar10(methods=['Bolt', 'Exact'])
+    # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['PCA', 'Exact'])
     # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
     # main_cifar100(methods=['PCA', 'Exact'])
-    # main_cifar100(methods=['Bolt', 'Exact'])
+    main_cifar100(methods=['Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Exact'])
     # main_ecg(methods='Exact')
     # main_cifar10(methods=['OPQ', 'Exact'])

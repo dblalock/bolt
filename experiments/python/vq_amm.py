@@ -83,8 +83,14 @@ class BoltMatmul(PQMatmul):
 
     def _create_encoder(self, ncodebooks):
         return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
-                            quantize_lut=True,
-                            # accumulate_how='mean',
+                            # quantize_lut=True,
+                            quantize_lut=False,
+                            accumulate_how='mean',
+                            # accumulate_how='sum',
+                            # upcast_every=-1,
+                            # upcast_every=2,
+                            # upcast_every=4,
+                            upcast_every=256,  # fine as long as using mean
                             # TODO set quantize_lut=True after debug
                             **self._get_encoder_kwargs())
 
