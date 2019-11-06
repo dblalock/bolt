@@ -422,30 +422,36 @@ def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
         use_split_vals = all_split_vals[best_tried_dim_idx]
         split = MultiSplit(dim=best_dim, vals=use_split_vals)
         if learn_quantize_params:
-            # TODO uncomment
             # if len(use_split_vals) > 1:  # after 1st split
             #     minsplitval = np.min(use_split_vals)
             #     maxsplitval = np.max(use_split_vals)
             #     gap = maxsplitval - minsplitval
-            #     offset = minsplitval - .01 * gap
+            #     offset = minsplitval - .02 * gap
             #     scale = 250. / gap  # slightly below 255. / gap
             # else:  # 1st split; only one bucket, so no intersplit range
             #     assert np.min(use_split_vals) == np.max(use_split_vals)
-            #     # x = X[:, best_dim].copy()
-            #     # offset = np.min(x)
-            #     # scale = 255. / np.max(x - offset)
+            #     x = X[:, best_dim]
+            #     offset = np.min(x)
+            #     scale = 255. / np.max(x - offset)
             #     # x -= offset
             #     # scale = 128. / np.max(split.vals - offset)
             #     # scale = 1 # TODO rm
 
-            # x = X[:, best_dim].copy()
+            # # x = X[:, best_dim].copy()
+            # x = X[:, best_dim]
+            # offset = np.min(x)
+            # # scale = 255. / np.max(x - offset)
+            # scale = 250. / np.max(use_split_vals)  # slightly below 255
+
+            # simple version, which also handles 1 bucket: just set min
+            # value to be avg of min splitval and xval, and max value to
+            # be avg of max splitval and xval
             x = X[:, best_dim]
-            offset = np.min(x)
-            scale = 255. / np.max(x - offset)
+            offset = (np.min(x) + np.min(use_split_vals)) / 2
+            upper_val = (np.max(x) + np.max(use_split_vals)) / 2 - offset
+            scale = 254. / upper_val
             if learn_quantize_params == 'int16':
                 scale = 2. ** int(np.log2(scale))
-
-            # scale = 1. # TODO rm
 
             split.offset = offset
             split.scaleby = scale
