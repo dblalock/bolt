@@ -35,6 +35,7 @@ METHOD_PQ = 'PQ'
 METHOD_PQ_PERM = 'PQ+Perm'
 METHOD_PQ_MULTISPLITS = 'PQ+MultiSplits'
 METHOD_PQ_PERM_MULTISPLITS = 'PQ+Perm+MultiSplits'
+METHOD_MITHRALPQ = 'MithralPQ'
 
 # these are for trying out different perm options
 METHOD_BOLT_GEHT_COV_TOPK = 'Bolt_CovTopk'
@@ -44,7 +45,7 @@ METHOD_BOLT_GEHT_COR_SAMP = 'Bolt_CorSamp'
 
 DEFAULT_METHODS = (METHOD_EXACT, METHOD_SVD, METHOD_FD_AMM,
                    METHOD_COOCCUR, METHOD_PCA, METHOD_PQ,
-                   METHOD_BOLT, METHOD_BOLT_MULTISPLITS)
+                   METHOD_BOLT, METHOD_MITHRALPQ)
 
 _METHOD_TO_ESTIMATOR = {
     METHOD_EXACT: amm.ExactMatMul,
@@ -71,6 +72,7 @@ _METHOD_TO_ESTIMATOR = {
     METHOD_PQ_PERM: vq_amm.PQPerm,
     METHOD_PQ_MULTISPLITS: vq_amm.PQMultiSplits,
     METHOD_PQ_PERM_MULTISPLITS: vq_amm.PQPermMultiSplits,
+    METHOD_MITHRALPQ: vq_amm.MithralPQ
 }
 _ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
 _ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE),  # always terrible results
@@ -91,7 +93,8 @@ BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM,
                 METHOD_BOLT_MULTISPLITS, METHOD_BOLT_PERM_MULTISPLITS)
 PQ_METHODS = (METHOD_PQ, METHOD_PQ_PERM, METHOD_PQ_MULTISPLITS,
               METHOD_PQ_PERM_MULTISPLITS)
-VQ_METHODS = PQ_METHODS + BOLT_METHODS
+MITHRAL_METHODS = (METHOD_MITHRALPQ,)
+VQ_METHODS = PQ_METHODS + BOLT_METHODS + MITHRAL_METHODS
 NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
@@ -359,7 +362,8 @@ def main_all(methods=None):
 
 
 def main():
-    main_cifar10(methods=['Bolt', 'Exact'])
+    # main_cifar10(methods=['Bolt', 'Exact'])
+    main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['PCA', 'Exact'])
     # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
     # main_cifar100(methods=['PCA', 'Exact'])

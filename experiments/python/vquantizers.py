@@ -225,7 +225,7 @@ class MultiCodebookEncoder(abc.ABC):
                     dists = np.clip(dists, 0, 255).sum(axis=-1)
                 elif self.accumulate_how == 'mean':
                     # mirror hierarchical avg_epu8
-                    print("reducing using mean!")
+                    # print("reducing using mean!")
                     while dists.shape[-1] > 2:
                         dists = (dists[:, :, ::2] + dists[:, :, 1::2] + 1) / 2
                     dists = (dists[:, :, 0] + dists[:, :, 1] + 1) / 2

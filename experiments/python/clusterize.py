@@ -296,8 +296,8 @@ def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
                       learn_quantize_params='int16',
                       # learn_quantize_params=True,
                       # verbose=2):
-                      # verbose=1):
-                      verbose=3):
+                      # verbose=3):
+                      verbose=1):
     N, D = X.shape
     max_vals_per_split = 1 << log2_max_vals_per_split
 

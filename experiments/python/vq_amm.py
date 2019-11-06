@@ -8,6 +8,8 @@ from . import amm
 KEY_NLOOKUPS = 'nlookups'
 
 
+# ================================================================ PQ
+
 class PQMatmul(amm.ApproxMatmul):
 
     def __init__(self, ncodebooks, ncentroids=None):
@@ -73,27 +75,7 @@ class PQMatmul(amm.ApproxMatmul):
         return {'ncodebooks': self.ncodebooks}
 
 
-class BoltMatmul(PQMatmul):
-
-    def __init__(self, ncodebooks):
-        self.ncodebooks = ncodebooks
-        self.ncentroids = 16
-        self.enc = self._create_encoder(self.ncodebooks)
-        self._reset()
-
-    def _create_encoder(self, ncodebooks):
-        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
-                            # quantize_lut=True,
-                            quantize_lut=False,
-                            accumulate_how='mean',
-                            # accumulate_how='sum',
-                            # upcast_every=-1,
-                            # upcast_every=2,
-                            # upcast_every=4,
-                            upcast_every=256,  # fine as long as using mean
-                            # TODO set quantize_lut=True after debug
-                            **self._get_encoder_kwargs())
-
+# ================================================================ OPQ
 
 class OPQMatmul(PQMatmul):
 
@@ -105,6 +87,30 @@ class OPQMatmul(PQMatmul):
         rot_nmuls = A.shape[0] * A.shape[1] * A.shape[1]  # OPQ rotation cost
         metrics[amm.KEY_NMULTIPLIES] += rot_nmuls
         return metrics
+
+
+# ================================================================ Bolt
+
+class BoltMatmul(PQMatmul):
+
+    def __init__(self, ncodebooks):
+        self.ncodebooks = ncodebooks
+        self.ncentroids = 16
+        self.enc = self._create_encoder(self.ncodebooks)
+        self._reset()
+
+    def _create_encoder(self, ncodebooks):
+        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
+                            quantize_lut=True,
+                            # quantize_lut=False,
+                            # accumulate_how='mean',
+                            accumulate_how='sum',
+                            upcast_every=-1,
+                            # upcast_every=2,
+                            # upcast_every=4,
+                            # upcast_every=256,  # fine as long as using mean
+                            # TODO set quantize_lut=True after debug
+                            **self._get_encoder_kwargs())
 
 
 class GEHTBoltMatmul_CovTopk(BoltMatmul):
@@ -224,3 +230,21 @@ class PQPermMultiSplits(PQMatmul):
         nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
         metrics[amm.KEY_NMULTIPLIES] = nmuls
         return metrics
+
+
+# ================================================================ Mithral
+
+class MithralPQ(PQMatmul):
+
+    def __init__(self, ncodebooks):
+        self.ncodebooks = ncodebooks
+        self.ncentroids = 16
+        self.enc = self._create_encoder(self.ncodebooks)
+        self._reset()
+
+    def _create_encoder(self, ncodebooks):
+        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
+                            encode_algo='multisplits',
+                            quantize_lut=True,
+                            upcast_every=256,  # fine as long as using mean
+                            accumulate_how='mean')
