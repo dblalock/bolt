@@ -274,18 +274,30 @@ def _split_existing_buckets(buckets):
 
 
 class MultiSplit(object):
-    __slots__ = 'dim vals'.split()
+    __slots__ = 'dim vals scaleby offset'.split()
 
-    def __init__(self, dim, vals):
+    def __init__(self, dim, vals, scaleby=None, offset=None):
         self.dim = dim
         self.vals = np.asarray(vals)
+        self.scaleby = scaleby
+        self.offset = offset
+
+    def preprocess_x(self, x):
+        if self.offset is not None:
+            x = x - self.offset
+        if self.scaleby is not None:
+            x = x * self.scaleby
+        return x
 
 
-def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
-                        try_nquantiles=16, return_centroids=True,
-                        # verbose=3):
-                        # verbose=1):
-                        verbose=2):
+def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
+                      try_nquantiles=16, return_centroids=True,
+                      # learn_quantize_params=False,
+                      learn_quantize_params='int16',
+                      # learn_quantize_params=True,
+                      # verbose=2):
+                      # verbose=1):
+                      verbose=3):
     N, D = X.shape
     max_vals_per_split = 1 << log2_max_vals_per_split
 
@@ -314,7 +326,7 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
 
     if verbose > 0:
         print("================================")
-        print("learn_splits_cooler(): initial loss: ", total_loss)
+        print("learn_multisplits(): initial loss: ", total_loss)
 
     splits = []
     col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
@@ -339,8 +351,8 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
         col_losses[:] = 0
         for buck in buckets:
             col_losses += buck.col_sum_sqs()
-        try_dims = np.argsort(col_losses)[-8:]
-        # try_dims = np.argsort(col_losses)[-4:]
+        # try_dims = np.argsort(col_losses)[-8:]
+        try_dims = np.argsort(col_losses)[-4:]
         # try_dims = np.argsort(col_losses)[-2:]
         # try_dims = np.arange(2)
         # try_dims = np.arange(D)  # TODO restrict to subset?
@@ -409,6 +421,37 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
         best_dim = try_dims[best_tried_dim_idx]
         use_split_vals = all_split_vals[best_tried_dim_idx]
         split = MultiSplit(dim=best_dim, vals=use_split_vals)
+        if learn_quantize_params:
+            # TODO uncomment
+            # if len(use_split_vals) > 1:  # after 1st split
+            #     minsplitval = np.min(use_split_vals)
+            #     maxsplitval = np.max(use_split_vals)
+            #     gap = maxsplitval - minsplitval
+            #     offset = minsplitval - .01 * gap
+            #     scale = 250. / gap  # slightly below 255. / gap
+            # else:  # 1st split; only one bucket, so no intersplit range
+            #     assert np.min(use_split_vals) == np.max(use_split_vals)
+            #     # x = X[:, best_dim].copy()
+            #     # offset = np.min(x)
+            #     # scale = 255. / np.max(x - offset)
+            #     # x -= offset
+            #     # scale = 128. / np.max(split.vals - offset)
+            #     # scale = 1 # TODO rm
+
+            # x = X[:, best_dim].copy()
+            x = X[:, best_dim]
+            offset = np.min(x)
+            scale = 255. / np.max(x - offset)
+            if learn_quantize_params == 'int16':
+                scale = 2. ** int(np.log2(scale))
+
+            # scale = 1. # TODO rm
+
+            split.offset = offset
+            split.scaleby = scale
+            split.vals = (split.vals - split.offset) * split.scaleby
+            split.vals = np.clip(split.vals, 0, 255).astype(np.int32)
+
         splits.append(split)
 
         # apply this split to get next round of buckets
@@ -423,15 +466,16 @@ def learn_splits_cooler(X, nsplits, log2_max_vals_per_split=4,
             print("bucket counts: ", [buck.N for buck in buckets])
             print("loss from buckets: ",
                   sum([bucket.loss for bucket in buckets]))
+            print("dim losses: ", losses)
             if verbose > 2:
                 print("loss from sse computation: ",
                       losses[best_tried_dim_idx])
-                print("using dim, split_vals:", dim, use_split_vals)
+                print("using dim, split_vals:", best_dim, use_split_vals)
 
     # maybe return centroids in addition to set of MultiSplits and loss
     loss = sum([bucket.loss for bucket in buckets])
     if verbose > 0:
-        print("learn_splits_cooler(): returning loss: ", loss)
+        print("learn_multisplits(): returning loss: ", loss)
     if return_centroids:
         centroids = np.vstack([buck.col_means() for buck in buckets])
         assert centroids.shape == (len(buckets), X.shape[1])
@@ -662,7 +706,7 @@ def learn_splits(X, nsplits, return_centroids=True, algo='multisplits',
     # return learn_splits_greedy(X, nsplits) # TODO fwd kwargs
 
     if algo == 'multisplits':
-        return learn_splits_cooler(
+        return learn_multisplits(
             X, nsplits, return_centroids=return_centroids)
 
     if algo == 'splits':
@@ -706,7 +750,13 @@ def assignments_from_multisplits(X, splits):
     for i in range(min(nsplits, nsplits_affecting_group_id)):
         split = splits[i]
         vals = split.vals[group_ids]
-        indicators = X[:, split.dim] > vals
+        # x = X[:, split.dim]
+        # if split.offset is not None:
+        #     x = x - split.offset
+        # if split.scaleby is not None:
+        #     x = x * split.scaleby
+        # indicators = x > vals
+        indicators = split.preprocess_x(X[:, split.dim]) > vals
         group_ids = (group_ids * 2) + indicators
 
     if nsplits <= nsplits_affecting_group_id:
@@ -717,7 +767,13 @@ def assignments_from_multisplits(X, splits):
     for i in range(nsplits_affecting_group_id, nsplits):
         split = splits[i]
         vals = split.vals[group_ids]
-        indicators = X[:, split.dim] > vals
+        # x = X[:, split.dim]
+        # if split.offset is not None:
+        #     x = x - split.offset
+        # if split.scaleby is not None:
+        #     x = x * split.scaleby
+        # indicators = x > vals
+        indicators = split.preprocess_x(X[:, split.dim]) > vals
         assignments = (assignments * 2) + indicators
 
     return assignments
@@ -751,6 +807,8 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
     X_bar = X - np.mean(X, axis=0)
     col_sses = np.sum(X_bar * X_bar, axis=0) + 1e-14
     tot_sse_using_mean = np.sum(col_sses)
+    if verbose > 1:
+        print("original sum of sses within each col: ", tot_sse_using_mean)
 
     if return_centroids:
         ncentroids = int(2 ** nsplits_per_subs)
@@ -771,13 +829,26 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
 
         tot_sse += sse
         if verbose > 1:
-            print("learning splits: mse / var(X) in subs {}/{} = {:3g}".format(
-                m + 1, nsubs, (sse / N) / np.var(X_subs)))
+            # print("col sses in subspace: ", col_sses[start_col:end_col])
+            # print("sum col sses in subspace: ", col_sses[start_col:end_col].sum())
+            # print("buckets claim sse:", sse)
+            # print("N: ", N)
+            # print("(sse / N)", (sse / N))
+            # print("np.var(X_subs)", np.var(X_subs))
+            orig_sse_in_subs = col_sses[start_col:end_col].sum()
+            # print("learning splits: mse / var(X) in subs {}/{} = {:3g}".format(
+            #     m + 1, nsubs, (sse / N) / np.var(X_subs)))
+            print("learning splits: sse / orig sse in subs {}/{} = {:3g}".format(
+                m + 1, nsubs, sse / orig_sse_in_subs))
+
+        # import sys; sys.exit()
 
         # print("exiting after one subspace")
         # import sys; sys.exit()
 
-    print("-- total mse / var(X): {:.3g}".format(tot_sse / tot_sse_using_mean))
+    if verbose > 0:
+        print("-- learn_splits_in_subspaces: new / orig mse: {:.3g}".format(
+            tot_sse / tot_sse_using_mean))
     if return_centroids:
         return splits_lists, centroids
     return splits_lists
