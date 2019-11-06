@@ -363,7 +363,9 @@ def main_all(methods=None):
 
 def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
-    main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
+    # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
+    # main_cifar10(methods=['MithralPQ', 'Exact'])
+    main_cifar10(methods='MithralPQ')
     # main_cifar10(methods=['PCA', 'Exact'])
     # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
     # main_cifar100(methods=['PCA', 'Exact'])

@@ -2,8 +2,12 @@
 
 import copy
 import numpy as np
-
 from functools import reduce
+
+import numba
+from sklearn.decomposition import PCA
+
+from . import subspaces as subs
 
 # def bucket_id_to_new_bucket_ids(old_id):
 #     i = 2 * old_id
@@ -11,19 +15,28 @@ from functools import reduce
 
 
 class Bucket(object):
-    __slots__ = 'N D id sumX sumX2 point_ids'.split()
+    __slots__ = 'N D id sumX sumX2 point_ids support_add_and_remove'.split()
 
     def __init__(self, D=None, N=0, sumX=None, sumX2=None, point_ids=None,
-                 bucket_id=0):
+                 bucket_id=0, support_add_and_remove=False):
         # self.reset(D=D, sumX=sumX, sumX2=sumX2)
         # assert point_ids is not None
         if point_ids is None:
             assert N == 0
-            point_ids = set()
+            point_ids = (set() if support_add_and_remove
+                         else np.array([], dtype=np.int))
 
         self.N = len(point_ids)
-        self.point_ids = set(point_ids)
         self.id = bucket_id
+
+        # this is just so that we can store the point ids as array instead of
+        # set, while still retaining option to run our old code that needs
+        # them to be a set for efficient inserts and deletes
+        self.support_add_and_remove = support_add_and_remove
+        if support_add_and_remove:
+            self.point_ids = set(point_ids)
+        else:
+            self.point_ids = np.asarray(point_ids)
 
         # figure out D
         if (D is None or D < 1) and (sumX is not None):
@@ -43,26 +56,8 @@ class Bucket(object):
         self.sumX = np.asarray(self.sumX).astype(np.float32)
         self.sumX2 = np.asarray(self.sumX2).astype(np.float32)
 
-        # if point_ids is not None:
-        #     self.point_ids = set(point_ids)
-        #     if N > 0:
-        #         assert N == len(point_ids)
-        #     else:
-        #         N = len(point_ids)
-        # self.N = int(N)
-
-        # print("created bucket with {} point ids".format(len(self.point_ids)))
-
-    # def reset(self, D=None, sumX=None, sumX2=None):
-    #     assert D is not None
-    #     self.D = D
-    #     self.N = 0
-    #     self.point_ids = set()
-    #     # assert (D is not None) or ((sumX is not None) and (sumX2 is not None))
-    #     self.sumX = np.zeros(D, dtype=np.float32) if sumX is None else sumX
-    #     self.sumX2 = np.zeros(D, dtype=np.float32) if sumX2 is None else sumX2
-
     def add_point(self, point, point_id=None):
+        assert self.support_add_and_remove
         # TODO replace with more numerically stable updates if necessary
         self.N += 1
         self.sumX += point
@@ -71,6 +66,7 @@ class Bucket(object):
             self.point_ids.add(point_id)
 
     def remove_point(self, point, point_id=None):
+        assert self.support_add_and_remove
         self.N -= 1
         self.sumX -= point
         self.sumX2 -= point * point
@@ -92,7 +88,8 @@ class Bucket(object):
         assert dim is not None
         assert val is not None
         assert self.point_ids is not None
-        my_idxs = np.array(list(self.point_ids))
+        my_idxs = np.asarray(self.point_ids)
+
         # print("my_idxs shape, dtype", my_idxs.shape, my_idxs.dtype)
         X = X[my_idxs]
         mask = X[:, dim] < val
@@ -117,7 +114,8 @@ class Bucket(object):
             if return_possible_vals_losses:
                 return 0, 0, np.zeros(len(possible_vals), dtype=X.dtype)
             return 0, 0
-        my_idxs = np.array(list(self.point_ids))
+        # my_idxs = np.array(list(self.point_ids))
+        my_idxs = np.asarray(self.point_ids)
         return optimal_split_val(
             X[my_idxs], dim, possible_vals=possible_vals,
             return_possible_vals_losses=return_possible_vals_losses)
@@ -151,17 +149,55 @@ class Bucket(object):
         # return max(0, np.sum(expected_X2 - (expected_X * expected_X)) * self.N)
 
 
+# @numba.jit(nopython=True)  # numpy cumsum in insanely slow
+# def _cumsum_cols(X):
+#     X = np.copy(X)
+#     for i in range(1, X.shape[0]):
+#         X[i] += X[i - 1]
+#     return X
+
+
+# numpy cumsum in insanely slow; also, having the nested loops is twice
+# as fast as assigning rows (ie, X[i] += X[i-1])
+@numba.jit(nopython=True)
+def _cumsum_cols(X):
+    X = np.copy(X)
+    for i in range(1, X.shape[0]):
+        for j in range(X.shape[1]):
+            X[i, j] += X[i - 1, j]
+    return X
+
+
 # def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
 def optimal_split_val(X, dim, possible_vals=None,
-                      return_possible_vals_losses=False):
+                      # return_possible_vals_losses=False, force_median=False):
+                      return_possible_vals_losses=False, force_val=None):
+
+    if force_val in ('mean', 'median'):
+        assert not return_possible_vals_losses
+        x = X[:, dim]
+        val = np.median(x) if force_val == 'median' else np.mean(x)
+        mask = X < val
+        X0 = X[mask]
+        errs0 = X0 - X0.mean(axis=0)
+        loss0 = np.sum(errs0 * errs0)
+        X1 = X[~mask]
+        errs = X1 - X1.mean(axis=0)
+        loss1 = np.sum(errs * errs)
+        return val, loss0 + loss1
+
     N, D = X.shape
     sort_idxs = np.argsort(X[:, dim])
     X_sort = X[sort_idxs]
     X_sort_sq = X_sort * X_sort
-    cumX_head = np.cumsum(X_sort, axis=0)
-    cumX2_head = np.cumsum(X_sort_sq, axis=0)
-    cumX_tail = np.cumsum(X_sort[::-1], axis=0)[::-1]
-    cumX2_tail = np.cumsum(X_sort_sq[::-1], axis=0)[::-1]
+    # cumX_head = np.cumsum(X_sort, axis=0)
+    # cumX2_head = np.cumsum(X_sort_sq, axis=0)
+    # cumX_tail = np.cumsum(X_sort[::-1], axis=0)[::-1]
+    # cumX2_tail = np.cumsum(X_sort_sq[::-1], axis=0)[::-1]
+    cumX_head = _cumsum_cols(X_sort)
+    cumX2_head = _cumsum_cols(X_sort_sq)
+    cumX_tail = _cumsum_cols(X_sort[::-1])[::-1]
+    cumX2_tail = _cumsum_cols(X_sort_sq[::-1])[::-1]
 
     all_counts = np.arange(1, N + 1).reshape(-1, 1)
     EX_head = cumX_head / all_counts            # E[X], starting from 0
@@ -295,11 +331,14 @@ def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
                       # learn_quantize_params=False,
                       learn_quantize_params='int16',
                       # learn_quantize_params=True,
-                      # verbose=2):
                       # verbose=3):
-                      verbose=1):
+                      # verbose=1):
+                      verbose=2):
+    X = X.astype(np.float32)
     N, D = X.shape
     max_vals_per_split = 1 << log2_max_vals_per_split
+
+    X_hat = np.zeros_like(X)
 
     # initially, one big bucket with everything
     buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
@@ -346,16 +385,47 @@ def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
         nbuckets_per_group = nbuckets // ngroups
         assert nbuckets_per_group * ngroups == nbuckets  # sanity check
 
-        # pick out dims to consider splitting on
-        # try_dims = np.arange(D)  # TODO restrict to subset?
-        col_losses[:] = 0
-        for buck in buckets:
-            col_losses += buck.col_sum_sqs()
-        # try_dims = np.argsort(col_losses)[-8:]
-        try_dims = np.argsort(col_losses)[-4:]
-        # try_dims = np.argsort(col_losses)[-2:]
-        # try_dims = np.arange(2)
-        # try_dims = np.arange(D)  # TODO restrict to subset?
+        # try_ndims = 8
+        # try_ndims = 4
+        try_ndims = 1
+        # dim_heuristic = 'eigenvec'
+        # dim_heuristic = 'bucket_eigenvecs'
+        dim_heuristic = 'variance'
+        if dim_heuristic == 'eigenvec':
+            # compute current reconstruction of X, along with errs
+            for buck in buckets:
+                # print("point ids: ", buck.point_ids)
+                if len(buck.point_ids):
+                    centroid = buck.col_means()
+                    # X_hat[np.array(buck.point_ids)] = centroid
+                    X_hat[buck.point_ids] = centroid
+            X_res = X - X_hat
+            # pick dims by looking at top principal component
+            v = subs.top_principal_component(X_res)
+            try_dims = np.argsort(np.abs(v))[-try_ndims:]
+        elif dim_heuristic == 'bucket_eigenvecs':
+            dim_scores = np.zeros(D, dtype=np.float32)
+            for buck in buckets:
+                if buck.N < 2:
+                    continue
+                X_buck = X[buck.point_ids]
+                v, lamda = subs.top_principal_component(
+                    X_buck, return_eigenval=True)
+                v *= lamda
+                dim_scores += np.abs(v)
+                # X_buck -= X_buck.mean(axis=0)
+            try_dims = np.argsort(dim_scores)[-try_ndims:]
+        elif dim_heuristic == 'variance':
+            # pick out dims to consider splitting on
+            # try_dims = np.arange(D)  # TODO restrict to subset?
+            col_losses[:] = 0
+            for buck in buckets:
+                col_losses += buck.col_sum_sqs()
+            # try_dims = np.argsort(col_losses)[-8:]
+            try_dims = np.argsort(col_losses)[-try_ndims:]
+            # try_dims = np.argsort(col_losses)[-2:]
+            # try_dims = np.arange(2)
+            # try_dims = np.arange(D)  # TODO restrict to subset?
 
         losses = np.zeros(len(try_dims), dtype=X.dtype)
         losses_for_vals = np.zeros(try_nquantiles, dtype=X.dtype)
