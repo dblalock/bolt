@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import abc
 import numpy as np
 
 from . import vquantizers as vq
@@ -8,10 +9,7 @@ from . import amm
 KEY_NLOOKUPS = 'nlookups'
 
 
-# ================================================================ PQ
-
-class PQMatmul(amm.ApproxMatmul):
-
+class VQMatmul(amm.ApproxMatmul, abc.ABC):
     def __init__(self, ncodebooks, ncentroids=None):
         self.ncodebooks = ncodebooks
         self.ncentroids = (self._get_ncentroids() if ncentroids is None
@@ -19,6 +17,7 @@ class PQMatmul(amm.ApproxMatmul):
         self.enc = self._create_encoder(ncodebooks)
         self._reset()
 
+    @abc.abstractmethod
     def _create_encoder(self, ncodebooks):  # to be overriden by subclasses
         return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
                             **self._get_encoder_kwargs())
@@ -48,20 +47,25 @@ class PQMatmul(amm.ApproxMatmul):
         if self.luts is None:
             self.set_B(B)
         return self.enc.dists_enc(self.A_enc, self.luts)
-        # # print("about to compute dists")
-        # # d_hat = self.enc.dists_enc(self.A_enc, self.luts)
-        # d_hat = self.enc.dists_enc(self.A_enc, self.luts, A, B)
-        # d_pad = self.enc._pad_ncols(A) @ self.enc._pad_ncols(B.T).T
-        # d = A @ B
-        # print("corr(d_hat, d)")
-        # print(np.corrcoef(np.vstack([d_hat.ravel(), d.ravel()])))
-        # diffs = d - d_hat
-        # print("normalized mse of d_hat vs d", np.mean(diffs * diffs) / np.var(d))
-        # # diffs = d - d_pad
-        # # print("normalized mse of d_pad vs d", np.mean(diffs * diffs) / np.var(d))
-        # # import sys; sys.exit()
 
-        # return d_hat
+    @abc.abstractmethod
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        pass
+
+    def get_params(self):
+        return {'ncodebooks': self.ncodebooks}
+
+
+# ================================================================ PQ
+
+class PQMatmul(VQMatmul):
+
+    def _create_encoder(self, ncodebooks):  # to be overriden by subclasses
+        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
+                            **self._get_encoder_kwargs())
+
+    def _get_ncentroids(self):
+        return 256
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         # data encoding and LUT costs
@@ -70,9 +74,6 @@ class PQMatmul(amm.ApproxMatmul):
         nmuls += 0 if fixedB else B.shape[0] * B.shape[1] * self.ncentroids
         nlookups = A.shape[0] * B.shape[1] * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
-
-    def get_params(self):
-        return {'ncodebooks': self.ncodebooks}
 
 
 # ================================================================ OPQ
@@ -248,3 +249,7 @@ class MithralPQ(PQMatmul):
                             quantize_lut=True,
                             upcast_every=256,  # fine as long as using mean
                             accumulate_how='mean')
+
+
+class MithralAmm(object):
+    pass # TODO

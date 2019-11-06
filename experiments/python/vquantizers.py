@@ -131,16 +131,15 @@ def _learn_best_quantization(luts):
 
 # ================================================================ Quantizers
 
+
 # ------------------------------------------------ Abstract Base Class
 
 class MultiCodebookEncoder(abc.ABC):
 
     def __init__(self, ncodebooks, ncentroids=256,
-                 elemwise_dist_func=dists_elemwise_dot,
                  quantize_lut=False, upcast_every=-1, accumulate_how='sum'):
         self.ncodebooks = ncodebooks
         self.ncentroids = ncentroids
-        self.elemwise_dist_func = elemwise_dist_func
         self.quantize_lut = quantize_lut
         self.upcast_every = upcast_every if upcast_every >= 1 else 1
         assert self.upcast_every in (1, 2, 4, 8, 16, 32, 64, 128, 256)
@@ -154,14 +153,13 @@ class MultiCodebookEncoder(abc.ABC):
                         self.ncentroids)
 
     def name(self):
-        return "{}_{}x{}b_iters={}_quantize={}".format(
-            self.preproc, self.ncodebooks, self.code_bits, self.opt_iters,
+        return "{}_{}x{}b_quantize={}".format(
+            self.preproc, self.ncodebooks, self.code_bits,
             int(self.quantize_lut))
 
     def params(self):
-        return {'_ncodebooks': self.ncodebooks,
-                '_code_bits': self.code_bits, 'opt_iters': self.opt_iters,
-                '_quantize': self.quantize_lut}
+        return {'ncodebooks': self.ncodebooks,
+                'code_bits': self.code_bits, 'quantize': self.quantize_lut}
 
     def _learn_lut_quantization(self, X, Q=None):
         if self.quantize_lut:  # TODO put this logic in separate function
@@ -311,9 +309,9 @@ class PQEncoder(MultiCodebookEncoder):
                  **preproc_kwargs):
         super().__init__(
             ncodebooks=ncodebooks, ncentroids=ncentroids,
-            elemwise_dist_func=elemwise_dist_func,
             quantize_lut=quantize_lut, upcast_every=upcast_every,
             accumulate_how=accumulate_how)
+        self.elemwise_dist_func = elemwise_dist_func
         self.preproc = preproc
         self.encode_algo = encode_algo
         self.preproc_kwargs = preproc_kwargs
@@ -321,7 +319,7 @@ class PQEncoder(MultiCodebookEncoder):
     def _pad_ncols(self, X):
         return ensure_num_cols_multiple_of(X, self.ncodebooks)
 
-    def fit(self, X, Q=None, **preproc_kwargs):
+    def fit(self, X, Q=None):
         self.subvect_len = int(np.ceil(X.shape[1] / self.ncodebooks))
         X = self._pad_ncols(X)
 
@@ -404,3 +402,42 @@ class PQEncoder(MultiCodebookEncoder):
             idxs = pq._encode_X_pq(X, codebooks=self.centroids)
 
         return idxs + self.offsets  # offsets let us index into raveled dists
+
+
+# ------------------------------------------------ Mithral
+
+class MithralEncoder(MultiCodebookEncoder):
+
+    def __init__(self, ncodebooks):
+        super().__init__(
+            ncodebooks=ncodebooks, ncentroids=16,
+            quantize_lut=True, upcast_every=8,  # 8 is fastest in cpp
+            accumulate_how='mean')
+        self.preproc = preproc
+        self.encode_algo = encode_algo
+        self.preproc_kwargs = preproc_kwargs
+
+    def name(self):
+        return "{}_{}".format('mithral', super().name())
+
+    def params(self):
+        return {'ncodebooks': self.ncodebooks}
+
+    def fit(self, X, Q=None):
+        self.splits_lists, self.centroids = \
+            clusterize.learn_splits_in_subspaces(
+                X, subvect_len=self.subvect_len,
+                nsplits_per_subs=self.code_bits, algo=self.encode_algo)
+        self._learn_lut_quantization(X, Q)
+
+    def encode_Q(self, Q, quantize=True):
+        Q = np.atleast_2d(Q)
+        luts = np.zeros((Q.shape[0], self.ncodebooks, self.ncentroids))
+        for i, q in enumerate(Q):
+            lut = mithral_lut(Q, self.centroids)
+            if self.quantize_lut and quantize:
+                lut = np.maximum(0, lut - self.lut_offsets.reshape(-1, 1))
+                lut = np.floor(lut * self.scale_by).astype(np.int)
+                lut = np.minimum(lut, 255)
+            luts[i] = lut
+        return luts

@@ -108,7 +108,7 @@ class Bucket(object):
 
         return create_bucket(X0, ids0, id0), create_bucket(X1, ids1, id1)
 
-    def optimal_split_val(self, X, dim, possible_vals=None,
+    def optimal_split_val(self, X, dim, possible_vals=None, X_orig=None,
                           return_possible_vals_losses=False):
         if self.N < 2 or self.point_ids is None:
             if return_possible_vals_losses:
@@ -117,7 +117,7 @@ class Bucket(object):
         # my_idxs = np.array(list(self.point_ids))
         my_idxs = np.asarray(self.point_ids)
         return optimal_split_val(
-            X[my_idxs], dim, possible_vals=possible_vals,
+            X[my_idxs], dim, possible_vals=possible_vals, X_orig=X_orig,
             return_possible_vals_losses=return_possible_vals_losses)
 
     def col_means(self):
@@ -169,15 +169,22 @@ def _cumsum_cols(X):
 
 
 # def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
-def optimal_split_val(X, dim, possible_vals=None,
+def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
                       # return_possible_vals_losses=False, force_median=False):
                       return_possible_vals_losses=False, force_val=None):
 
+    # X_orig = X if X_orig is None else X_orig
+    X_orig = X # TODO rm
+    if X_orig.shape != X.shape:
+        print("X orig shape: ", X_orig.shape)
+        print("X shape: ", X.shape)
+        assert X_orig.shape == X.shape
+
     if force_val in ('mean', 'median'):
         assert not return_possible_vals_losses
-        x = X[:, dim]
+        x = X_orig[:, dim]
         val = np.median(x) if force_val == 'median' else np.mean(x)
-        mask = X < val
+        mask = X_orig < val
         X0 = X[mask]
         errs0 = X0 - X0.mean(axis=0)
         loss0 = np.sum(errs0 * errs0)
@@ -187,7 +194,8 @@ def optimal_split_val(X, dim, possible_vals=None,
         return val, loss0 + loss1
 
     N, D = X.shape
-    sort_idxs = np.argsort(X[:, dim])
+    # sort_idxs = np.argsort(X[:, dim])
+    sort_idxs = np.argsort(X_orig[:, dim])
     X_sort = X[sort_idxs]
     X_sort_sq = X_sort * X_sort
     # cumX_head = np.cumsum(X_sort, axis=0)
@@ -231,13 +239,14 @@ def optimal_split_val(X, dim, possible_vals=None,
     # print("sses[0], sses[-1], true loss, np.sum(X.var(axis=0)) * N",
     #       sses[0], sses[-1], sse_true, np.sum(X.var(axis=0)) * N)
 
+    X_orig_sort = X_orig[sort_idxs]
     if possible_vals is None or not len(possible_vals):  # can split anywhere
         best_idx = np.argmin(sses)
         next_idx = min(N - 1, best_idx + 1)
-        best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
-        # print("best idx, N = ", best_idx, len(X))
+        # best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
+        best_val = (X_orig_sort[best_idx, dim] + X_orig_sort[next_idx, dim]) / 2
     else:  # have to choose one of the values in possible_vals
-        sorted_col = X_sort[:, dim]
+        sorted_col = X_orig_sort[:, dim]
         idxs = np.searchsorted(sorted_col, possible_vals)
         # idxs = np.unique(idxs)
         idxs = np.maximum(0, idxs - 1)  # searchsorted returns first idx larger
@@ -326,7 +335,7 @@ class MultiSplit(object):
         return x
 
 
-def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
+def learn_multisplits_orig(X, nsplits, log2_max_vals_per_split=4,
                       try_nquantiles=16, return_centroids=True,
                       # learn_quantize_params=False,
                       learn_quantize_params='int16',
@@ -557,6 +566,195 @@ def learn_multisplits(X, nsplits, log2_max_vals_per_split=4,
         assert centroids.shape == (len(buckets), X.shape[1])
         return splits, loss, centroids
     return splits, loss
+
+
+def learn_multisplits(
+        X, nsplits=4, return_centroids=True, return_buckets=False,
+        # learn_quantize_params=False,
+        learn_quantize_params='int16', X_orig=None,
+        # learn_quantize_params=True,
+        # verbose=3):
+        # verbose=1):
+        verbose=2):
+    assert nsplits <= 4  # >4 splits means >16 split_vals for this func's impl
+
+    X = X.astype(np.float32)
+    N, D = X.shape
+    X_orig = X if X_orig is None else X_orig
+
+    X_hat = np.zeros_like(X)
+
+    # initially, one big bucket with everything
+    buckets = [Bucket(sumX=X.sum(axis=0), sumX2=(X * X).sum(axis=0),
+               point_ids=np.arange(N))]
+    total_loss = sum([bucket.loss for bucket in buckets])
+
+    if verbose > 0:
+        print("================================")
+        print("learn_multisplits(): initial loss: ", total_loss)
+
+    splits = []
+    col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
+    for s in range(nsplits):
+        if verbose > 1:
+            print("------------------------ finding split #:", s)
+
+        # try_ndims = 8
+        # try_ndims = 4
+        try_ndims = 1
+        # dim_heuristic = 'eigenvec'
+        # dim_heuristic = 'bucket_eigenvecs'
+        dim_heuristic = 'variance'
+        if dim_heuristic == 'eigenvec':
+            # compute current reconstruction of X, along with errs
+            for buck in buckets:
+                # print("point ids: ", buck.point_ids)
+                if len(buck.point_ids):
+                    centroid = buck.col_means()
+                    # X_hat[np.array(buck.point_ids)] = centroid
+                    X_hat[buck.point_ids] = centroid
+            X_res = X - X_hat
+            # pick dims by looking at top principal component
+            v = subs.top_principal_component(X_res)
+            try_dims = np.argsort(np.abs(v))[-try_ndims:]
+        elif dim_heuristic == 'bucket_eigenvecs':
+            dim_scores = np.zeros(D, dtype=np.float32)
+            for buck in buckets:
+                if buck.N < 2:
+                    continue
+                X_buck = X[buck.point_ids]
+                v, lamda = subs.top_principal_component(
+                    X_buck, return_eigenval=True)
+                v *= lamda
+                dim_scores += np.abs(v)
+                # X_buck -= X_buck.mean(axis=0)
+            try_dims = np.argsort(dim_scores)[-try_ndims:]
+        elif dim_heuristic == 'variance':
+            col_losses[:] = 0
+            for buck in buckets:
+                col_losses += buck.col_sum_sqs()
+            try_dims = np.argsort(col_losses)[-try_ndims:]
+
+        losses = np.zeros(len(try_dims), dtype=X.dtype)
+        all_split_vals = []  # vals chosen by each bucket/group for each dim
+
+        # determine for this dim what the best split vals are for each
+        # group and what the loss is when using these split vals
+        for d, dim in enumerate(try_dims):
+            if verbose > 2:
+                # print("---------------------- dim = ", dim)
+                print("======== dim = {}, ({:.5f}, {:.5f})".format(
+                    dim, np.min(X[:, dim]), np.max(X[:, dim])))
+            split_vals = []  # each bucket contributes one split val
+            for buck in buckets:
+                val, loss = buck.optimal_split_val(X, dim, X_orig=X_orig)
+                losses[d] += loss
+                split_vals.append(val)
+            all_split_vals.append(split_vals)
+
+        # determine best dim to split on, and pull out associated split
+        # vals for all buckets
+        best_tried_dim_idx = np.argmin(losses)
+        best_dim = try_dims[best_tried_dim_idx]
+        use_split_vals = all_split_vals[best_tried_dim_idx]
+        split = MultiSplit(dim=best_dim, vals=use_split_vals)
+        if learn_quantize_params:
+            # simple version, which also handles 1 bucket: just set min
+            # value to be avg of min splitval and xval, and max value to
+            # be avg of max splitval and xval
+            x = X[:, best_dim]
+            offset = (np.min(x) + np.min(use_split_vals)) / 2
+            upper_val = (np.max(x) + np.max(use_split_vals)) / 2 - offset
+            scale = 254. / upper_val
+            if learn_quantize_params == 'int16':
+                scale = 2. ** int(np.log2(scale))
+
+            split.offset = offset
+            split.scaleby = scale
+            split.vals = (split.vals - split.offset) * split.scaleby
+            split.vals = np.clip(split.vals, 0, 255).astype(np.int32)
+
+        splits.append(split)
+
+        # apply this split to get next round of buckets
+        new_buckets = []
+        for i, buck in enumerate(buckets):
+            group_idx = i
+            val = use_split_vals[group_idx]
+            new_buckets += list(buck.split(X, dim=best_dim, val=val))
+        buckets = new_buckets
+
+        if verbose > 1:
+            print("bucket counts: ", [buck.N for buck in buckets])
+            # print("loss from buckets: ",
+            #       sum([bucket.loss for bucket in buckets]))
+            print("dim losses: ", losses)
+            if verbose > 2:
+                print("loss from sse computation: ",
+                      losses[best_tried_dim_idx])
+                print("using dim, split_vals:", best_dim, use_split_vals)
+
+    # maybe return centroids in addition to set of MultiSplits and loss
+    loss = sum([bucket.loss for bucket in buckets])
+    if verbose > 0:
+        print("learn_mithral_multisplits(): returning loss: ", loss)
+
+    ret = [splits, loss]
+    if return_centroids:
+        centroids = np.vstack([buck.col_means() for buck in buckets])
+        assert centroids.shape == (len(buckets), X.shape[1])
+        ret.append(centroids)
+        # return splits, loss, centroids
+    if return_buckets:
+        # print("returning buckets!")
+        ret.append(buckets)
+    return tuple(ret)
+
+
+def learn_mithral(X, ncodebooks):
+    N, D = X.shape
+    ncentroids_per_codebook = 16
+
+    X = X.astype(np.float32)
+    X_res = X
+    X_orig = X
+    X_hat = np.zeros_like(X)
+
+    all_centroids = np.zeros(
+        (ncodebooks, ncentroids_per_codebook, D), dtype=np.float32)
+    all_splits = []
+    for c in range(ncodebooks):
+        # NOTE: to make it look at subspaces, just 0 out other cols of X_res
+
+        # learn codebook to soak current residuals
+        multisplits, _, centroids, buckets = learn_multisplits(
+            X_res, X_orig=X_orig, return_centroids=False, return_buckets=True)
+        all_splits.append(multisplits)
+
+        # update residuals and store centroids
+        for b, buck in enumerate(buckets):
+            if len(buck.point_ids):
+                centroid = buck.col_means()
+                X_hat[buck.point_ids] = centroid
+                # update centroid here in case we want to regularize it somehow
+                all_centroids[c, b] = centroid
+        X_res = X - X_hat
+
+    return all_splits, all_centroids
+
+
+def mithral_encode(X, multisplits_lists):
+    N, D = X.shape
+    ncodebooks = len(multisplits_lists)
+    X_enc = np.empty((N, ncodebooks), dtype=np.int, order='f')
+    for c in range(ncodebooks):
+        X_enc[:, c] = assignments_from_multisplits(X, multisplits_lists[c])
+    return np.ascontiguousarray(X_enc)
+
+
+def mithral_lut(q, all_centroids):
+    q = q.reshape(1, 1, -1)  # all_centroids is shape ncodebooks, ncentroids, D
+    return (q * all_centroids).sum(axis=2)  # ncodebooks, ncentroids
 
 
 def learn_splits_greedy(X, nsplits, verbose=2):
@@ -958,10 +1156,12 @@ def main():
     # print('final loss: ', loss)
     # # print(X)
 
-    x = np.random.randn(100)
-    print(evenly_spaced_quantiles(x, 5))
+    # x = np.random.randn(100)
+    # print(evenly_spaced_quantiles(x, 5))
 
-
+    ncodebooks = 1
+    X = np.random.randn(100, 16)
+    print(learn_mithral(X, ncodebooks))
 
 
 if __name__ == '__main__':
