@@ -164,11 +164,13 @@ class Bucket(object):
 # as fast as assigning rows (ie, X[i] += X[i-1])
 @numba.jit(nopython=True)
 def _cumsum_cols(X):
-    X = np.copy(X)
+    out = np.empty(X.shape, X.dtype)
+    for j in range(X.shape[1]):
+        out[0, j] = X[0, j] + X[0, j]
     for i in range(1, X.shape[0]):
         for j in range(X.shape[1]):
-            X[i, j] += X[i - 1, j]
-    return X
+            out[i, j] = X[i, j] + out[i - 1, j]
+    return out
 
 
 # def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
@@ -797,24 +799,24 @@ def learn_mithral(X, ncodebooks, niters=1):
             print("X res var / X var: ", X_res.var() / X_orig.var())
 
         # now update centroids given assignments and all other centroids
-        # for c in []: # TODO rm
-        for c in range(ncodebooks):
-            print("c: ", c)
-            # undo effect of this codebook
-            buckets = all_buckets[c]
-            for b, buck in enumerate(buckets):
-                if len(buck.point_ids):
-                    X_hat[buck.point_ids] = all_centroids[c, b]
-            X_res += X_hat
-            # update centroids based on residuals given all other codebooks
-            for b, buck in enumerate(buckets):
-                if len(buck.point_ids):
-                    centroid = X_res[buck.point_ids].mean(axis=0)
-                    X_hat[buck.point_ids] = centroid
-                    all_centroids[c, b] = centroid
-            X_res -= X_hat
-        print("X res var / X var after centroid updates: ",
-              X_res.var() / X_orig.var())
+        for _ in range(5):
+            for c in range(ncodebooks):
+                print("c: ", c)
+                # undo effect of this codebook
+                buckets = all_buckets[c]
+                for b, buck in enumerate(buckets):
+                    if len(buck.point_ids):
+                        X_hat[buck.point_ids] = all_centroids[c, b]
+                X_res += X_hat
+                # update centroids based on residuals given all other codebooks
+                for b, buck in enumerate(buckets):
+                    if len(buck.point_ids):
+                        centroid = X_res[buck.point_ids].mean(axis=0)
+                        X_hat[buck.point_ids] = centroid
+                        all_centroids[c, b] = centroid
+                X_res -= X_hat
+            print("X res var / X var after centroid updates: ",
+                  X_res.var() / X_orig.var())
 
     return all_splits, all_centroids
 
