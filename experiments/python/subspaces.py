@@ -11,8 +11,11 @@ from .utils import top_k_idxs
 # ================================================================ eigenvecs
 
 # @numba.jit(nopython=True)  # don't jit since take like 2.5s
+# def top_principal_component(X, niters=50, return_eigenval=False,
 def top_principal_component(X, niters=100, return_eigenval=False,
-                            momentum=.9, nguesses=32, learning_rate=1.):
+                            momentum=.9, nguesses=32, learning_rate=1.,
+                            # allow_materialize=False):
+                            allow_materialize_XtX=True):
     N, D = X.shape
     X = X.astype(np.float32)
     X = X - X.mean(axis=0)
@@ -30,21 +33,38 @@ def top_principal_component(X, niters=100, return_eigenval=False,
         # print("picking v = ", v)
     else:
         v = np.random.randn(D).astype(X.dtype)
+    # v = np.ones(D, dtype=np.float32)
 
     v = v.astype(np.float32)
     prev_v = np.zeros_like(v)
     v_momentum = np.zeros_like(v)
     v /= (np.linalg.norm(v) + 1e-20)
 
+    materialize_cost = N * D * D
+    iter_cost_no_materialize = 2 * N * D
+    iter_cost_materialize = D * D
+
+    materialize = (materialize_cost + (niters * iter_cost_materialize) <
+                   (niters * iter_cost_no_materialize))
+    materialize = materialize and allow_materialize_XtX
+    if materialize:
+        scaleby = np.max(np.linalg.norm(X, axis=0))
+        X *= 1. / scaleby  # precondition by setting largest variance to 1
+        XtX = X.T @ X
+
     for i in range(niters):
-        v = X @ v
-        v = X.T @ v
+        if materialize:
+            v = XtX @ v
+        else:
+            v = X.T @ (X @ v)
         v *= 1. / (np.linalg.norm(v) + 1e-20)
         # v_momentum = .9 * v_momentum + .5 * (v - prev_v)
         # v_momentum = (.9 * v_momentum + (v - prev_v)).astype(np.float32)
         v_momentum = momentum * v_momentum + learning_rate * (v - prev_v)
         v += v_momentum
         prev_v = v
+        # if i % 5 == 0:
+        #     print("v: ", v)
 
     v /= (np.linalg.norm(v) + 1e-20)
     if return_eigenval:
@@ -361,6 +381,8 @@ def main():
     # np.random.seed(6)
     # N, D = 20, 6
     N, D = 10000, 128
+    # N, D = 1000, 128
+    # N, D = 1000, 512
     # N, D = 10000, 64
     # N, D = 10000, 8
     # N, D = 10000, 10
@@ -385,8 +407,9 @@ def main():
     import time
 
     # pca = PCA(n_components=D)
-    pca = PCA(n_components=D, svd_solver='full')  # TODO rm
-    # pca = PCA(n_components=1)
+    # pca = PCA(n_components=D, svd_solver='full')  # TODO rm
+    pca = PCA(n_components=1, svd_solver='full')  # TODO rm
+    # pca = PCA(n_components=1, svd_solver='randomized')
     t = time.perf_counter()
     pca.fit(X)
     nsecs = time.perf_counter() - t
