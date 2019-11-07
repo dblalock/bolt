@@ -162,21 +162,41 @@ class Bucket(object):
 
 # numpy cumsum in insanely slow; also, having the nested loops is twice
 # as fast as assigning rows (ie, X[i] += X[i-1])
-@numba.jit(nopython=True)
+@numba.njit(fastmath=True)
 def _cumsum_cols(X):
     out = np.empty(X.shape, X.dtype)
     for j in range(X.shape[1]):
-        out[0, j] = X[0, j] + X[0, j]
+        out[0, j] = X[0, j]
     for i in range(1, X.shape[0]):
         for j in range(X.shape[1]):
             out[i, j] = X[i, j] + out[i - 1, j]
     return out
 
 
+@numba.njit(fastmath=True, cache=True)  # njit = no python, cache binary
+def _cumsse_cols(X):
+    N, D = X.shape
+    cumsses = np.empty((N, D), X.dtype)
+    cumX_row = np.empty(D, X.dtype)
+    cumX2_row = np.empty(D, X.dtype)
+    for j in range(D):
+        cumX_row[j] = X[0, j]
+        cumX2_row[j] = X[0, j] * X[0, j]
+        cumsses[0, j] = 0  # no err in bucket with 1 element
+    for i in range(1, N):
+        one_over_count = 1. / (i + 1)
+        for j in range(D):
+            cumX_row[j] += X[i, j]
+            cumX2_row[j] += X[i, j] * X[i, j]
+            meanX = cumX_row[j] * one_over_count
+            cumsses[i, j] = cumX2_row[j] - (cumX_row[j] * meanX)
+    return cumsses
+
+
 # def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
 def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
-                      return_possible_vals_losses=False, force_val=None):
                       # return_possible_vals_losses=False, force_val='median'):
+                      return_possible_vals_losses=False, force_val=None):
 
     X_orig = X if X_orig is None else X_orig
     # X_orig = X # TODO rm
@@ -202,29 +222,44 @@ def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
     # sort_idxs = np.argsort(X[:, dim])
     sort_idxs = np.argsort(X_orig[:, dim])
     X_sort = X[sort_idxs]
-    X_sort_sq = X_sort * X_sort
-    # cumX_head = np.cumsum(X_sort, axis=0)
-    # cumX2_head = np.cumsum(X_sort_sq, axis=0)
-    # cumX_tail = np.cumsum(X_sort[::-1], axis=0)[::-1]
-    # cumX2_tail = np.cumsum(X_sort_sq[::-1], axis=0)[::-1]
-    cumX_head = _cumsum_cols(X_sort)
-    cumX2_head = _cumsum_cols(X_sort_sq)
-    cumX_tail = _cumsum_cols(X_sort[::-1])[::-1]
-    cumX2_tail = _cumsum_cols(X_sort_sq[::-1])[::-1]
 
-    all_counts = np.arange(1, N + 1).reshape(-1, 1)
-    EX_head = cumX_head / all_counts            # E[X], starting from 0
-    EX_tail = cumX_tail / all_counts[::-1]      # E[X], starting from N-1
-    # EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
-    # EX2_tail = cumX2_tail / all_counts[::-1]    # E[X^2], starting from N-1
-    # mses_head = EX2_head - (EX_head * EX_head)  # mses from 0
-    # mses_tail = EX2_tail - (EX_tail * EX_tail)  # mses from N-1
-    # sses_head = mses_head * all_counts          #
-    # sses_tail = mses_tail * all_counts[::-1]
+    # use_jit = False
+    use_jit = True
+    if use_jit:
+        # X_sort = X_sort[:100] # TODO rm
+        # X_sort = np.ascontiguousarray(X_sort)
+        # N, D = X_sort.shape
+        # print("about to call jitted func; N, D = ", N, D)
+        sses_head = _cumsse_cols(X_sort)
+        # print("got thru first call...")
+        # X_sort_rev = np.ascontiguousarray(X_sort[::-1])
+        # sses_tail = _cumsse_cols(X_sort_rev)[::-1]
+        sses_tail = _cumsse_cols(X_sort[::-1])[::-1]
+        # print("returned from jitted func!")
+    else:
+        X_sort_sq = X_sort * X_sort
+        # cumX_head = np.cumsum(X_sort, axis=0)
+        # cumX2_head = np.cumsum(X_sort_sq, axis=0)
+        # cumX_tail = np.cumsum(X_sort[::-1], axis=0)[::-1]
+        # cumX2_tail = np.cumsum(X_sort_sq[::-1], axis=0)[::-1]
+        cumX_head = _cumsum_cols(X_sort)
+        cumX2_head = _cumsum_cols(X_sort_sq)
+        cumX_tail = _cumsum_cols(X_sort[::-1])[::-1]
+        cumX2_tail = _cumsum_cols(X_sort_sq[::-1])[::-1]
 
-    # simpler equivalent of above; mse * N reduces to this
-    sses_head = cumX2_head - (cumX_head * EX_head)
-    sses_tail = cumX2_tail - (cumX_tail * EX_tail)
+        all_counts = np.arange(1, N + 1).reshape(-1, 1)
+        EX_head = cumX_head / all_counts            # E[X], starting from 0
+        EX_tail = cumX_tail / all_counts[::-1]      # E[X], starting from N-1
+        # EX2_head = cumX2_head / all_counts          # E[X^2], starting from 0
+        # EX2_tail = cumX2_tail / all_counts[::-1]    # E[X^2], starting from N-1
+        # mses_head = EX2_head - (EX_head * EX_head)  # mses from 0
+        # mses_tail = EX2_tail - (EX_tail * EX_tail)  # mses from N-1
+        # sses_head = mses_head * all_counts          #
+        # sses_tail = mses_tail * all_counts[::-1]
+
+        # simpler equivalent of above; mse * N reduces to this
+        sses_head = cumX2_head - (cumX_head * EX_head)
+        sses_tail = cumX2_tail - (cumX_tail * EX_tail)
 
     # # TODO rm
     # mse_head_diffs = sses_head[1:] - sses_head[:-1]
@@ -244,14 +279,17 @@ def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
     # print("sses[0], sses[-1], true loss, np.sum(X.var(axis=0)) * N",
     #       sses[0], sses[-1], sse_true, np.sum(X.var(axis=0)) * N)
 
-    X_orig_sort = X_orig[sort_idxs]
+    # X_orig_sort = X_orig[sort_idxs]
     if possible_vals is None or not len(possible_vals):  # can split anywhere
         best_idx = np.argmin(sses)
         next_idx = min(N - 1, best_idx + 1)
         # best_val = (X_sort[best_idx, dim] + X_sort[next_idx, dim]) / 2.
-        best_val = (X_orig_sort[best_idx, dim] + X_orig_sort[next_idx, dim]) / 2
+        # X_orig_sort = X_orig[sort_idxs]
+        col = X_orig[:, dim]
+        best_val = (col[sort_idxs[best_idx]] + col[sort_idxs[next_idx]]) / 2
+        # best_val = (X_orig_sort[best_idx, dim] + X_orig_sort[next_idx, dim]) / 2
     else:  # have to choose one of the values in possible_vals
-        sorted_col = X_orig_sort[:, dim]
+        sorted_col = X_orig[:, dim][sort_idxs]
         idxs = np.searchsorted(sorted_col, possible_vals)
         # idxs = np.unique(idxs)
         idxs = np.maximum(0, idxs - 1)  # searchsorted returns first idx larger
