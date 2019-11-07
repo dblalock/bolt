@@ -704,7 +704,7 @@ def learn_multisplits(
     # maybe return centroids in addition to set of MultiSplits and loss
     loss = sum([bucket.loss for bucket in buckets])
     if verbose > 0:
-        print("learn_mithral_multisplits(): returning loss: ", loss)
+        print("learn_multisplits(): returning loss: ", loss)
 
     ret = [splits, loss]
     if return_centroids:
@@ -718,7 +718,8 @@ def learn_multisplits(
     return tuple(ret)
 
 
-def learn_mithral(X, ncodebooks):
+def learn_mithral(X, ncodebooks, niters=1):
+    # print("called learn_mithral!"); import sys; sys.exit()
     N, D = X.shape
     ncentroids_per_codebook = 16
 
@@ -731,7 +732,7 @@ def learn_mithral(X, ncodebooks):
         (ncodebooks, ncentroids_per_codebook, D), dtype=np.float32)
     all_splits = []
     subvec_len = int(np.ceil(D / ncodebooks))
-    use_X_res = np.zeros_like(X_res)
+    # use_X_res = np.zeros_like(X_res)
 
     # TODO multiple iters; also store assignments from each codebook, so
     # that we can undo effect of its X_hat (can't store X_hat directly for
@@ -739,46 +740,81 @@ def learn_mithral(X, ncodebooks):
 
     nonzeros_heuristic = 'pq'
     # nonzeros_heuristic = 'pca'
+    # nonzeros_heuristic = 'disjoint_pca'
 
-    for c in range(ncodebooks):
-        if nonzeros_heuristic == 'pq':
-            start_idx = c * subvec_len
-            end_idx = min(D, start_idx + subvec_len)
-            idxs = np.arange(start_idx, end_idx)
-            # use_X_res[:, start_idx:end_idx] = X_res[:, start_idx:end_idx]
-        elif nonzeros_heuristic == 'pca':
-            v = subs.top_principal_component(X_res)
-            idxs = np.argsort(np.abs(v))[:-subvec_len]
+    # TODO store assignments (or maybe just buckets directly)
+    # TODO update just centroids (not assignments) at iter end
 
-        use_X_res = X_res[:, idxs]
-        use_X_orig = X_orig[:, idxs]
+    # x_mean = X.mean(axis=0)
+    for t in range(niters):
+        all_buckets = list() * ncodebooks # TODO move outside outer loop
+        for c in range(ncodebooks):
+            if nonzeros_heuristic == 'pq':
+                start_idx = c * subvec_len
+                end_idx = min(D, start_idx + subvec_len)
+                idxs = np.arange(start_idx, end_idx)
+                # use_X_res[:, start_idx:end_idx] = X_res[:, start_idx:end_idx]
+            elif nonzeros_heuristic == 'pca':
+                v = subs.top_principal_component(X_res)
+                idxs = np.argsort(np.abs(v))[:-subvec_len]
+            elif nonzeros_heuristic == 'disjoint_pca':
+                use_X_res = X_res.copy()
+                if c > 0:  # not the first codebook
+                    use_X_res[:, idxs] = 0  # can't use same subspace
+                v = subs.top_principal_component(use_X_res)
+                idxs = np.argsort(np.abs(v))[:-subvec_len]
 
-        # NOTE: to make it look at subspaces, just 0 out other cols of X_res
+            use_X_res = X_res[:, idxs]
+            use_X_orig = X_orig[:, idxs]
 
-        # learn codebook to soak current residuals
-        multisplits, _, buckets = learn_multisplits(
-            use_X_res, X_orig=use_X_orig,
-            return_centroids=False, return_buckets=True)
-        for split in multisplits:
-            split.dim = idxs[split.dim]
-        all_splits.append(multisplits)
+            # NOTE: to make it look at subspaces, just 0 out other cols of X_res
 
-        # use_X_res[:, start_idx:end_idx] = 0
-        # use_X_res[:] = 0
+            # learn codebook to soak current residuals
+            multisplits, _, buckets = learn_multisplits(
+                use_X_res, X_orig=use_X_orig,
+                return_centroids=False, return_buckets=True)
+            for split in multisplits:
+                split.dim = idxs[split.dim]
+            all_splits.append(multisplits)
+            all_buckets.append(buckets)
 
-        # update residuals and store centroids
+            # use_X_res[:, start_idx:end_idx] = 0
+            # use_X_res[:] = 0
 
-        centroid = np.zeros(D, dtype=np.float32)
-        for b, buck in enumerate(buckets):
-            if len(buck.point_ids):
-                centroid[:] = 0
-                centroid[idxs] = buck.col_means()
-                X_hat[buck.point_ids] = centroid
-                # update centroid here in case we want to regularize it somehow
-                all_centroids[c, b] = centroid
-        X_res -= X_hat
+            # update residuals and store centroids
 
-        print("X res var / X var: ", X_res.var() / X_orig.var())
+            centroid = np.zeros(D, dtype=np.float32)
+            for b, buck in enumerate(buckets):
+                if len(buck.point_ids):
+                    centroid[:] = 0
+                    centroid[idxs] = buck.col_means()
+                    # centroid /= 2 # TODO rm
+                    X_hat[buck.point_ids] = centroid
+                    # update centroid here in case we want to regularize it somehow
+                    all_centroids[c, b] = centroid
+            X_res -= X_hat
+
+            print("X res var / X var: ", X_res.var() / X_orig.var())
+
+        # now update centroids given assignments and all other centroids
+        # for c in []: # TODO rm
+        for c in range(ncodebooks):
+            print("c: ", c)
+            # undo effect of this codebook
+            buckets = all_buckets[c]
+            for b, buck in enumerate(buckets):
+                if len(buck.point_ids):
+                    X_hat[buck.point_ids] = all_centroids[c, b]
+            X_res += X_hat
+            # update centroids based on residuals given all other codebooks
+            for b, buck in enumerate(buckets):
+                if len(buck.point_ids):
+                    centroid = X_res[buck.point_ids].mean(axis=0)
+                    X_hat[buck.point_ids] = centroid
+                    all_centroids[c, b] = centroid
+            X_res -= X_hat
+        print("X res var / X var after centroid updates: ",
+              X_res.var() / X_orig.var())
 
     return all_splits, all_centroids
 
