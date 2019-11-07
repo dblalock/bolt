@@ -100,6 +100,9 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
         if D < self.d:
             raise InvalidParametersException(
                 'D < d: {} < {}'.format(D, self.d))
+        if B.shape[1] < self.d:
+            raise InvalidParametersException(
+                'M < d: {} < {}'.format(B.shape[1], self.d))
         return self.call(np.copy(A), np.copy(B))  # guarantee A, B unchanged
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
@@ -264,6 +267,15 @@ class TrainedPcaSketch(ApproxMatmul):
         self.B = self.pca.transform(B.T).T
 
     def __call__(self, A, B):
+        assert A.shape[1] == B.shape[0]  # dims need to match
+        D = A.shape[1]
+        if D < self.d:
+            raise InvalidParametersException(
+                'D < d: {} < {}'.format(D, self.d))
+        if B.shape[1] < self.d:
+            raise InvalidParametersException(
+                'M < d: {} < {}'.format(B.shape[1], self.d))
+
         if (self.A is None):
             self.set_A(A)
         if (self.B is None):
@@ -599,8 +611,8 @@ def _nmultiplies_hash_sketches(N, D, M, d):
     return N * D + D * M
 
 
-def _nmultiplies_osnap_sketches(N, D, M, d):
-    return _nmultiplies_hash_sketches(N, D, M, d)
+def _nmultiplies_osnap_sketches(N, D, M, d, s=4):
+    return 4 * _nmultiplies_hash_sketches(N, D, M, d)
 
 
 def test_rand_sketches():

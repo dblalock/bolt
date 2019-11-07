@@ -9,6 +9,7 @@ import pathlib as pl
 
 # from . import files
 from . import amm_results as res
+from . import amm_methods as ameth
 
 
 sb.set_context('poster')
@@ -67,7 +68,11 @@ def _clean_results_df(df, default_D=None):
         except KeyError:
             pass
 
-    replace_dict = {'Bolt+MultiSplits': 'Ours',
+    # replace_dict = {'Bolt+MultiSplits': 'Ours',
+    # replace_dict = {'Mithral': 'Ours',
+    replace_dict = {'Mithral': 'Ours',
+                    'MithralPQ': 'OursPQ',
+                    'Exact': 'Brute Force',
                     'CooccurSketch': 'CD'}
 
     # def _replace_method_name(name):
@@ -86,8 +91,10 @@ def _clean_results_df(df, default_D=None):
 
     # join with cpp timing results
     matmul_latencies, matmul_thruputs = res.load_matmul_times_for_n_d_m()
-    multisplit_latencies, multisplit_thruputs = \
-        res.load_multisplit_times_for_n_d_m()
+    sketch_latencies, sketch_thruputs = res.load_sketch_times_for_n_d_m()
+    # multisplit_latencies, multisplit_thruputs = \
+    #     res.load_multisplit_times_for_n_d_m()
+    mithral_latencies, mithral_thruputs = res.load_mithral_times_for_n_d_m()
     bolt_latencies, bolt_thruputs = res.load_bolt_times_for_n_d_m()
     # row_dicts = []
     all_latencies = []
@@ -97,52 +104,69 @@ def _clean_results_df(df, default_D=None):
     # print("d col: ")
     # print(df['d'])
 
+    fast_sketch_methods = set([m.lower() for m in ameth.FAST_SKETCH_METHODS])
+    slow_sketch_methods = set([m.lower() for m in ameth.SLOW_SKETCH_METHODS])
     for _, row in df.iterrows():
         # row = dict(*row)
         N, D, M = [int(row[k]) for k in ('N', 'D', 'M')]
         method = row['Method'].lower()
         # if 'split' in method.lower():
         # print("using method: ", method)
-        if method in ('bolt', 'ours'):
+        if method in ('bolt', 'ours', 'ourspq'):
+            # TODO check if in vq methods, instead of hardcoding
+
             ncodebooks = int(row['ncodebooks'])
-            # N = N - (N % 32)  # TODO rm hack after gone in cpp code
             key = (N, D, M, ncodebooks)
-            if method == 'ours':
-                latencies = multisplit_latencies[key]
-                thruputs = multisplit_thruputs[key]
+            if method in ('ours', 'ourspq'):
+                # latencies = multisplit_latencies[key]
+                # thruputs = multisplit_thruputs[key]
+                latencies = mithral_latencies[key]
+                thruputs = mithral_thruputs[key]
             elif method == 'bolt':
                 latencies = bolt_latencies[key]
                 thruputs = bolt_thruputs[key]
-            all_latencies.append(np.mean(latencies))
-            all_thruputs.append(np.mean(thruputs))
             # all_latencies.append(np.median(latencies))
             # all_thruputs.append(np.median(thruputs))
-        else:
-            d = int(row['d'])
-            key = (N, d, M)
-            # print("d: ", d)
+        elif method == 'brute force':
+            key = (N, D, M)
             latencies = matmul_latencies[key]
             thruputs = matmul_thruputs[key]
-            lat = np.mean(latencies)
-            thruput = np.mean(thruputs)
-            # scale by number of multiplies vs exact; this is optimistic
-            # because it assumes that all operations are done as efficiently
-            # as in a highly optimized matmul routine (you could maybe argue
-            # that latency might not scale linearly, but all the methods for
-            # which this applies are so far from being competitive that I
-            # kind of don't care)
-            if method != 'Exact':
-                secs = row['secs']
-                lat = secs * 1000
-                thruput = N * M / secs
-                # # version where we pretend same efficiency as matmul
-                # nmuls = int(row['muls'])
-                # exact_nmuls = N * D * M
-                # scale = nmuls / exact_nmuls
-                # lat *= scale
-                # thruput /= scale
-            all_latencies.append(lat)
-            all_thruputs.append(thruput)
+        elif method in fast_sketch_methods:
+            d = int(row['d'])
+            key = (N, D, M, d)
+            latencies = sketch_latencies[key]
+            thruputs = sketch_thruputs[key]
+        else:  # slow sketch-based methods
+            assert method in slow_sketch_methods
+            # print("method: ", method)
+            # print("fast sketch methods: ", fast_sketch_methods)
+            # assert False # TODO rm
+            secs = row['secs']
+            lat = secs * 1000
+            thruput = N * M / secs
+            latencies = [lat]
+            thruputs = [thruput]
+
+            # print("d: ", d)
+            # print("key:", key)
+            # print("sketch_latencies:")
+            # import pprint
+            # pprint.pprint(sketch_latencies)
+
+            # secs = row['secs']
+            # lat = secs * 1000
+            # thruput = N * M / secs
+            # # # version where we pretend same efficiency as matmul
+            # # nmuls = int(row['muls'])
+            # # exact_nmuls = N * D * M
+            # # scale = nmuls / exact_nmuls
+            # # lat *= scale
+            # # thruput /= scale
+            # all_latencies.append(lat)
+            # all_thruputs.append(thruput)
+
+        all_latencies.append(np.mean(latencies))
+        all_thruputs.append(np.mean(thruputs))
 
     # print("len latencies: ", len(all_latencies))
     # print("len thruputs: ", len(all_thruputs))
@@ -150,10 +174,20 @@ def _clean_results_df(df, default_D=None):
     df['Latency'] = all_latencies
     df['Throughput'] = all_thruputs
 
+    print("cleaned df:\n", df)
+    # print(df)
+    # print(df.loc[:11])
+    # print(df.loc[10:])
+    # for row in df.iterrows():
+    #     print(row)
+    # import sys; sys.exit()
+
     # make stuff log scale
     # if 'd' in df:
     #     df['d'] = np.log2(df['d']).astype(np.int32)
     df['Log10(MSE)'] = np.log10(1. - df['R-Squared'] + 1e-10)
+
+    df = df.sort_values('Method', axis=0)
 
     return df
 
@@ -169,31 +203,43 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
     # for df in dfs:
     df10 = df10.loc[~(df10['ncodebooks'] < 4)]
     df100 = df100.loc[~(df100['ncodebooks'] < 4)]
-    if x_metric in ('Latency', 'Throughput'):
-        # TODO get results for PQ + Bolt
-        # df10 = df10.loc[~df10['method'].isin(['PQ', 'Bolt'])]
-        # include_methods = ('Bolt+MultiSplits', 'Bolt', 'Exact')
-        include_methods = ['Bolt+MultiSplits', 'Bolt', 'Exact']
-        include_methods += 'PQ SVD FD-AMM CooccurSketch'.split()  # TODO rm
-        # print("uniq methods: ", df10['method'].unique())
-        # df10 = df10.loc[~df10['method'].isin(['PQ'])]
-        df10 = df10.loc[df10['method'].isin(include_methods)]
 
-        # df100 = df100.loc[~df100['method'].isin(['PQ', 'Bolt'])]
-        # df100 = df100.loc[~df100['method'].isin(['PQ'])]
-        df100 = df100.loc[df100['method'].isin(include_methods)]
+    # if x_metric in ('Latency', 'Throughput'):
+    #     # TODO get results for PQ + Bolt
+    #     # df10 = df10.loc[~df10['method'].isin(['PQ', 'Bolt'])]
+    #     # include_methods = ('Bolt+MultiSplits', 'Bolt', 'Exact')
+    #     include_methods = ['Bolt+MultiSplits', 'Bolt', 'Exact']
+    #     include_methods += 'PQ SVD FD-AMM CooccurSketch'.split()  # TODO rm
+    #     # print("uniq methods: ", df10['method'].unique())
+    #     # df10 = df10.loc[~df10['method'].isin(['PQ'])]
+    #     df10 = df10.loc[df10['method'].isin(include_methods)]
+
+    #     # df100 = df100.loc[~df100['method'].isin(['PQ', 'Bolt'])]
+    #     # df100 = df100.loc[~df100['method'].isin(['PQ'])]
+    #     df100 = df100.loc[df100['method'].isin(include_methods)]
 
     df10 = _clean_results_df(df10, default_D=512)
     df100 = _clean_results_df(df100, default_D=512)
 
     def lineplot(data, ax):
-        order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
-        order = [m for m in order if m in data['Method'].unique()]
+        # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
+        # order = [m for m in order if m in data['Method'].unique()]
+        order = list(data['Method'].unique())
+        move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
+        for elem in move_methods_to_front[:]:
+            if elem in order:
+                order.remove(elem)
+            else:
+                move_methods_to_front.remove(elem)
+        order = move_methods_to_front + order
+        # order = None
 
-        cmap = plt.get_cmap('tab10')
-        palette = {'Ours': 'red', 'Bolt': cmap(0), 'Exact': cmap(1),
-                   'PQ': cmap(2), 'SVD': cmap(4), 'FD-AMM': cmap(5),
-                   'CD': cmap(6)}
+        # cmap = plt.get_cmap('tab10')
+        # palette = {'Ours': 'red', 'Bolt': cmap(0), 'Exact': cmap(1),
+        #            'PQ': cmap(2), 'SVD': cmap(4), 'FD-AMM': cmap(5),
+        #            'CD': cmap(6)}
+        palette = None
+
         # print('order: ', order)
         # import sys; sys.exit()
         sb.lineplot(data=data, x=x_metric, y=y_metric, hue='Method',

@@ -1,7 +1,7 @@
 #!/bin/env/python
 
 import blosc  # pip install blosc
-import functools
+# import functools
 import numpy as np
 import pprint
 import time
@@ -10,117 +10,37 @@ import zstandard as zstd  # pip install zstandard
 from . import amm
 from . import matmul_datasets as md
 from . import pyience as pyn
-from . import vq_amm
+# from . import vq_amm
+
+from . import amm_methods as methods
 
 from joblib import Memory
 _memory = Memory('.', verbose=0)
 
-METHOD_EXACT = 'Exact'
-METHOD_SKETCH_SQ_SAMPLE = 'SketchSqSample'
-METHOD_SVD = 'SVD'
-METHOD_FD_AMM = 'FD-AMM'
-METHOD_COOCCUR = 'CooccurSketch'
-METHOD_PCA = 'PCA'
-METHOD_FASTJL = 'FastJL'
-METHOD_HASHJL = 'HashJL'
-METHOD_OSNAP = 'OSNAP'
-METHOD_OPQ = 'OPQ'
-METHOD_BOLT = 'Bolt'
-METHOD_BOLT_PERM = 'Bolt+Perm'
-METHOD_BOLT_CORRPERM = 'Bolt+CorrPerm'
-METHOD_BOLT_SPLITS = 'BoltSplits'
-METHOD_BOLT_MULTISPLITS = 'Bolt+MultiSplits'
-METHOD_BOLT_PERM_MULTISPLITS = 'Bolt+Perm+MultiSplits'
-METHOD_PQ = 'PQ'
-METHOD_PQ_PERM = 'PQ+Perm'
-METHOD_PQ_MULTISPLITS = 'PQ+MultiSplits'
-METHOD_PQ_PERM_MULTISPLITS = 'PQ+Perm+MultiSplits'
-METHOD_MITHRALPQ = 'MithralPQ'
-METHOD_MITHRAL = 'Mithral'
-
-# these are for trying out different perm options
-METHOD_BOLT_GEHT_COV_TOPK = 'Bolt_CovTopk'
-METHOD_BOLT_GEHT_COV_SAMP = 'Bolt_CovSamp'
-METHOD_BOLT_GEHT_COR_TOPK = 'Bolt_CorTopk'
-METHOD_BOLT_GEHT_COR_SAMP = 'Bolt_CorSamp'
-
-DEFAULT_METHODS = (METHOD_EXACT, METHOD_SVD, METHOD_FD_AMM,
-                   METHOD_COOCCUR, METHOD_PCA, METHOD_PQ,
-                   METHOD_BOLT, METHOD_MITHRALPQ)
-
-_METHOD_TO_ESTIMATOR = {
-    METHOD_EXACT: amm.ExactMatMul,
-    METHOD_SKETCH_SQ_SAMPLE: amm.SketchSqSample,
-    METHOD_SVD: amm.SvdSketch,
-    METHOD_FD_AMM: amm.FdAmm,
-    METHOD_COOCCUR: amm.CooccurSketch,
-    METHOD_PCA: amm.TrainedPcaSketch,
-    METHOD_FASTJL: amm.FastJlSketch,
-    METHOD_HASHJL: amm.HashJlSketch,
-    METHOD_OSNAP: amm.OsnapSketch,
-    METHOD_PQ: vq_amm.PQMatmul,
-    METHOD_BOLT: vq_amm.BoltMatmul,
-    METHOD_OPQ: vq_amm.OPQMatmul,
-    METHOD_BOLT_CORRPERM: vq_amm.GEHTBoltMatmul_CorrTopk,
-    METHOD_BOLT_GEHT_COV_TOPK: vq_amm.GEHTBoltMatmul_CovTopk,
-    METHOD_BOLT_GEHT_COV_SAMP: vq_amm.GEHTBoltMatmul_CovSamp,
-    METHOD_BOLT_GEHT_COR_TOPK: vq_amm.GEHTBoltMatmul_CorrTopk,
-    METHOD_BOLT_GEHT_COR_SAMP: vq_amm.GEHTBoltMatmul_CorrSamp,
-    METHOD_BOLT_PERM: vq_amm.GEHTBoltMatmul_CovTopk,
-    METHOD_BOLT_SPLITS: vq_amm.BoltSplits,
-    METHOD_BOLT_MULTISPLITS: vq_amm.BoltMultiSplits,
-    METHOD_BOLT_PERM_MULTISPLITS: vq_amm.BoltPermMultiSplits,
-    METHOD_PQ_PERM: vq_amm.PQPerm,
-    METHOD_PQ_MULTISPLITS: vq_amm.PQMultiSplits,
-    METHOD_PQ_PERM_MULTISPLITS: vq_amm.PQPermMultiSplits,
-    METHOD_MITHRALPQ: vq_amm.MithralPQ,
-    METHOD_MITHRAL: vq_amm.MithralMatmul
-}
-_ALL_METHODS = sorted(list(_METHOD_TO_ESTIMATOR.keys()))
-_ALL_METHODS.remove(METHOD_SKETCH_SQ_SAMPLE),  # always terrible results
-_ALL_METHODS.remove(METHOD_OPQ)  # takes forever to train, more muls than exact
-# these were just for playing with different permuation options
-_ALL_METHODS.remove(METHOD_BOLT_GEHT_COV_TOPK)
-_ALL_METHODS.remove(METHOD_BOLT_GEHT_COV_SAMP)
-_ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_TOPK)
-_ALL_METHODS.remove(METHOD_BOLT_GEHT_COR_SAMP)
-
-SKETCH_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD,
-                  METHOD_FD_AMM, METHOD_COOCCUR, METHOD_PCA,
-                  METHOD_FASTJL, METHOD_HASHJL, METHOD_OSNAP)
-# VQ_METHODS = (METHOD_PQ, METHOD_BOLT, METHOD_OPQ)
-# VQ_METHODS = (METHOD_PQ, METHOD_BOLT)
-BOLT_METHODS = (METHOD_BOLT, METHOD_BOLT_PERM,
-                METHOD_BOLT_CORRPERM, METHOD_BOLT_SPLITS,
-                METHOD_BOLT_MULTISPLITS, METHOD_BOLT_PERM_MULTISPLITS)
-PQ_METHODS = (METHOD_PQ, METHOD_PQ_PERM, METHOD_PQ_MULTISPLITS,
-              METHOD_PQ_PERM_MULTISPLITS)
-MITHRAL_METHODS = (METHOD_MITHRALPQ, METHOD_MITHRAL)
-VQ_METHODS = PQ_METHODS + BOLT_METHODS + MITHRAL_METHODS
-NONDETERMINISTIC_METHODS = (METHOD_SKETCH_SQ_SAMPLE, METHOD_SVD) + VQ_METHODS
 
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
 
 
 def _estimator_for_method_id(method_id, **method_hparams):
-    return _METHOD_TO_ESTIMATOR[method_id](**method_hparams)
+    return methods.METHOD_TO_ESTIMATOR[method_id](**method_hparams)
 
 
 def _hparams_for_method(method_id):
-    if method_id in SKETCH_METHODS:
+    if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
         dvals = [4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
-    if method_id in VQ_METHODS:
+    if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
+        mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        mvals = [4] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
         return [{'ncodebooks': m} for m in mvals]
     return [{}]
@@ -130,7 +50,7 @@ def _ntrials_for_method(method_id, ntasks):
     # return 1 # TODO rm
     if ntasks > 1:  # no need to avg over trials if avging over multiple tasks
         return 1
-    return NUM_TRIALS if method_id in NONDETERMINISTIC_METHODS else 1
+    return NUM_TRIALS if method_id in methods.NONDETERMINISTIC_METHODS else 1
 
 
 # ================================================================ metrics
@@ -260,7 +180,7 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
 
 def _get_all_independent_vars():
     independent_vars = set(['task_id', 'method', 'trial'])
-    for method_id in _ALL_METHODS:
+    for method_id in methods.ALL_METHODS:
         hparams = _hparams_for_method(method_id)[0]
         est = _estimator_for_method_id(method_id, **hparams)
         independent_vars = (independent_vars |
@@ -280,7 +200,7 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks, methods=None, saveas=None, ntasks=None,
           verbose=2, limit_ntasks=2, compression_metrics=False):
-    methods = DEFAULT_METHODS if methods is None else methods
+    methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
         methods = [methods]
     independent_vars = _get_all_independent_vars()
@@ -292,15 +212,15 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                 task.name, i + 1, ntasks))
         task.validate_shapes()  # fail fast if task is ill-formed
         for method_id in methods:
+            if verbose > 1:
+                print("running method: ", method_id)
             ntrials = _ntrials_for_method(method_id=method_id, ntasks=ntasks)
             # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
             metrics_dicts = []
             for hparams_dict in _hparams_for_method(method_id):
-                if verbose > 1:
-                    print("running method: ", method_id)
-                    if verbose > 2:
-                        print("got hparams: ")
-                        pprint.pprint(hparams_dict)
+                if verbose > 2:
+                    print("got hparams: ")
+                    pprint.pprint(hparams_dict)
 
                 est = _fitted_est_for_hparams(
                     method_id, hparams_dict, task.X_train, task.W_train)
@@ -364,11 +284,16 @@ def main_all(methods=None):
 
 
 def main():
+    # main_cifar10(methods=['MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
+    main_cifar10(methods=['MithralPQ', 'Bolt'])
+    main_cifar100(methods=['MithralPQ', 'Bolt'])
+    # main_cifar100(methods=['MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Exact'])
     # main_cifar10(methods='MithralPQ')
-    main_cifar10(methods='Mithral')
+    # main_cifar100(methods='MithralPQ')
+    # main_cifar10(methods='Mithral')
     # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt'])
     # main_cifar10(methods=['PCA', 'Exact'])
     # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
