@@ -413,9 +413,6 @@ class MithralEncoder(MultiCodebookEncoder):
             ncodebooks=ncodebooks, ncentroids=16,
             quantize_lut=True, upcast_every=8,  # 8 is fastest in cpp
             accumulate_how='mean')
-        self.preproc = preproc
-        self.encode_algo = encode_algo
-        self.preproc_kwargs = preproc_kwargs
 
     def name(self):
         return "{}_{}".format('mithral', super().name())
@@ -424,17 +421,19 @@ class MithralEncoder(MultiCodebookEncoder):
         return {'ncodebooks': self.ncodebooks}
 
     def fit(self, X, Q=None):
-        self.splits_lists, self.centroids = \
-            clusterize.learn_splits_in_subspaces(
-                X, subvect_len=self.subvect_len,
-                nsplits_per_subs=self.code_bits, algo=self.encode_algo)
+        self.splits_lists, self.centroids = clusterize.learn_mithral(
+            X, self.ncodebooks)
         self._learn_lut_quantization(X, Q)
+
+    def encode_X(self, X):
+        idxs = clusterize.mithral_encode(X, self.splits_lists)
+        return idxs + self.offsets
 
     def encode_Q(self, Q, quantize=True):
         Q = np.atleast_2d(Q)
         luts = np.zeros((Q.shape[0], self.ncodebooks, self.ncentroids))
         for i, q in enumerate(Q):
-            lut = mithral_lut(Q, self.centroids)
+            lut = clusterize.mithral_lut(q, self.centroids)
             if self.quantize_lut and quantize:
                 lut = np.maximum(0, lut - self.lut_offsets.reshape(-1, 1))
                 lut = np.floor(lut * self.scale_by).astype(np.int)

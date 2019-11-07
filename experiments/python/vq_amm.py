@@ -22,11 +22,16 @@ class VQMatmul(amm.ApproxMatmul, abc.ABC):
         return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
                             **self._get_encoder_kwargs())
 
+    @abc.abstractmethod
+    def _get_ncentroids(self):
+        pass
+
+    @abc.abstractmethod
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        pass
+
     def _get_encoder_kwargs(self):  # to be overriden by subclasses
         return {}
-
-    def _get_ncentroids(self):
-        return 256
 
     def _reset(self):
         self.A_enc = None
@@ -47,10 +52,6 @@ class VQMatmul(amm.ApproxMatmul, abc.ABC):
         if self.luts is None:
             self.set_B(B)
         return self.enc.dists_enc(self.A_enc, self.luts)
-
-    @abc.abstractmethod
-    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        pass
 
     def get_params(self):
         return {'ncodebooks': self.ncodebooks}
@@ -94,11 +95,14 @@ class OPQMatmul(PQMatmul):
 
 class BoltMatmul(PQMatmul):
 
-    def __init__(self, ncodebooks):
-        self.ncodebooks = ncodebooks
-        self.ncentroids = 16
-        self.enc = self._create_encoder(self.ncodebooks)
-        self._reset()
+    # def __init__(self, ncodebooks):
+    #     self.ncodebooks = ncodebooks
+    #     self.ncentroids = 16
+    #     self.enc = self._create_encoder(self.ncodebooks)
+    #     self._reset()
+
+    def _get_ncentroids(self):
+        return 16
 
     def _create_encoder(self, ncodebooks):
         return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
@@ -237,11 +241,8 @@ class PQPermMultiSplits(PQMatmul):
 
 class MithralPQ(PQMatmul):
 
-    def __init__(self, ncodebooks):
-        self.ncodebooks = ncodebooks
-        self.ncentroids = 16
-        self.enc = self._create_encoder(self.ncodebooks)
-        self._reset()
+    def _get_ncentroids(self):
+        return 16
 
     def _create_encoder(self, ncodebooks):
         return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
@@ -250,6 +251,35 @@ class MithralPQ(PQMatmul):
                             upcast_every=256,  # fine as long as using mean
                             accumulate_how='mean')
 
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        N, D = A.shape
+        D, M = B.shape
+        # data encoding and LUT costs
+        nmuls = 0
+        nmuls += 0 if fixedA else N * D  # offset + scale before quantize
+        nmuls += 0 if fixedB else M * self.ncentroids * D
+        # lookups given encoded data + luts
+        nlookups = N * M * self.ncodebooks
+        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
-class MithralAmm(object):
-    pass # TODO
+
+class MithralMatmul(VQMatmul):
+
+    def _get_ncentroids(self):
+        return 16
+
+    def _create_encoder(self, ncodebooks):
+        return vq.MithralEncoder(ncodebooks=ncodebooks)
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        N, D = A.shape
+        D, M = B.shape
+        # data encoding and LUT costs
+        nmuls = 0
+        nmuls += 0 if fixedA else N * D  # offset + scale before quantize
+        nmuls_per_codebook_per_output = self.ncentroids * D
+        nmuls_per_output = nmuls_per_codebook_per_output * self.ncodebooks
+        nmuls += 0 if fixedB else nmuls_per_output * M
+        # lookups given encoded data + luts
+        nlookups = N * M * self.ncodebooks
+        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
