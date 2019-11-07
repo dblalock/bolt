@@ -732,24 +732,47 @@ def learn_mithral(X, ncodebooks):
     all_splits = []
     subvec_len = int(np.ceil(D / ncodebooks))
     use_X_res = np.zeros_like(X_res)
+
+    # TODO multiple iters; also store assignments from each codebook, so
+    # that we can undo effect of its X_hat (can't store X_hat directly for
+    # large data, so recompute on the fly using assignments and centroids)
+
+    nonzeros_heuristic = 'pq'
+    # nonzeros_heuristic = 'pca'
+
     for c in range(ncodebooks):
-        start_idx = c * subvec_len
-        end_idx = min(D, start_idx + subvec_len)
-        use_X_res[:, start_idx:end_idx] = X_res[:, start_idx:end_idx]
+        if nonzeros_heuristic == 'pq':
+            start_idx = c * subvec_len
+            end_idx = min(D, start_idx + subvec_len)
+            idxs = np.arange(start_idx, end_idx)
+            # use_X_res[:, start_idx:end_idx] = X_res[:, start_idx:end_idx]
+        elif nonzeros_heuristic == 'pca':
+            v = subs.top_principal_component(X_res)
+            idxs = np.argsort(np.abs(v))[:-subvec_len]
+
+        use_X_res = X_res[:, idxs]
+        use_X_orig = X_orig[:, idxs]
 
         # NOTE: to make it look at subspaces, just 0 out other cols of X_res
 
         # learn codebook to soak current residuals
         multisplits, _, buckets = learn_multisplits(
-            use_X_res, X_orig=X_orig, return_centroids=False, return_buckets=True)
+            use_X_res, X_orig=use_X_orig,
+            return_centroids=False, return_buckets=True)
+        for split in multisplits:
+            split.dim = idxs[split.dim]
         all_splits.append(multisplits)
 
-        use_X_res[:, start_idx:end_idx] = 0
+        # use_X_res[:, start_idx:end_idx] = 0
+        # use_X_res[:] = 0
 
         # update residuals and store centroids
+
+        centroid = np.zeros(D, dtype=np.float32)
         for b, buck in enumerate(buckets):
             if len(buck.point_ids):
-                centroid = buck.col_means()
+                centroid[:] = 0
+                centroid[idxs] = buck.col_means()
                 X_hat[buck.point_ids] = centroid
                 # update centroid here in case we want to regularize it somehow
                 all_centroids[c, b] = centroid
