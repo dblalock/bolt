@@ -28,19 +28,19 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        dvals = [4, 8, 16, 32, 64, 128]
+        dvals = [2, 4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
         return [{'d': dval} for dval in dvals]
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [4, 8, 16, 32, 64]
+        # mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        # mvals = [4] # TODO rm after debug
+        mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
         return [{'ncodebooks': m} for m in mvals]
     return [{}]
@@ -285,15 +285,16 @@ def main_all(methods=None):
 
 def main():
     # main_cifar10(methods=['MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
-    main_cifar10(methods=['MithralPQ', 'Bolt'])
-    main_cifar100(methods=['MithralPQ', 'Bolt'])
+    # main_cifar10(methods=['MithralPQ', 'Bolt'])
+    # main_cifar100(methods=['MithralPQ', 'Bolt'])
     # main_cifar100(methods=['MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Exact'])
+    main_cifar10(methods='Mithral')
+    # main_cifar100(methods='Mithral')
     # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='MithralPQ')
-    # main_cifar10(methods='Mithral')
     # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt'])
     # main_cifar10(methods=['PCA', 'Exact'])
     # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])

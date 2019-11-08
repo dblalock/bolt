@@ -383,9 +383,9 @@ def learn_multisplits_orig(X, nsplits, log2_max_vals_per_split=4,
                       # learn_quantize_params=False,
                       learn_quantize_params='int16',
                       # learn_quantize_params=True,
-                      # verbose=3):
                       # verbose=1):
                       verbose=2):
+                      # verbose=3):
     X = X.astype(np.float32)
     N, D = X.shape
     max_vals_per_split = 1 << log2_max_vals_per_split
@@ -614,11 +614,11 @@ def learn_multisplits_orig(X, nsplits, log2_max_vals_per_split=4,
 def learn_multisplits(
         X, nsplits=4, return_centroids=True, return_buckets=False,
         # learn_quantize_params=False,
-        learn_quantize_params='int16', X_orig=None,
+        learn_quantize_params='int16', X_orig=None, try_ndims=4,
         # learn_quantize_params=True,
         # verbose=3):
-        # verbose=1):
-        verbose=2):
+        # verbose=2):
+        verbose=1):
     assert nsplits <= 4  # >4 splits means >16 split_vals for this func's impl
 
     X = X.astype(np.float32)
@@ -642,12 +642,15 @@ def learn_multisplits(
         if verbose > 1:
             print("------------------------ finding split #:", s)
 
+        # try_ndims = 32
+        # try_ndims = 16
         # try_ndims = 8
-        try_ndims = 4
+        # try_ndims = 4
         # try_ndims = 1
-        dim_heuristic = 'eigenvec'
+        # dim_heuristic = 'eigenvec'
         # dim_heuristic = 'bucket_eigenvecs'
-        # dim_heuristic = 'variance'
+        dim_heuristic = 'bucket_sse'
+        # dim_heuristic = 'kurtosis'
         if dim_heuristic == 'eigenvec':
             # compute current reconstruction of X, along with errs
             if s > 0:
@@ -675,10 +678,32 @@ def learn_multisplits(
                 dim_scores += np.abs(v)
                 # X_buck -= X_buck.mean(axis=0)
             try_dims = np.argsort(dim_scores)[-try_ndims:]
-        elif dim_heuristic == 'variance':
+        elif dim_heuristic == 'bucket_sse':
             col_losses[:] = 0
             for buck in buckets:
                 col_losses += buck.col_sum_sqs()
+            try_dims = np.argsort(col_losses)[-try_ndims:]
+        elif dim_heuristic == 'kurtosis':
+            # compute X_res
+            if s > 0:
+                for buck in buckets:
+                    # print("point ids: ", buck.point_ids)
+                    if len(buck.point_ids):
+                        centroid = buck.col_means()
+                        # X_hat[np.array(buck.point_ids)] = centroid
+                        X_hat[buck.point_ids] = centroid
+                X_res = X - X_hat
+            else:
+                X_res = X
+
+            col_losses[:] = 0
+            for buck in buckets:
+                col_losses += buck.col_sum_sqs()
+            try_dims = np.argsort(col_losses)[-try_ndims:]
+
+            from scipy import stats
+            col_losses *= col_losses  # just 4th central moment
+            col_losses *= stats.kurtosis(X_res, axis=0)
             try_dims = np.argsort(col_losses)[-try_ndims:]
 
         losses = np.zeros(len(try_dims), dtype=X.dtype)
@@ -686,15 +711,21 @@ def learn_multisplits(
 
         # determine for this dim what the best split vals are for each
         # group and what the loss is when using these split vals
+        # print("try_dims: ", try_dims)
         for d, dim in enumerate(try_dims):
+            # print("s, d, dim = ", s, d, dim)
             if verbose > 2:
                 # print("---------------------- dim = ", dim)
                 print("======== dim = {}, ({:.5f}, {:.5f})".format(
                     dim, np.min(X[:, dim]), np.max(X[:, dim])))
             split_vals = []  # each bucket contributes one split val
-            for buck in buckets:
+            for b, buck in enumerate(buckets):
                 val, loss = buck.optimal_split_val(X, dim, X_orig=X_orig)
                 losses[d] += loss
+                if d > 0 and losses[d] >= np.min(losses[:d]):
+                    if verbose > 2:
+                        print("early abandoning after bucket {}!".format(b))
+                    break  # this dim already can't be the best
                 split_vals.append(val)
             all_split_vals.append(split_vals)
 
@@ -758,7 +789,19 @@ def learn_multisplits(
     return tuple(ret)
 
 
-def learn_mithral(X, ncodebooks, niters=1):
+
+def optimize_centroids(X_res, X_enc):
+    pass # TODO
+
+
+
+
+    # SELF: pick up here
+
+
+
+
+def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
     # print("called learn_mithral!"); import sys; sys.exit()
     N, D = X.shape
     ncentroids_per_codebook = 16
@@ -785,61 +828,61 @@ def learn_mithral(X, ncodebooks, niters=1):
     # TODO store assignments (or maybe just buckets directly)
     # TODO update just centroids (not assignments) at iter end
 
-    # x_mean = X.mean(axis=0)
+    # ------------------------ 0th iteration; initialize all codebooks
+    all_splits = []
+    all_buckets = []
+    for c in range(ncodebooks):
+        if nonzeros_heuristic == 'pq':
+            start_idx = c * subvec_len
+            end_idx = min(D, start_idx + subvec_len)
+            idxs = np.arange(start_idx, end_idx)
+        elif nonzeros_heuristic == 'pca':
+            v = subs.top_principal_component(X_res)
+            idxs = np.argsort(np.abs(v))[:-subvec_len]
+        elif nonzeros_heuristic == 'disjoint_pca':
+            use_X_res = X_res.copy()
+            if c > 0:  # not the first codebook
+                use_X_res[:, idxs] = 0  # can't use same subspace
+            v = subs.top_principal_component(use_X_res)
+            idxs = np.argsort(np.abs(v))[:-subvec_len]
+
+        use_X_res = X_res[:, idxs]
+        use_X_orig = X_orig[:, idxs]
+
+        # learn codebook to soak current residuals
+        multisplits, _, buckets = learn_multisplits(
+            use_X_res, X_orig=use_X_orig,
+            return_centroids=False, return_buckets=True, **kwargs)
+        for split in multisplits:
+            split.dim = idxs[split.dim]
+        all_splits.append(multisplits)
+        all_buckets.append(buckets)
+
+        # use_X_res[:, start_idx:end_idx] = 0
+        # use_X_res[:] = 0
+
+        # update residuals and store centroids
+        centroid = np.zeros(D, dtype=np.float32)
+        for b, buck in enumerate(buckets):
+            if len(buck.point_ids):
+                centroid[:] = 0
+                centroid[idxs] = buck.col_means()
+                # centroid /= 2 # TODO rm
+                X_hat[buck.point_ids] = centroid
+                # update centroid here in case we want to regularize it somehow
+                all_centroids[c, b] = centroid
+        X_res -= X_hat
+
+        print("X res var / X var: ", X_res.var() / X_orig.var())
+
+    # ------------------------ remaining iters
     for t in range(niters):
-        all_buckets = list() * ncodebooks # TODO move outside outer loop
-        for c in range(ncodebooks):
-            if nonzeros_heuristic == 'pq':
-                start_idx = c * subvec_len
-                end_idx = min(D, start_idx + subvec_len)
-                idxs = np.arange(start_idx, end_idx)
-                # use_X_res[:, start_idx:end_idx] = X_res[:, start_idx:end_idx]
-            elif nonzeros_heuristic == 'pca':
-                v = subs.top_principal_component(X_res)
-                idxs = np.argsort(np.abs(v))[:-subvec_len]
-            elif nonzeros_heuristic == 'disjoint_pca':
-                use_X_res = X_res.copy()
-                if c > 0:  # not the first codebook
-                    use_X_res[:, idxs] = 0  # can't use same subspace
-                v = subs.top_principal_component(use_X_res)
-                idxs = np.argsort(np.abs(v))[:-subvec_len]
-
-            use_X_res = X_res[:, idxs]
-            use_X_orig = X_orig[:, idxs]
-
-            # NOTE: to make it look at subspaces, just 0 out other cols of X_res
-
-            # learn codebook to soak current residuals
-            multisplits, _, buckets = learn_multisplits(
-                use_X_res, X_orig=use_X_orig,
-                return_centroids=False, return_buckets=True)
-            for split in multisplits:
-                split.dim = idxs[split.dim]
-            all_splits.append(multisplits)
-            all_buckets.append(buckets)
-
-            # use_X_res[:, start_idx:end_idx] = 0
-            # use_X_res[:] = 0
-
-            # update residuals and store centroids
-
-            centroid = np.zeros(D, dtype=np.float32)
-            for b, buck in enumerate(buckets):
-                if len(buck.point_ids):
-                    centroid[:] = 0
-                    centroid[idxs] = buck.col_means()
-                    # centroid /= 2 # TODO rm
-                    X_hat[buck.point_ids] = centroid
-                    # update centroid here in case we want to regularize it somehow
-                    all_centroids[c, b] = centroid
-            X_res -= X_hat
-
-            print("X res var / X var: ", X_res.var() / X_orig.var())
-
         # now update centroids given assignments and all other centroids
-        for _ in range(5):
+        # for _ in range(5):
+        # for _ in range(20):
+        for _ in range(10):
             for c in range(ncodebooks):
-                print("c: ", c)
+                # print("c: ", c)
                 # undo effect of this codebook
                 buckets = all_buckets[c]
                 for b, buck in enumerate(buckets):
@@ -850,12 +893,61 @@ def learn_mithral(X, ncodebooks, niters=1):
                 for b, buck in enumerate(buckets):
                     if len(buck.point_ids):
                         centroid = X_res[buck.point_ids].mean(axis=0)
+
+                        # keep_ndims = D // 2
+                        # zero_idxs = np.argsort(np.abs(centroid))[:-keep_ndims]
+                        # centroid[zero_idxs] = 0
+
+                        # true_centroid = X_res[buck.point_ids].mean(axis=0)
+                        # old_centroid = all_centroids[c, b]
+                        # centroid = (true_centroid + old_centroid) / 2
+
                         X_hat[buck.point_ids] = centroid
                         all_centroids[c, b] = centroid
                 X_res -= X_hat
             print("X res var / X var after centroid updates: ",
                   X_res.var() / X_orig.var())
 
+        # now update assignments
+        if t == niters - 1:
+            break  # end after updating centroids, not assignments
+        for c in range(ncodebooks):
+            # print("c: ", c)
+            # undo effect of this codebook
+            buckets = all_buckets[c]
+            # orig_loss = sum([buck.loss for buck in buckets])
+            orig_loss = np.sum(X_res * X_res)
+            for b, buck in enumerate(buckets):
+                if len(buck.point_ids):
+                    X_hat[buck.point_ids] = all_centroids[c, b]
+            X_res += X_hat
+
+            multisplits, loss, buckets = learn_multisplits(
+                X_res, X_orig=X_orig,
+                return_centroids=False, return_buckets=True, **kwargs)
+            print("orig loss, loss: ", orig_loss, loss)
+            if loss > orig_loss:
+                X_res -= X_hat
+                continue
+
+            all_splits[c] = multisplits
+            all_buckets[c] = buckets
+
+            # update residuals and store centroids
+            # centroid = np.zeros(D, dtype=np.float32)
+            for b, buck in enumerate(buckets):
+                if len(buck.point_ids):
+                    centroid = buck.col_means()
+                    # centroid /= 2 # TODO rm
+                    X_hat[buck.point_ids] = centroid
+                    # update centroid here in case we want to regularize it somehow
+                    all_centroids[c, b] = centroid
+            X_res -= X_hat
+
+            print("new X res var / X var: ", X_res.var() / X_orig.var())
+
+    if return_buckets:
+        return all_splits, all_centroids, all_buckets
     return all_splits, all_centroids
 
 
@@ -1275,10 +1367,116 @@ def main():
     # x = np.random.randn(100)
     # print(evenly_spaced_quantiles(x, 5))
 
-    ncodebooks = 4
-    X = np.random.randn(100, 16)
-    splits, centroids = learn_mithral(X, ncodebooks)
-    # print()
+    # ncodebooks = 4
+    # X = np.random.randn(100, 16)
+    # splits, centroids = learn_mithral(X, ncodebooks)
+    # # print()
+
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    from joblib import Memory
+    _memory = Memory('.', verbose=0)
+
+    mpl.rcParams['lines.linewidth'] = .5
+
+    @_memory.cache
+    def _load_trace():
+        return np.loadtxt('assets/debug/Trace/Trace_TRAIN.txt')
+
+    # try_ndims = 128
+    # try_ndims = 64
+    try_ndims = 4
+
+    # limit_n = 20
+    # limit_n = 50
+    # limit_n = 200
+    limit_n = 500
+    # X = np.loadtxt('assets/debug/Trace/Trace_TRAIN.txt')[:limit_n]
+    X = _load_trace()[:limit_n]
+    y = (X[:, 0] - 1).astype(np.int)
+    X = X[:, 1:]
+
+    _, axes = plt.subplots(3, 4, figsize=(13, 9), sharey=True)
+    colors = ('blue', 'red', 'green', 'black')
+    axes[0, 0].set_title('Trace Dataset\n(colored by class)')
+    for lbl in np.unique(y):
+        X_subset = X[y == lbl]
+        axes[0, 0].plot(X_subset.T, color=colors[lbl])
+
+    # visualize output with only 1 codebook (no need for updates)
+    ncodebooks = 1
+    splits, centroids, buckets = learn_mithral(
+        X, ncodebooks, return_buckets=True, try_ndims=try_ndims, niters=1)
+    centroids = centroids[0]  # only one codebook
+    axes[0, 1].set_title('centroids')
+    axes[0, 1].plot(centroids.T)
+    X_hat = np.zeros_like(X)
+    for c, splitlist in enumerate(splits):
+        for s, split in enumerate(splitlist):
+            assert len(splitlist) == 4
+            vals = (split.vals / split.scaleby) + split.offset
+            for val in vals:
+                axes[0, c].scatter(split.dim, val, color=colors[s], marker='o', zorder=5)
+    for b in buckets[0]:  # only one codebook, so use first list
+        if b.N > 0:
+            X_hat[b.point_ids] = b.col_means()
+    X_res = X - X_hat
+    axes[0, 2].set_title('reconstructions')
+    axes[0, 2].plot(X_hat.T)
+    # axes[0, 3].set_title('residuals (mean={:.2f})'.format(X_res.mean()))
+    axes[0, 3].set_title('residuals (var={:.2f})'.format(X_res.var()))
+    axes[0, 3].plot(X_res.T)
+
+    # visualize output with only 2 codebooks, no updates
+    ncodebooks = 2
+    splits, centroids, buckets = learn_mithral(
+        X, ncodebooks, return_buckets=True, try_ndims=try_ndims, niters=1)
+    # centroids = centroids[0]  # only one codebook
+    axes[1, 0].set_title('centroids[0]')
+    axes[1, 0].plot(centroids[0].T)
+    axes[1, 1].set_title('centroids[1]')
+    axes[1, 1].plot(centroids[1].T)
+    X_hat = np.zeros_like(X)
+    # print("splits: ", splits)
+    for c, splitlist in enumerate(splits):
+        for s, split in enumerate(splitlist):
+            assert len(splitlist) == 4
+            vals = (split.vals / split.scaleby) + split.offset
+            for val in vals:
+                axes[1, c].scatter(split.dim, val, color=colors[s])
+    for c in range(len(buckets)):  # for each codebook
+        for b, buck in enumerate(buckets[c]):
+            if buck.N > 0:
+                X_hat[buck.point_ids] += centroids[c, b]
+    X_res = X - X_hat
+    axes[1, 2].set_title('reconstructions')
+    axes[1, 2].plot(X_hat.T)
+    # axes[1, 3].set_title('residuals (mean={:.2f})'.format(X_res.mean()))
+    axes[1, 3].set_title('residuals (var={:.2f})'.format(X_res.var()))
+    axes[1, 3].plot(X_res.T)
+
+    # visualize output with only 2 codebooks, with centroid updates
+    ncodebooks = 2
+    splits, centroids, buckets = learn_mithral(
+        X, ncodebooks, return_buckets=True, try_ndims=try_ndims, niters=1)
+    axes[2, 0].set_title('centroids[0]')
+    axes[2, 0].plot(centroids[0].T)
+    axes[2, 1].set_title('centroids[1]')
+    axes[2, 1].plot(centroids[1].T)
+    X_hat = np.zeros_like(X)
+    for c in range(len(buckets)):  # for each codebook
+        for b, buck in enumerate(buckets[c]):
+            if buck.N > 0:
+                X_hat[buck.point_ids] += centroids[c, b]
+    X_res = X - X_hat
+    axes[2, 2].set_title('reconstructions')
+    axes[2, 2].plot(X_hat.T)
+    # axes[2, 3].set_title('residuals (mean={:.2f})'.format(X_res.mean()))
+    axes[2, 3].set_title('residuals (var={:.2f})'.format(X_res.var()))
+    axes[2, 3].plot(X_res.T)
+
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == '__main__':
