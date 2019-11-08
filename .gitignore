@@ -110,8 +110,15 @@ docs/
 # Experiment Output
 output/
 
-notes.txt
-
+# joblib cache
 joblib/
+
+# Numbe function cache
+__pycache__
+
+# misc
+*.todo
 figs/
 _results/
+notes.txt
+
