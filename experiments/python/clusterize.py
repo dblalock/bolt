@@ -614,7 +614,7 @@ def learn_multisplits_orig(X, nsplits, log2_max_vals_per_split=4,
 def learn_multisplits(
         X, nsplits=4, return_centroids=True, return_buckets=False,
         # learn_quantize_params=False,
-        learn_quantize_params='int16', X_orig=None, try_ndims=4,
+        learn_quantize_params='int16', X_orig=None, try_ndims=1,
         # learn_quantize_params=True,
         # verbose=3):
         # verbose=2):
@@ -789,19 +789,186 @@ def learn_multisplits(
     return tuple(ret)
 
 
+@numba.njit(fastmath=True, cache=True)
+def _XtX_encoded(X_enc, K=16):
+    N, C = X_enc.shape
+    D = C * K  # note that this is total number of centroids, not orig D
 
-def optimize_centroids(X_res, X_enc):
-    pass # TODO
+    out = np.zeros((D, D), np.int32)
+    # out = np.zeros((D, D), np.float32)
+    # D = int(C * K)  # note that this is total number of centroids, not orig D
+    # out = np.zeros((D, D), np.int8)
+
+    for n in range(N):
+        for c in range(C):
+            code_left = X_enc[n, c]
+            dim_left = (K * c) + code_left
+            out[dim_left, dim_left] += 1
+            for cc in range(c + 1, C):
+                code_right = X_enc[n, cc]
+                dim_right = (K * cc) + code_right
+                out[dim_left, dim_right] += 1
+
+    # populate lower triangle
+    for d in range(D):
+        for dd in range(d + 1, D):
+            out[dd, d] = out[d, dd]
+
+    return out
 
 
+@numba.njit(fastmath=True, cache=True)
+def _XtY_encoded(X_enc, Y, K=16):
+    N, C = X_enc.shape
+    N, M = Y.shape
+
+    D = int(C * K)  # note that this is total number of centroids, not orig D
+    out = np.zeros((D, M), Y.dtype)
+
+    for n in range(N):
+        for c in range(C):
+            code_left = X_enc[n, c]
+            dim_left = (K * c) + code_left
+            for m in range(M):
+                out[dim_left, m] += Y[n, m]
+
+    return out
 
 
-    # SELF: pick up here
+@numba.njit(fastmath=True, cache=True)
+def _XW_encoded(X_enc, W, K=16):
+    N, C = X_enc.shape
+    D, M = W.shape
+
+    out = np.zeros((N, M), W.dtype)
+
+    for n in range(N):
+        for c in range(C):
+            code_left = X_enc[n, c]
+            dim_left = (K * c) + code_left
+            for m in range(M):
+                out[n, m] += W[dim_left, m]
+
+    return out
 
 
+@numba.njit(fastmath=True, cache=True)
+def _densify_X_enc(X_enc, K=16):
+    N, C = X_enc.shape
+    D = C * K
+    out = np.zeros((N, D), np.int8)
+    for n in range(N):
+        for c in range(C):
+            code_left = X_enc[n, c]
+            dim_left = (K * c) + code_left
+            out[n, dim_left] = 1
+
+    return out
+
+
+def encoded_lstsq(X_enc, Y, K=16):
+    # yscales = np.linalg.norm(Y, axis=0)
+    # Y /= yscales
+
+    XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
+    # TODO precondition XtX based on largest value here?
+    XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+    XtY = _XtY_encoded(X_enc, Y, K=K)
+
+    W = np.linalg.solve(XtX, XtY)
+    # W *= yscales  # undo preconditioning
+    return W
 
 
 def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
+    N, D = X.shape
+    ncentroids_per_codebook = 16
+
+    X = X.astype(np.float32)
+    X_res = X.copy()
+    X_orig = X
+    X_hat = np.zeros_like(X)
+
+    all_centroids = np.zeros(
+        (ncodebooks, ncentroids_per_codebook, D), dtype=np.float32)
+    all_splits = []
+    subvec_len = int(np.ceil(D / ncodebooks))
+
+    nonzeros_heuristic = 'pq'
+    # nonzeros_heuristic = 'pca'
+    # nonzeros_heuristic = 'disjoint_pca'
+
+    # ------------------------ 0th iteration; initialize all codebooks
+    all_splits = []
+    all_buckets = []
+    for c in range(ncodebooks):
+        if nonzeros_heuristic == 'pq':
+            start_idx = c * subvec_len
+            end_idx = min(D, start_idx + subvec_len)
+            idxs = np.arange(start_idx, end_idx)
+        elif nonzeros_heuristic == 'pca':
+            v = subs.top_principal_component(X_res)
+            idxs = np.argsort(np.abs(v))[:-subvec_len]
+        elif nonzeros_heuristic == 'disjoint_pca':
+            use_X_res = X_res.copy()
+            if c > 0:  # not the first codebook
+                use_X_res[:, idxs] = 0  # can't use same subspace
+            v = subs.top_principal_component(use_X_res)
+            idxs = np.argsort(np.abs(v))[:-subvec_len]
+
+        use_X_res = X_res[:, idxs]
+        use_X_orig = X_orig[:, idxs]
+
+        # learn codebook to soak current residuals
+        multisplits, _, buckets = learn_multisplits(
+            use_X_res, X_orig=use_X_orig,
+            return_centroids=False, return_buckets=True, **kwargs)
+        for split in multisplits:
+            split.dim = idxs[split.dim]
+        all_splits.append(multisplits)
+        all_buckets.append(buckets)
+
+        # use_X_res[:, start_idx:end_idx] = 0
+        # use_X_res[:] = 0
+
+        # update residuals and store centroids
+        centroid = np.zeros(D, dtype=np.float32)
+        for b, buck in enumerate(buckets):
+            if len(buck.point_ids):
+                centroid[:] = 0
+                centroid[idxs] = buck.col_means()
+                # centroid /= 2 # TODO rm
+                X_hat[buck.point_ids] = centroid
+                # update centroid here in case we want to regularize it somehow
+                all_centroids[c, b] = centroid
+        X_res -= X_hat
+
+        print("X res var / X var: ", X_res.var() / X_orig.var())
+
+    # print("original centroid norms: ", np.linalg.norm(all_centroids.reshape(ncodebooks, -1), axis=-1))
+    # print("original centroids shape: ", all_centroids.shape)
+
+    # optimize centroids discriminatively conditioned on assignments
+    X_enc = mithral_encode(X, all_splits)
+    W = encoded_lstsq(X_enc, X)  # 16C x D
+    all_centroids = W.reshape(ncodebooks, 16, D)
+
+    # print("new centroid norms: ", np.linalg.norm(all_centroids.reshape(ncodebooks, -1), axis=-1))
+    # print("new centroids shape: ", all_centroids.shape)
+
+    # check how much improvement we got
+    X_hat = _XW_encoded(X_enc, W)
+    X_res = X_orig - X_hat
+    # X_hat = np.zeros_like(X)
+    print("X res var / X var after lstsq: ", X_res.var() / X_orig.var())
+
+
+    if return_buckets:
+        return all_splits, all_centroids, all_buckets
+    return all_splits, all_centroids
+
+
+def learn_mithral_v1(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
     # print("called learn_mithral!"); import sys; sys.exit()
     N, D = X.shape
     ncentroids_per_codebook = 16
@@ -1352,26 +1519,9 @@ def encode_using_splits(X, subvect_len, splits_lists, split_type='single'):
     return np.ascontiguousarray(X_enc)
 
 
-def main():
-    # # np.random.seed(123)
-    # np.random.seed(1234)
-    # X = np.random.randint(5, size=(5, 3)).astype(np.float32)
-    # print("X:\n", X)
 
-    # splits, loss = learn_splits(X, 2)
 
-    # # print('loss: ', np.var(X, axis=0))
-    # print('final loss: ', loss)
-    # # print(X)
-
-    # x = np.random.randn(100)
-    # print(evenly_spaced_quantiles(x, 5))
-
-    # ncodebooks = 4
-    # X = np.random.randn(100, 16)
-    # splits, centroids = learn_mithral(X, ncodebooks)
-    # # print()
-
+def _plot_stuff_on_trace():
     import matplotlib as mpl
     import matplotlib.pyplot as plt
     from joblib import Memory
@@ -1477,6 +1627,36 @@ def main():
 
     plt.tight_layout()
     plt.show()
+
+
+def main():
+    # _plot_stuff_on_trace()
+
+    N, C, K = 100, 8, 16
+    X_enc = np.random.randint(K, size=(N, C))
+    # print(X_enc)
+    X_bin = _densify_X_enc(X_enc)
+    # print(X_enc_binary)
+    assert np.all(X_bin.sum(axis=1) == C)
+
+    XtX = _XtX_encoded(X_enc)
+    XtX2 = X_bin.T @ X_bin
+    assert np.all(XtX == XtX2)
+
+    M = 17
+    Y = np.random.randn(N, M).astype(np.float32)
+
+    XtY = _XtY_encoded(X_enc, Y)
+    XtY2 = X_bin.T @ Y
+    # print(XtY[:2])
+    # print(XtY2[:2])
+    assert np.all(XtY == XtY2)
+
+    D = C * K
+    W = np.random.randn(D, M).astype(np.float32)
+    XW = _XW_encoded(X_enc, W)
+    XW2 = X_bin @ W
+    assert np.all(XW == XW2)
 
 
 if __name__ == '__main__':
