@@ -284,8 +284,10 @@ def main_all(methods=None):
 
 
 def main():
-    main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
-    main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
+    main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
+    main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
+    # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
+    # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
     # main_cifar10(methods=['MithralPQ', 'Bolt'])
     # main_cifar100(methods=['MithralPQ', 'Bolt'])
     # main_cifar100(methods=['MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])

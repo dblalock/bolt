@@ -231,9 +231,9 @@ def _load_matmul_times_for_n_d_m(startswith):
         matmul_shape_to_times[key] = times
         matmul_shape_to_thruputs[key] = thruputs
 
-    print("what we're getting from func:")
-    pprint.pprint(matmul_shape_to_times)
-    pprint.pprint(matmul_shape_to_thruputs)
+    # print("what we're getting from func:")
+    # pprint.pprint(matmul_shape_to_times)
+    # pprint.pprint(matmul_shape_to_thruputs)
 
     return matmul_shape_to_times, matmul_shape_to_thruputs
 

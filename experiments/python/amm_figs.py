@@ -137,7 +137,8 @@ def _clean_results_df(df, default_D=None):
             latencies = sketch_latencies[key]
             thruputs = sketch_thruputs[key]
         else:  # slow sketch-based methods
-            assert method in slow_sketch_methods
+            # print("method: ", method)
+            # assert method in slow_sketch_methods
             # print("method: ", method)
             # print("fast sketch methods: ", fast_sketch_methods)
             # assert False # TODO rm
@@ -234,17 +235,23 @@ def make_cifar_fig(x_metric='d', y_metric='Accuracy'):
         order = move_methods_to_front + order
         # order = None
 
+        # print("uniq methods:\n", data['Method'].unique())
+        # print("using order:\n", order)
+
         # cmap = plt.get_cmap('tab10')
         # palette = {'Ours': 'red', 'Bolt': cmap(0), 'Exact': cmap(1),
         #            'PQ': cmap(2), 'SVD': cmap(4), 'FD-AMM': cmap(5),
         #            'CD': cmap(6)}
         palette = None
 
-        # print('order: ', order)
-        # import sys; sys.exit()
+        # have to specify markers or seaborn freaks out because it doesn't
+        # have enough of them
+        filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
+                          'H', 'D', 'd', 'P', 'X')
         sb.lineplot(data=data, x=x_metric, y=y_metric, hue='Method',
                     style='Method', style_order=order, hue_order=order,
-                    markers=True, dashes=False, ax=ax, palette=palette)
+                    # markers=True, dashes=False, ax=ax, palette=palette)
+                    markers=filled_markers, dashes=False, ax=ax, palette=palette)
     # palette='tab10')
 
     lineplot(df10, axes[0])
