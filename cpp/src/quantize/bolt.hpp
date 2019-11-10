@@ -184,6 +184,19 @@ void bolt_lut(const float* q, int len, const float* centroids, uint8_t* out) {
     }
 }
 
+template<int Reduction=Reductions::DistL2>
+void bolt_lut(const float* q, int len, const float* centroids,
+    int nbytes, uint8_t* out)
+{
+    switch(nbytes) {
+        case 2: bolt_lut<2>(q, len, centroids, out); break;
+        case 4: bolt_lut<4>(q, len, centroids, out); break;
+        case 8: bolt_lut<8>(q, len, centroids, out); break;
+        case 16: bolt_lut<16>(q, len, centroids, out); break;
+        case 32: bolt_lut<32>(q, len, centroids, out); break;
+    }
+}
+
 /**
  * @brief Create a lookup table (LUT) containing the distances from the
  * query q to each of the centroids.
@@ -289,6 +302,18 @@ void bolt_lut(const float* q, int len, const float* centroids,
     }
 }
 
+template<int Reduction=Reductions::DistL2>
+void bolt_lut(const float* q, int len, const float* centroids, int nbytes,
+    const float* offsets, float scaleby, uint8_t* out)
+{
+    switch(nbytes) {
+        case 2: bolt_lut<2>(q, len, centroids, offsets, scaleby, out); break;
+        case 4: bolt_lut<4>(q, len, centroids, offsets, scaleby, out); break;
+        case 8: bolt_lut<8>(q, len, centroids, offsets, scaleby, out); break;
+        case 16: bolt_lut<16>(q, len, centroids, offsets, scaleby, out); break;
+        case 32: bolt_lut<32>(q, len, centroids, offsets, scaleby, out); break;
+    }
+}
 // basically just a transpose with known centroid sizes
 // note that this doesn't have to be fast because we do it once after training
 //

@@ -362,7 +362,8 @@ void _bolt_query(const uint8_t* codes, int nblocks,
     const float* centroids,
     uint8_t* lut_out, dist_t* dists_out)
 {
-    bolt_lut<M>(q, ncols, centroids, lut_out);
+    // TODO use version of lut that requires offsets and scales
+    bolt_lut<M, Reductions::DotProd>(q, ncols, centroids, lut_out);
     bolt_scan<M, Safe>(codes, lut_out, dists_out, nblocks);
 }
 
@@ -546,7 +547,7 @@ void _amm_mithral_packed(const InputT* X, int64_t nrows, int ncols,
 }
 
 template<class InputT, class ScaleT, class OffsetT>
-void _amm_mithral(const InputT* X, int64_t nrows, int ncols,
+void _amm_mithral_nolut(const InputT* X, int64_t nrows, int ncols,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const ScaleT* scales, const OffsetT* offsets,
     int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
@@ -571,6 +572,56 @@ void _amm_mithral(const InputT* X, int64_t nrows, int ncols,
     }
 }
 
+
+
+// TODO create a struct or something for params because this has gotten
+// completely unmanageable
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral(const InputT* X, const float* W, int64_t nrows, int D, int M,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const ScaleT* scales, const OffsetT* offsets, const float* centroids,
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
+    int16_t* out_mat)
+{
+    // encode input
+    multisplit_encode_4b_colmajor(
+        X, nrows, D, splitdims, all_splitvals, scales,
+        offsets, ncodebooks, out_enc);
+    zip_bolt_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
+    // create luts
+    uint8_t* lut_out_ptr = (uint8_t*)luts;
+    for (int i = 0; i < M; i++) {
+        mithral_lut(W, D, ncodebooks, centroids, lut_out_ptr);
+        lut_out_ptr += 16 * ncodebooks;
+    }
+
+    // do the amm
+    auto nblocks = nrows / 32;
+    auto out_ptr = (uint8_t*)out_mat;
+    uint8_t* lut_ptr = (uint8_t*)luts;
+    static constexpr int UpcastEvery = 8;
+    auto out_col_stride = UpcastEvery >= ncodebooks ? nrows : 2 * nrows;
+    for (int i = 0; i < M; i++) {
+        mithral_scan<UpcastEvery>(out_enc, nblocks, ncodebooks, lut_ptr, out_ptr);
+        out_ptr += out_col_stride;
+        lut_ptr += 16 * ncodebooks;
+    }
+}
+
+
+template<class InputT, class ScaleT, class OffsetT>
+void _amm_mithral_just_lut(const InputT* X, const float* W, int64_t nrows, int D, int M,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const ScaleT* scales, const OffsetT* offsets, const float* centroids,
+    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
+    int16_t* out_mat)
+{
+    uint8_t* lut_out_ptr = (uint8_t*)luts;
+    for (int i = 0; i < M; i++) {
+        mithral_lut(W, D, ncodebooks, centroids, lut_out_ptr);
+        lut_out_ptr += 16 * ncodebooks;
+    }
+}
 
 // template<int UpcastEvery=4>
 template<class InputT, class ScaleT, class OffsetT>
@@ -700,6 +751,8 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     // create data + info needed for encoding
     ColMatrix<InputT> X(N, D);
     X.setRandom();
+    ColMatrix<float> W(D, out_ncols);
+    W.setRandom();
     RowVector<uint32_t> splitdims_(total_nsplits);
     splitdims_.setRandom();
     RowVector<uint32_t> splitdims = splitdims_.unaryExpr(
@@ -715,6 +768,8 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     codes = codes.array() / 16;
     ColMatrix<uint8_t> codes_packed(N, ncodebooks / 2);
     codes_packed.setRandom();
+    ColMatrix<float> centroids(16 * ncodebooks, D);
+    centroids.setRandom();
 
     // create random luts
     ColMatrix<int8_t> luts(ncentroids, ncodebooks * out_ncols);
@@ -783,9 +838,24 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
         _amm_mithral(
-            X.data(), N, D, splitdims.data(), all_splitvals.data(),
-            scales.data(), offsets.data(), ncodebooks,
-            codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
+            X.data(), W.data(), N, D, out_ncols,
+            splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(),
+            centroids.data(), ncodebooks,
+            codes.data(), codes_packed.data(), luts.data(), out_mat.data()));
+
+    msg = string_with_format(
+        "%s amm mithral lut  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        dtype_str.c_str(), orig_N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out_mat.data(), out_mat.size(),
+        _amm_mithral_just_lut(
+            X.data(), W.data(), N, D, out_ncols,
+            splitdims.data(), all_splitvals.data(),
+            scales.data(), offsets.data(),
+            centroids.data(), ncodebooks,
+            codes.data(), codes_packed.data(), luts.data(), out_mat.data()));
+
 
     // X.setRandom();
     msg = string_with_format(

@@ -407,6 +407,66 @@ inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
     zip_bolt_colmajor<2>(codes_in, nrows, ncodebooks, codes_out);
 }
 
+void mithral_lut(const float* q, int len, int ncodebooks,
+                 const float* centroids, uint8_t* out)
+{
+
+    static constexpr int lut_sz = 16;
+    static constexpr int packet_width = 8; // objs per simd register
+    static constexpr int nstripes = lut_sz / packet_width;
+    // static constexpr int ncodebooks = 2 * NBytes;
+    // static_assert(NBytes > 0, "Code length <= 0 is not valid");
+    // const int subvect_len = len / ncodebooks;
+    // assert(len % ncodebooks == 0); // TODO remove this constraint
+
+    __m256 accumulators[nstripes];
+    __m256i dists_uint16_0 = _mm256_undefined_si256();
+
+    // float luts_f32[ncodebooks][16];
+
+    for (int m = 0; m < ncodebooks; m++) { // for each codebook
+        for (int i = 0; i < nstripes; i++) {
+            accumulators[i] = _mm256_setzero_ps();
+        }
+        for (int j = 0; j < len; j++) { // for each dim in subvect
+            auto q_broadcast = _mm256_set1_ps(q[(m * len) + j]);
+            for (int i = 0; i < nstripes; i++) { // for upper 8, lower 8 floats
+                auto centroids_col = _mm256_load_ps(centroids);
+                centroids += packet_width;
+
+                accumulators[i] = fma(
+                    q_broadcast, centroids_col, accumulators[i]);
+            }
+        }
+
+        // TODO write out float vals into a tmp array, then come up with
+        // quantization params based on actual values; will also have to
+        // return offset and scale used
+
+
+        // convert the floats to ints
+        auto dists_int32_low = _mm256_cvtps_epi32(accumulators[0]);
+        auto dists_int32_high = _mm256_cvtps_epi32(accumulators[1]);
+
+        // because we saturate to uint8s, we only get 32 objs to write after
+        // two 16-element codebooks
+        auto dists_uint16 = _mm256_packus_epi32(dists_int32_low, dists_int32_high);
+        if (m % 2) {
+            // if odd-numbered codebook, combine dists from previous codebook
+
+            // undo the weird shuffling caused by the pack operations
+            auto dists = packed_epu16_to_unpacked_epu8(
+                dists_uint16_0, dists_uint16);
+
+            _mm256_store_si256((__m256i*)out, dists);
+            out += 32;
+        } else {
+            // if even-numbered codebook, just store these dists to be combined
+            // when we look at the next codebook
+            dists_uint16_0 = dists_uint16;
+        }
+    }
+}
 
 // like the above, but we assume that codes are in colmajor order
 // TODO version of this that uses packed 4b codes? along with packing func?
