@@ -32,7 +32,7 @@
     #include "memory.hpp"
 #endif
 
-static constexpr int kNreps = 3;
+static constexpr int kNreps = 5;
 static constexpr int kNtrials = 20;
 // static constexpr int kNreps = 1;
 // static constexpr int kNtrials = 1;
@@ -228,9 +228,9 @@ TEST_CASE("bolt + mithral scan speeds", "[amm][bolt][scan][profile]") {
     // static constexpr int ncodebooks = 64;
     // static constexpr int ncodebooks = 32;
     // static constexpr int ncodebooks = 24;
-    // static constexpr int ncodebooks = 16;
+    static constexpr int ncodebooks = 16;
     // static constexpr int ncodebooks = 8;
-    static constexpr int ncodebooks = 4;
+    // static constexpr int ncodebooks = 4;
     static constexpr int ncentroids = 16;
     static constexpr int M = ncodebooks / 2;
 
@@ -460,7 +460,8 @@ TEST_CASE("amm lut+scan bolt", "[amm][matmul][bolt][profile]") {
         // TODO uncomment below
 
         _profile_bolt_amm(10000, 512, 100, c);    // cifar100
-        _profile_bolt_amm(57593, 24, 3, c);       // ecg
+        _profile_bolt_amm(223590, 96, 12, c);       // ecg
+//        _profile_bolt_amm(57593, 24, 3, c);       // ecg
         // _profile_bolt_amm(115193, 24, 3, c);      // ecg
         // _profile_bolt_amm(230393, 24, 3, c);      // ecg
         _profile_bolt_amm(49284, 27, 2, c);       // caltech
@@ -815,17 +816,20 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
 TEST_CASE("amm actual matmul multisplit", "[amm][multisplit][mithral][matmul][profile]") {
     // _profile_multisplit(128 * 1000, 64, 32, 4);
-    // std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+     std::vector<int> ncodebooks {4, 8, 16, 32, 64};
     // std::vector<int> ncodebooks {4, 64};
-    std::vector<int> ncodebooks {4, 16, 64};
+//    std::vector<int> ncodebooks {4, 16, 64};
     // std::vector<int> ncodebooks {64};
     // std::vector<int> ncodebooks {4};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
         _profile_multisplit<float>(10000, 512, 10, c);  // cifar10
         _profile_multisplit<float>(10000, 512, 100, c); // cifar100
-        _profile_multisplit<float>(57593, 24, 3, c);  // ecg
-        _profile_multisplit<int16_t>(57593, 24, 3, c);  // ecg
+//        223590
+        _profile_multisplit<float>(223590, 96, 12, c);  // ecg
+        _profile_multisplit<int16_t>(223590, 96, 12, c);  // ecg
+//        _profile_multisplit<float>(57593, 24, 3, c);  // ecg
+//        _profile_multisplit<int16_t>(57593, 24, 3, c);  // ecg
         // _profile_multisplit(115193, 24, 3, c);       // ecg
         // _profile_multisplit(230393, 24, 3, c);       // ecg
         _profile_multisplit<float>(49284, 27, 2, c);   // caltech
@@ -885,7 +889,7 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
 }
 
 template<class MatrixT>
-void _run_sketch_matmul(const MatrixT& X,
+void _run_sketchX_matmul(const MatrixT& X,
                         const MatrixT& W0, MatrixT& sketch_out,
                         const MatrixT& W1, MatrixT& out)
 {
@@ -894,7 +898,7 @@ void _run_sketch_matmul(const MatrixT& X,
 }
 
 template<class MatrixT>
-void _run_our_sketch_matmul(const MatrixT& X,
+void _run_our_sketchX_matmul(const MatrixT& X,
                             const MatrixT& W0, MatrixT& sketch_out,
                             const MatrixT& W1, MatrixT& out)
 {
@@ -906,7 +910,7 @@ void _run_our_sketch_matmul(const MatrixT& X,
     sgemm_colmajor(sketch_out.data(), W1.data(), N, d, M, out.data());
 }
 
-void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
+void _profile_sketchX_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
     // using MatrixT = ColMatrix<float>;
     using MatrixT = ColMatrix<float>; // faster for small batches, else slower
 
@@ -923,7 +927,7 @@ void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
     MatrixT W0(D, d); W0.setRandom();
     MatrixT W1(d, M); W1.setRandom();
 
-    // create output matrix to avoid malloc
+    // create output matrices to avoid malloc
     MatrixT sketch_out(N, d);
     sketch_out.setRandom();
     MatrixT out(N, M);
@@ -935,18 +939,72 @@ void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
         N, D, M, d);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
-        _run_sketch_matmul(X, W0, sketch_out, W1, out));
+        _run_sketchX_matmul(X, W0, sketch_out, W1, out));
     msg = string_with_format("our  sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
         N, D, M, d);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
-        _run_our_sketch_matmul(X, W0, sketch_out, W1, out));
+        _run_our_sketchX_matmul(X, W0, sketch_out, W1, out));
+}
+
+template<class MatrixT>
+void _run_sketch_matmul(const MatrixT& X, const MatrixT& W, const MatrixT& S,
+                        MatrixT& X_sketched, MatrixT& W_sketched, MatrixT& out)
+{
+   X_sketched.noalias() = X * S;
+   W_sketched.noalias() = S.transpose() * W;
+   out.noalias() = X_sketched * W_sketched;
+}
+
+template<class MatrixT>
+void _run_our_sketch_matmul(
+    const MatrixT& X, const MatrixT& W, const MatrixT& S, const MatrixT& St,
+    MatrixT& X_sketched, MatrixT& W_sketched, MatrixT& out)
+{
+    auto N = (int)X.rows();
+    auto D = (int)X.cols();
+    auto M = (int)W.cols();
+    auto d = (int)S.cols();
+    sgemm_colmajor(X.data(), S.data(), N, D, d, X_sketched.data());
+    sgemm_colmajor(St.data(), W.data(), d, D, M, W_sketched.data());
+    sgemm_colmajor(X_sketched.data(), W_sketched.data(), N, d, M, out.data());
+}
+
+void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
+    using MatrixT = ColMatrix<float>;
+
+    // create random matrices of the appropriate sizes
+    MatrixT X(N, D); X.setRandom();
+    MatrixT W(D, M); W.setRandom();
+    MatrixT S(D, d); S.setRandom();
+    MatrixT St(S.transpose());
+
+    // create output matrices to avoid malloc
+    MatrixT sketch_X(N, d);
+    sketch_X.setRandom();
+    MatrixT sketch_W(N, d);
+    sketch_W.setRandom();
+    MatrixT out(N, M);
+    out.setRandom();
+
+    // time it
+    std::string msg;
+    msg = string_with_format("blas sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+        N, D, M, d);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        _run_sketch_matmul(X, W, S, sketch_X, sketch_W, out));
+    msg = string_with_format("our  sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+        N, D, M, d);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        _run_our_sketch_matmul(X, W, S, St, sketch_X, sketch_W, out));
 }
 
 TEST_CASE("amm exact matmul", "[amm][matmul][exact][profile]") {
     int N, D, M;
     // std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 32, 48, 64};
-    std::vector<int> dvals {2, 4, 8, 16, 32, 64}; // TODO uncomment above
+    std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128}; // TODO uncomment above
 
     N = 10000; D = 512; M = 10;          // cifar10
     for (auto d : dvals) {
@@ -960,17 +1018,19 @@ TEST_CASE("amm exact matmul", "[amm][matmul][exact][profile]") {
 
     N = 10000; D = 512; M = 100;        // cifar100
     for (auto d : dvals) {
+        if (d > D || d > M) { continue; }
         _profile_sketch_matmul(N, D, M, d);
         // _profile_matmul(N, d, M);
     }
     _profile_matmul(N, 512, M);
 
-    D = 24; M = 3;                      // ecg
+//    D = 24; M = 3;                      // ecg
+    D = 96; M = 12;                      // ecg
     // std::vector<int> ecg_nvals {57593, 115193, 230393};
-    std::vector<int> ecg_nvals {57593};
+    std::vector<int> ecg_nvals {223590};
     for (auto n : ecg_nvals) {
         for (auto d : dvals) {
-            if (d > D) { continue; }
+            if (d > D || d > M) { continue; }
             _profile_sketch_matmul(n, D, M, d);
         }
         _profile_matmul(n, D, M);
@@ -978,7 +1038,7 @@ TEST_CASE("amm exact matmul", "[amm][matmul][exact][profile]") {
 
     N = 49284; D = 27; M = 2;          // caltech
     for (auto d : dvals) {
-        if (d > D) { continue; }
+        if (d > D || d > M) { continue; }
         _profile_sketch_matmul(N, D, M, d);
     }
     _profile_matmul(N, D, M);
