@@ -366,23 +366,31 @@ void _bolt_query(const uint8_t* codes, int nblocks,
     bolt_scan<M, Safe>(codes, lut_out, dists_out, nblocks);
 }
 
-template<int ncodebooks>
-void _amm_bolt(const float* Q, int nrows, int ncols, const float* centroids,
-               uint8_t* lut_out, uint16_t* dists_out,
-               const uint8_t* codes, int nblocks)
+// template<int ncodebooks, bool encode=false>
+template<int ncodebooks, bool encode=true>
+void _amm_bolt(const float* X, int nrowsX, const float* Q, int nrows, int ncols,
+                     const float* centroids,
+                     uint8_t* lut_out, uint16_t* dists_out,
+                     uint8_t* codes, int nblocks)
 {
+    static constexpr int nbytes = ncodebooks / 2;
     // in contrast to multisplit, this precomputes encodings and computes
     // new LUTs when a query comes in, instead of the reverse
-    static constexpr int M = ncodebooks / 2;
+
+    if (encode) {
+        bolt_encode<nbytes>(X, nrowsX, ncols, centroids, codes);
+    }
+
     auto q_ptr = Q;
     auto dists_ptr = dists_out;
     for (int i = 0; i < nrows; i++) {  // rows in query matrix, not codes
-        _bolt_query<M, true>(
+        _bolt_query<nbytes, true>(
             codes, nblocks, q_ptr, ncols, centroids, lut_out, dists_ptr);
         q_ptr += ncols;
         dists_ptr += nblocks * 32;
     }
 }
+
 
 template<int ncodebooks>
 void _template_profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M) {
@@ -395,6 +403,11 @@ void _template_profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M) {
     if (D % ncodebooks) {  // ensure that ncodebooks evenly divides D
         D += (ncodebooks - (D % ncodebooks));
     }
+
+    // stuff just for encoding; for bolt, we encode the smaller matrix since
+    // that's slower
+    RowMatrix<float> X(M, D);
+    X.setRandom();
 
     // stuff for LUT creation
     ColMatrix<float> centroids(ncentroids, D);
@@ -417,8 +430,8 @@ void _template_profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M) {
         N, orig_D, orig_M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         dists_u16.data(), dists_u16.size(),
-        _amm_bolt<ncodebooks>(Q.data(), N, D, centroids.data(), lut_out.data(),
-                  dists_u16.data(), codes.data(), nblocks));
+        _amm_bolt<ncodebooks>(X.data(), M, Q.data(), N, D, centroids.data(),
+            lut_out.data(), dists_u16.data(), codes.data(), nblocks));
 }
 
 void _profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
