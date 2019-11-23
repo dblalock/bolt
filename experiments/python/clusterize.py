@@ -866,18 +866,164 @@ def _densify_X_enc(X_enc, K=16):
     return out
 
 
-def encoded_lstsq(X_enc, Y, K=16):
+def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None):
     # yscales = np.linalg.norm(Y, axis=0)
     # Y /= yscales
 
-    XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
+    if XtX is None:
+        XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
     # TODO precondition XtX based on largest value here?
-    XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
-    XtY = _XtY_encoded(X_enc, Y, K=K)
+    # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32) * (1./256 * len(X_enc))  # ridge
+        XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+
+    if XtY is None:
+        XtY = _XtY_encoded(X_enc, Y, K=K)
 
     W = np.linalg.solve(XtX, XtY)
     # W *= yscales  # undo preconditioning
+
+    # import matplotlib.pyplot as plt
+    # _, axes = plt.subplots(2, 2, figsize=(13, 10))
+    # axes[0, 0].imshow(_densify_X_enc(X_enc[:1000]), interpolation='nearest')
+    # axes[0, 1].imshow(XtX, interpolation='nearest')
+    # axes[1, 0].imshow(XtY, interpolation='nearest', cmap='RdBu')
+    # axes[1, 1].imshow(W, interpolation='nearest', cmap='RdBu')
+    # # plt.colorbar()
+    # plt.tight_layout()
+    # plt.show()
+    # import sys; sys.exit()
+
     return W
+
+
+def _sparse_encoded_lstsq_omp(X_enc, Y, nnz_blocks, K=16):
+    pass
+
+
+def _sparse_encoded_lstsq_backward_elim(X_enc, Y, nnz_blocks, K=16):
+    ncodebooks = X_enc.shape[1]
+    eliminate_nblocks = ncodebooks - nnz_blocks
+    M = Y.shape[1]
+
+    # precompute XtX and XtY and create initial dense W
+    XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
+    XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+    XtY = _XtY_encoded(X_enc, Y, K=K)
+    W = encoded_lstsq(X_enc, Y, XtX=XtX, XtY=XtY)
+
+    XtX = np.asfarray(XtX)  # since we'll be slicing columns
+
+    keep_codebook_idxs = np.empty((M, nnz_blocks), dtype=np.int)
+
+    codebook_scores = np.zeros(ncodebooks)
+    for m in range(M):  # fully solve one output col at a time
+        xty = np.ascontiguousarray(XtY[:, m])
+
+        # rm_codebook_idxs = np.array([], dtype=np.int)
+        # subvec_len =
+        pq_codebook_idx = int(m / float(M) * ncodebooks)
+
+        # # TODO rm
+        # # keep_codebooks = np.arange(ncodebooks)  # TODO rm
+        # keep_codebooks = [pq_codebook_idx] # TODO rm
+        # keep_idxs = [np.arange(i * K, (i + 1) * K)
+        #              for i in keep_codebooks]
+        # keep_idxs = np.hstack(keep_idxs)
+        # # print("m, pq idx: ", m, pq_codebook_idx)
+        # # print("keep idxs: ", keep_idxs)
+        # # use_XtX = XtX[:, keep_idxs]
+        # # w_subs, resid, _, _ = np.linalg.lstsq(use_XtX, xty)
+        # use_XtX = XtX[keep_idxs][:, keep_idxs]
+        # use_xty = xty[keep_idxs]
+        # w_subs = np.linalg.solve(use_XtX, use_xty)
+        # # use_X_enc = X_enc[:, pq_codebook_idx]
+        # # use_y = Y[: m]
+        # # w_subs =
+        # # w_subs, resid, _, _ = np.linalg.lstsq(use_XtX, use_xty)
+        # # print("w shape: ", w.shape)
+        # # print("rm codebooks: ", rm_codebook_idxs)
+        # # print("keep codebooks: ", keep_codebooks)
+        # # if m == 0:
+        # #     print("keep idxs: ", keep_idxs)
+        # # print("type(keep idxs): ", type(keep_idxs))
+        # # print("w[keep idxs]: ", w[keep_idxs])
+        # # print("resid: ", resid)
+        # # print("old W col norm: ", np.linalg.norm(X[:, m]))
+        # W[:, m] = 0
+        # W[keep_idxs, m] = w_subs
+        # continue
+
+        rm_codebook_idxs = set()
+        w = np.copy(W[:, m])
+
+        # print(f"m = {m}")
+        for b in range(eliminate_nblocks):
+            # evaluate contribution of each codebook
+            for c in range(ncodebooks):
+                # if c in rm_codebook_idxs or c == pq_codebook_idx:
+                if c in rm_codebook_idxs:
+                    codebook_scores[c] = np.inf
+                    continue
+
+                start_idx = c * K
+                end_idx = start_idx + K
+                # XtX_subs = XtX[start_idx:end_idx]     # K x CK
+                XtX_subs = XtX[:, start_idx:end_idx]    # CK x K
+                # xty_subs = xty[start_idx:end_idx]     # K
+                w_subs = w[start_idx:end_idx]           # K
+                xtyhat_subs = XtX_subs @ w_subs         # CK x 1
+                codebook_scores[c] = np.linalg.norm(xtyhat_subs)
+
+            # rm least helpful codebook and refit the least squares
+            rm_codebook_idxs.add(np.argmin(codebook_scores))
+
+            keep_codebooks = [i for i in range(ncodebooks)
+                              if i not in rm_codebook_idxs]
+
+
+            # keep_codebooks = np.arange(ncodebooks)  # TODO rm
+            # keep_codebooks = [pq_codebook_idx] # TODO rm
+
+
+            keep_idxs = [np.arange(i * K, (i + 1) * K)
+                         for i in keep_codebooks]
+            keep_idxs = np.hstack(keep_idxs)
+            # print("pq idx: ", pq_codebook_idx)
+            # print("keep idxs: ", keep_idxs)
+            # use_XtX = XtX[:, keep_idxs]
+            # w_subs, resid, _, _ = np.linalg.lstsq(use_XtX, xty)
+            # use_XtX = XtX[keep_idxs][:, keep_idxs]
+            # use_xty = xty[keep_idxs]
+            # w_subs, resid, _, _ = np.linalg.lstsq(use_XtX, use_xty)
+            use_XtX = XtX[keep_idxs][:, keep_idxs]
+            use_xty = xty[keep_idxs]
+            w_subs = np.linalg.solve(use_XtX, use_xty)
+            # print("w shape: ", w.shape)
+            # print("rm codebooks: ", rm_codebook_idxs)
+            # print("keep codebooks: ", keep_codebooks)
+            # print("keep idxs: ", keep_idxs)
+            # print("type(keep idxs): ", type(keep_idxs))
+            # print("w[keep idxs]: ", w[keep_idxs])
+            # print("resid: ", resid)
+            w[:] = 0
+            w[keep_idxs] = w_subs
+
+        # update return arrays
+        keep_idxs = [i for i in range(ncodebooks) if i not in rm_codebook_idxs]
+        keep_codebook_idxs[m] = np.array(keep_idxs)
+        W[:, m] = w
+
+    return W, keep_codebook_idxs  # CK x M, M x nnz
+
+
+def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
+    ncodebooks = X_enc.shape[1]
+    if nnz_blocks < 1:
+        nnz_blocks = int(np.ceil(np.sqrt(ncodebooks)))
+    eliminate_nblocks = ncodebooks - nnz_blocks
+
+    return _sparse_encoded_lstsq_backward_elim(
+        X_enc, Y, nnz_blocks=nnz_blocks, K=K)
 
 
 def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
@@ -950,7 +1096,11 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
 
     # optimize centroids discriminatively conditioned on assignments
     X_enc = mithral_encode(X, all_splits)
-    W = encoded_lstsq(X_enc, X)  # 16C x D
+    # W = encoded_lstsq(X_enc, X)  # 16C x D
+    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
+    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
+    W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=2)
+    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
     all_centroids = W.reshape(ncodebooks, 16, D)
 
     # print("new centroid norms: ", np.linalg.norm(all_centroids.reshape(ncodebooks, -1), axis=-1))

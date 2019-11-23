@@ -33,12 +33,13 @@ def _hparams_for_method(method_id):
         return [{'d': dval} for dval in dvals]
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [4, 8, 16, 32, 64]
+        # mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
-        # mvals = [16] # TODO rm after debug
+        # mvals = [64] # TODO rm after debug
+        mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
@@ -284,8 +285,8 @@ def main_all(methods=None):
 
 
 def main():
-    main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
-    main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
+    # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
+    # main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
     # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
     # main_cifar10(methods=['MithralPQ', 'Bolt'])
@@ -296,7 +297,7 @@ def main():
     # main_cifar10(methods=['MithralPQ', 'Exact'])
     # main_cifar10(methods='Mithral')
     # main_cifar100(methods='Mithral')
-    # main_cifar10(methods='MithralPQ')
+    main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='MithralPQ')
     # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt'])
     # main_cifar10(methods=['PCA', 'Exact'])
