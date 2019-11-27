@@ -408,11 +408,49 @@ inline void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
     zip_bolt_colmajor<2>(codes_in, nrows, ncodebooks, codes_out);
 }
 
+// template<int ncodebooks>
+void _compute_offsets_scale_from_mins_maxs(
+    const __m256* mins, const __m256* maxs, int ncodebooks,
+    float* out_offsets, float& out_offset_sum, float& out_scale)
+{
+    // we now have the mins and maxes for each codebook; compute offsets
+    // for each codebook, then global offset, then largest value - offset
+    // auto vmins = mins[0];
+    // float offset = 0;
+    out_offset_sum = 0;
+    __m256 vmax = _mm256_set1_ps(std::numeric_limits<float>::min());
+    for (int c = 0; c < ncodebooks; c++) {
+        auto vmin = broadcast_min(mins[c]);
+        auto offset = pfirst(vmin);  // minimum value
+        out_offsets[c] = offset;
+        out_offset_sum += offset;
 
+        // update vector of max vals seen so far
+        vmax = _mm256_max_ps(vmax, _mm256_sub_ps(maxs[c], vmin));
+    }
+    vmax = broadcast_max(vmax);
+    out_scale = pfirst(vmax);
+    if (out_scale <= 0.f) {
+        out_scale = 0.;
+        return; // data is constant; just return
+    }
+
+    // round scale up to nearest power of 2
+    float exponent = std::ceil(std::log2f(out_scale));
+    out_scale = std::exp2(-exponent);  // reciprocal so we can use fma
+    out_scale *= (255.f - 1e-10f);  // so max val is at most just under 255
+
+    // update offsets based on scale, so that one can incorporate offsets
+    // in an fma (specifically, fmsub to create lut and fma to invert)
+    for (int c = 0; c < ncodebooks; c++) {
+        out_offsets[c] *= out_scale;
+    }
+}
 
 // template<int CodebookTileSz=2, int RowTileSz=2>
+// NOTE: ColTileSz has no effect on performance; already unrolled plenty
 template<int CodebookTileSz=2, int RowTileSz=2, int ColTileSz=1>
-void mithral_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
+void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
                  const float* centroids, float* out)
 {
     static constexpr int ncentroids = 16;
@@ -523,150 +561,28 @@ void mithral_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
     }
 }
 
-// template<int CodebookTileSz=2, int RowTileSz=2, int ColTileSz=1>
-// void mithral_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
-//     const float* centroids, float* out_offsets, float& out_offset_sum,
-//     float& out_scale, float* out)
-// {
-//     static constexpr int ncentroids = 16;
-//     static constexpr int lut_sz = ncentroids;
-//     static constexpr int packet_width = 8; // objs per simd register
-//     static constexpr int nstripes = lut_sz / packet_width;
-//     assert(ncodebooks % CodebookTileSz == 0);
-//     assert(nrows % RowTileSz == 0);
-
-//     // __m256 accumulators[CodebookTileSz * RowTileSz * nstripes];
-//     __m256 accumulators[CodebookTileSz][RowTileSz][nstripes];
-//     __m256 vbroadcasted[RowTileSz];
-
-//     const float* queries_ptrs[RowTileSz];
-//     const float* centroids_ptrs[CodebookTileSz];
-//     float* out_ptrs[RowTileSz][CodebookTileSz];
-
-//     auto q_row_stride = ncols;
-//     auto centroids_codebook_stride = ncentroids * ncols;
-//     auto out_row_stride = ncodebooks * lut_sz;
-//     auto out_codebook_stride = lut_sz;
-
-//     auto ncodebook_blocks = ncodebooks / CodebookTileSz;
-//     auto nrow_blocks = nrows / RowTileSz;
-//     auto ncol_blocks_full = ncols / ColTileSz;
-
-//     for (int r = 0; r < nrow_blocks; r++) {
-//         for (int c = 0; c < ncodebook_blocks; c++) {
-//             for (int cc = 0; cc < CodebookTileSz; cc++) {
-//                 // set centroid start ptrs for this codebook
-//                 auto codebook = (c * CodebookTileSz) + cc;
-//                 centroids_ptrs[cc] =
-//                     centroids + (centroids_codebook_stride * codebook);
-//                 for (int rr = 0; rr < RowTileSz; rr++) {
-//                     // set output ptrs for this codebook
-//                     auto row = (r * RowTileSz) + rr;
-//                     out_ptrs[rr][cc] = out + (out_row_stride * row) +
-//                         (out_codebook_stride * codebook);
-
-//                     // zero accumulators
-//                     for (int s = 0; s < nstripes; s++) {
-//                         accumulators[cc][rr][s] = _mm256_setzero_ps();
-//                         // auto idx = cc * (RowTileSz + nstripes) + (rr * RowTileSz) + s;
-//                         // accumulators[idx] = _mm256_setzero_ps();
-//                     }
-//                 }
-//             }
-//             for (int rr = 0; rr < RowTileSz; rr++) {
-//                 auto row = (r * RowTileSz) + rr;
-//                 queries_ptrs[rr] = Q + (q_row_stride * row);
-//             }
-
-//             // compute sums for each output row for this block of codebooks
-//             // for (int j = 0; j < ncols; j++) {
-//             for (int j = 0; j < ncol_blocks_full; j++) {
-//                 for (int jj = 0; jj < ColTileSz; jj++) {
-//                     for (int rr = 0; rr < RowTileSz; rr++) {
-//                         auto qval = *queries_ptrs[rr];
-//                         vbroadcasted[rr] = _mm256_set1_ps(qval);
-//                         queries_ptrs[rr]++;
-//                     }
-
-//                     for (int cc = 0; cc < CodebookTileSz; cc++) {
-//                         for (int s = 0; s < nstripes; s++) {
-//                             auto centroids_col = _mm256_load_ps(centroids_ptrs[cc]);
-//                             centroids_ptrs[cc] += packet_width;
-//                             for (int rr = 0; rr < RowTileSz; rr++) {
-//                                 accumulators[cc][rr][s] = fma(vbroadcasted[rr],
-//                                     centroids_col, accumulators[cc][rr][s]);
-//                                 // auto idx = cc * (RowTileSz + nstripes) + (rr * RowTileSz) + s;
-//                                 // accumulators[idx] = fma(vbroadcasted[rr],
-//                                 //     centroids_col, accumulators[idx]);
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//             // handle trailing cols
-//             for (int jj = ncol_blocks_full * ColTileSz; jj < ncols; jj++) {
-//                 for (int rr = 0; rr < RowTileSz; rr++) {
-//                     auto qval = *queries_ptrs[rr];
-//                     vbroadcasted[rr] = _mm256_set1_ps(qval);
-//                     queries_ptrs[rr]++;
-//                 }
-//                 for (int cc = 0; cc < CodebookTileSz; cc++) {
-//                     for (int s = 0; s < nstripes; s++) {
-//                         auto centroids_col = _mm256_load_ps(centroids_ptrs[cc]);
-//                         centroids_ptrs[cc] += packet_width;
-//                         for (int rr = 0; rr < RowTileSz; rr++) {
-//                             accumulators[cc][rr][s] = fma(vbroadcasted[rr],
-//                                 centroids_col, accumulators[cc][rr][s]);
-//                         }
-//                     }
-//                 }
-//             }
-//             // write out sums
-//             for (int rr = 0; rr < RowTileSz; rr++) {
-//                 for (int cc = 0; cc < CodebookTileSz; cc++) {
-//                     for (int s = 0; s < nstripes; s++) {
-//                         _mm256_store_ps(out_ptrs[rr][cc], accumulators[cc][rr][s]);
-//                         // auto idx = cc * (RowTileSz + nstripes) + (rr * RowTileSz) + s;
-//                         // _mm256_store_ps(out_ptrs[rr][cc], accumulators[idx]);
-//                         out_ptrs[rr][cc] += packet_width;
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
-
-/**
- * Input and output LUTs are of shape (nrows, ncodebooks, ncentroids) rowmajor.
- * We also write out the offsets and amounts by which luts are right shifted;
- * note that the latter quantity may be negative.
- *
- * out_luts[r, c, k] = (luts_f32[r, c, k] - offsets[r, c]) >> shifts[r]
- */
-template<int ncodebooks, int RowTileSz=1>
-void mithral_quantize_luts_v1(const float* luts_f32, int nrows,
-                           float& out_offset, float& out_scale,
-                           uint8_t* out_luts)
+// this is basically just a dense matmul that also tracks the min/max
+// product; Q = nrows, ncols; centroids = ncols, ncodebooks; but centroids.T
+// is already in a block-colmajor layout, with block size of 16; also Q
+// is rowmajor
+template<int CodebookTileSz=2, int RowTileSz=2>
+void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
+    const float* centroids, float* out_offsets, float& out_offset_sum,
+    float& out_scale, float* out)
 {
-    static constexpr int lut_sz = 16;
-    static constexpr int codebook_group_sz = 2; // 4 f32 luts -> 1 epu8 lut
+    static constexpr int ncentroids = 16;
+    static constexpr int lut_sz = ncentroids;
     static constexpr int packet_width = 8; // objs per simd register
     static constexpr int nstripes = lut_sz / packet_width;
-    static constexpr int ncodebook_groups = ncodebooks / codebook_group_sz;
-    static_assert(ncodebooks % codebook_group_sz == 0,
-        "Number of codebooks must be a multiple of 2");
+    assert(ncodebooks % CodebookTileSz == 0);
     assert(nrows % RowTileSz == 0);
 
-    auto row_stride = ncodebooks * lut_sz;
-    auto nrow_blocks = RowTileSz > 1 ? nrows / RowTileSz : 0;
-    // auto nrow_blocks = 0 if RowTileSz > ; // TODO rm
-    auto nrows_round = nrow_blocks * RowTileSz;
+    __m256 accumulators[CodebookTileSz][RowTileSz][nstripes];
+    __m256 vbroadcasted[RowTileSz];
 
-    const float* in_ptrs[RowTileSz];
-    const float* offset_ptrs[RowTileSz];
-    uint8_t* out_ptrs[RowTileSz];
-
-    float offsets[ncodebooks];
+    const float* queries_ptrs[RowTileSz];
+    const float* centroids_ptrs[CodebookTileSz];
+    float* out_ptrs[RowTileSz][CodebookTileSz];
 
     __m256 mins[ncodebooks];
     __m256 maxs[ncodebooks];
@@ -675,252 +591,87 @@ void mithral_quantize_luts_v1(const float* luts_f32, int nrows,
         maxs[c] = _mm256_set1_ps(std::numeric_limits<float>::min());
     }
 
-    /* .LBB1_3:  // using 8 codebooks; this loop is like 40% of the total time
-        mov     esi, ecx
-        and     esi, -128
-        vmovaps ymm5, ymmword ptr [rbx + 4*rsi + 32]
-        vmovaps ymm6, ymmword ptr [rbx + 4*rsi + 96]
-        vmovaps ymm7, ymmword ptr [rbx + 4*rsi + 160]
-        vmovaps ymm9, ymmword ptr [rbx + 4*rsi + 224]
-        vminps  ymm0, ymm15, ymmword ptr [rbx + 4*rsi]
-        vminps  ymm15, ymm0, ymm5
-        vminps  ymm0, ymm8, ymmword ptr [rbx + 4*rsi + 64]
-        vminps  ymm8, ymm0, ymm6
-        vminps  ymm0, ymm14, ymmword ptr [rbx + 4*rsi + 128]
-        vminps  ymm10, ymm10, ymmword ptr [rbx + 4*rsi + 192]
-        vminps  ymm14, ymm0, ymm7
-        vminps  ymm10, ymm10, ymm9
-        vminps  ymm0, ymm4, ymmword ptr [rbx + 4*rsi + 256]
-        vmovaps ymm11, ymmword ptr [rbx + 4*rsi + 288]
-        vminps  ymm4, ymm0, ymm11
-        vminps  ymm0, ymm3, ymmword ptr [rbx + 4*rsi + 320]
-        vmovaps ymm12, ymmword ptr [rbx + 4*rsi + 352]
-        vminps  ymm3, ymm0, ymm12
-        vminps  ymm0, ymm2, ymmword ptr [rbx + 4*rsi + 384]
-        vmovaps ymm13, ymmword ptr [rbx + 4*rsi + 416]
-        vminps  ymm2, ymm0, ymm13
-        vminps  ymm1, ymm1, ymmword ptr [rbx + 4*rsi + 448]
-        vmovaps ymm0, ymmword ptr [rbx + 4*rsi + 480]
-        vminps  ymm1, ymm1, ymm0
-        sub     rcx, -128
-        dec     rax
-        jne     .LBB1_3
-     */
-    // compute min and max vals for each codebook
+    auto q_row_stride = ncols;
+    auto centroids_codebook_stride = ncentroids * ncols;
+    auto out_row_stride = ncodebooks * lut_sz;
+    auto out_codebook_stride = lut_sz;
+
+    auto ncodebook_blocks = ncodebooks / CodebookTileSz;
+    auto nrow_blocks = nrows / RowTileSz;
+
     for (int r = 0; r < nrow_blocks; r++) {
-        // new set of rows; reset read ptrs
-        for (int rr = 0; rr < RowTileSz; rr++) {
-            auto row = (r * RowTileSz) + rr;
-            in_ptrs[rr] = luts_f32 + (row * row_stride);
-        }
-        // update all the mins and maxes
-        for (int c = 0; c < ncodebooks; c++) {
-            for (int rr = 0; rr < RowTileSz; rr++) {
-                auto vlut_stripe0 = _mm256_load_ps(in_ptrs[rr]);
-                in_ptrs[rr] += packet_width;
-                auto vlut_stripe1 = _mm256_load_ps(in_ptrs[rr]);
-                in_ptrs[rr] += packet_width;
-
-                mins[c] = _mm256_min_ps(mins[c], vlut_stripe0);
-                mins[c] = _mm256_min_ps(mins[c], vlut_stripe1);
-                maxs[c] = _mm256_max_ps(mins[c], vlut_stripe0);
-                maxs[c] = _mm256_max_ps(mins[c], vlut_stripe1);
-            }
-        }
-    }
-    for (int row = nrows_round; row < nrows; row++) { // handle trailing rows
-        auto in_ptr = luts_f32 + (row * row_stride);
-        for (int c = 0; c < ncodebooks; c++) {
-            auto vlut_stripe0 = _mm256_load_ps(in_ptr);
-            in_ptr += packet_width;
-            auto vlut_stripe1 = _mm256_load_ps(in_ptr);
-            in_ptr += packet_width;
-
-            mins[c] = _mm256_min_ps(mins[c], vlut_stripe0);
-            mins[c] = _mm256_min_ps(mins[c], vlut_stripe1);
-            maxs[c] = _mm256_max_ps(mins[c], vlut_stripe0);
-            maxs[c] = _mm256_max_ps(mins[c], vlut_stripe1);
-        }
-    }
-
-    // we now have the mins and maxes for each codebook; compute offsets
-    // for each codebook, then global offset, then largest value - offset
-    // auto vmins = mins[0];
-    // float offset = 0;
-    out_offset = 0;
-    __m256 vmax = _mm256_set1_ps(std::numeric_limits<float>::min());
-    for (int c = 0; c < ncodebooks; c++) {
-        auto vmin = broadcast_min(mins[c]);
-        auto offset = pfirst(vmin);  // minimum value
-        offsets[c] = offset;
-        out_offset += offset;
-
-        // update vector of max vals seen so far
-        vmax = _mm256_max_ps(vmax, _mm256_sub_ps(maxs[c], vmin));
-    }
-    vmax = broadcast_max(vmax);
-    out_scale = pfirst(vmax);
-
-    // if luts constant, just zero the output and return
-    if (out_scale <= 0.f) {
-        out_scale = 0.f;
-        auto out_ptr = out_luts;
-        for (int row = 0; row < nrows; row++) {
-            for (int c = 0; c < ncodebooks; c++) {
-                for (int k = 0; k < lut_sz; k++) {
-                    *out_ptr = 0;
-                    out_ptr++;
-                }
-            }
-        }
-        return;
-    }
-
-    // round scale up to nearest power of 2
-    float exponent = std::ceil(std::log2f(out_scale));
-    out_scale = std::exp2(-exponent);  // reciprocal so we can use fma
-    auto mulby = out_scale;
-    // auto mulby = std::exp2(-exponent);
-
-    /* inner loop gets unrolled to this:
-     vmovaps        ymm10, ymmword ptr [rbx + 4*rdx + 384]
-     vfmadd132ps    ymm10, ymm4, ymm1 # ymm10 = (ymm10 * ymm1) + ymm4
-     vmovaps        ymm11, ymmword ptr [rbx + 4*rdx + 416]
-     vfmadd132ps    ymm11, ymm4, ymm1 # ymm11 = (ymm11 * ymm1) + ymm4
-     vcvtps2dq      ymm10, ymm10
-     vmovaps        ymm12, ymmword ptr [rbx + 4*rdx + 448]
-     vfmadd132ps    ymm12, ymm5, ymm1 # ymm12 = (ymm12 * ymm1) + ymm5
-     vcvtps2dq      ymm11, ymm11
-     vmovaps        ymm13, ymmword ptr [rbx + 4*rdx + 480]
-     vfmadd132ps    ymm13, ymm5, ymm1 # ymm13 = (ymm13 * ymm1) + ymm5
-     vcvtps2dq      ymm12, ymm12
-     vpackssdw      ymm10, ymm10, ymm11
-     vcvtps2dq      ymm11, ymm13
-     vpackssdw      ymm11, ymm12, ymm11
-     vpackuswb      ymm10, ymm10, ymm11
-     vpermd         ymm10, ymm2, ymm10
-     vmovdqa        ymmword ptr [r14 + rdx + 96], ymm10
-     */
-    // given offsets and overall scale, actually quantize luts; this is
-    // basically the same as the first 2 loops that pull out the offsets
-    __m256i luts_epi16[RowTileSz][codebook_group_sz];
-    auto vmulby = _mm256_set1_ps(mulby);
-    for (int r = 0; r < nrow_blocks; r++) {
-        // new set of rows; reset read and write ptrs
-        for (int rr = 0; rr < RowTileSz; rr++) {
-            auto row = (r * RowTileSz) + rr;
-            in_ptrs[rr] = luts_f32 + (row * row_stride);
-            out_ptrs[rr] = out_luts + (row * row_stride);
-        }
-        // for each column group, col in group, row in rowgroup
-        for (int g = 0; g < ncodebook_groups; g++) {
-            for (int gg = 0; gg < codebook_group_sz; gg++) {
-                auto c = (g * codebook_group_sz) + gg;
-                auto fma_offset = offsets[c] * mulby;
-                auto voffset = _mm256_set1_ps(fma_offset);
-
+        for (int c = 0; c < ncodebook_blocks; c++) {
+            for (int cc = 0; cc < CodebookTileSz; cc++) {
+                // set centroid start ptrs for this codebook
+                auto codebook = (c * CodebookTileSz) + cc;
+                centroids_ptrs[cc] =
+                    centroids + (centroids_codebook_stride * codebook);
                 for (int rr = 0; rr < RowTileSz; rr++) {
-                    auto vlut_f32_0 = _mm256_load_ps(in_ptrs[rr]);
-                    in_ptrs[rr] += packet_width;
-                    auto vlut_f32_1 = _mm256_load_ps(in_ptrs[rr]);
-                    in_ptrs[rr] += packet_width;
-
-                    vlut_f32_0 = _mm256_fmsub_ps(vlut_f32_0, vmulby, voffset);
-                    vlut_f32_1 = _mm256_fmsub_ps(vlut_f32_1, vmulby, voffset);
-                    auto vlut_epi32_0 = _mm256_cvtps_epi32(vlut_f32_0);
-                    auto vlut_epi32_1 = _mm256_cvtps_epi32(vlut_f32_1);
-
-                    // the tricky part here is that we have to buffer luts from
-                    // two consecutive columns to get a full epi32 vector
-                    luts_epi16[rr][gg] = _mm256_packs_epi32(
-                        vlut_epi32_0, vlut_epi32_1);
+                    // set output ptrs for this codebook
+                    auto row = (r * RowTileSz) + rr;
+                    out_ptrs[rr][cc] = out + (out_row_stride * row) +
+                        (out_codebook_stride * codebook);
+                    // zero accumulators
+                    for (int s = 0; s < nstripes; s++) {
+                        accumulators[cc][rr][s] = _mm256_setzero_ps();
+                    }
                 }
             }
-            // combine epi16 luts from the 2 cols into 1 epu8 lut and store it
             for (int rr = 0; rr < RowTileSz; rr++) {
-                auto lut0 = luts_epi16[rr][0];
-                auto lut1 = luts_epi16[rr][1];
-                auto lut = _mm256_packus_epi16(lut0, lut1);
-                lut = _mm256_permutevar8x32_epi32(
-                    lut, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
-                _mm256_store_si256((__m256i*)out_ptrs[rr], lut);
-                out_ptrs[rr] += 32;
+                auto row = (r * RowTileSz) + rr;
+                queries_ptrs[rr] = Q + (q_row_stride * row);
+            }
+
+            // compute sums for each output row for this block of codebooks
+            for (int j = 0; j < ncols; j++) {
+                for (int rr = 0; rr < RowTileSz; rr++) {
+                    auto qval = *queries_ptrs[rr];
+                    vbroadcasted[rr] = _mm256_set1_ps(qval);
+                    queries_ptrs[rr]++;
+                }
+
+                for (int cc = 0; cc < CodebookTileSz; cc++) {
+                    for (int s = 0; s < nstripes; s++) {
+                        auto centroids_col = _mm256_load_ps(centroids_ptrs[cc]);
+                        centroids_ptrs[cc] += packet_width;
+                        for (int rr = 0; rr < RowTileSz; rr++) {
+                            accumulators[cc][rr][s] = fma(vbroadcasted[rr],
+                                centroids_col, accumulators[cc][rr][s]);
+                        }
+                    }
+                }
+            }
+            // write out sums
+            for (int rr = 0; rr < RowTileSz; rr++) {
+                for (int cc = 0; cc < CodebookTileSz; cc++) {
+                    auto codebook = (c * CodebookTileSz) + cc;
+                    for (int s = 0; s < nstripes; s++) {
+                        auto half_lut = accumulators[cc][rr][s];
+                        mins[codebook] = _mm256_min_ps(
+                            mins[codebook], half_lut);
+                        maxs[codebook] = _mm256_max_ps(
+                            maxs[codebook], half_lut);
+
+                        _mm256_store_ps(out_ptrs[rr][cc], half_lut);
+                        out_ptrs[rr][cc] += packet_width;
+                    }
+                }
             }
         }
     }
-    for (int row = nrows_round; row < nrows; row++) { // handle trailing rows
-        auto in_ptr = luts_f32 + (row * row_stride);
-        auto out_ptr = out_luts + (row * row_stride);
-        for (int g = 0; g < ncodebook_groups; g++) {
-            for (int gg = 0; gg < codebook_group_sz; gg++) {
-                auto c = (g * codebook_group_sz) + gg;
-                auto fma_offset = offsets[c] * mulby;
-                auto voffset = _mm256_set1_ps(fma_offset);
-
-                auto vlut_f32_0 = _mm256_load_ps(in_ptr);
-                in_ptr += packet_width;
-                auto vlut_f32_1 = _mm256_load_ps(in_ptr);
-                in_ptr += packet_width;
-
-                vlut_f32_0 = _mm256_fmsub_ps(vlut_f32_0, vmulby, voffset);
-                vlut_f32_1 = _mm256_fmsub_ps(vlut_f32_1, vmulby, voffset);
-                auto vlut_epi32_0 = _mm256_cvtps_epi32(vlut_f32_0);
-                auto vlut_epi32_1 = _mm256_cvtps_epi32(vlut_f32_1);
-
-                luts_epi16[0][gg] = _mm256_packs_epi32(
-                    vlut_epi32_0, vlut_epi32_1);
-            }
-            auto lut0 = luts_epi16[0][0];
-            auto lut1 = luts_epi16[0][1];
-            auto lut = packed_epu16_to_unpacked_epu8(lut0, lut1);
-            // auto lut = _mm256_packus_epi16(lut0, lut1);
-            // lut = _mm256_permutevar8x32_epi32(
-            //     lut, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
-            _mm256_store_si256((__m256i*)out_ptr, lut);
-            out_ptr += 32;
-        }
-    }
+    _compute_offsets_scale_from_mins_maxs(
+        mins, maxs, ncodebooks, out_offsets, out_offset_sum, out_scale);
 }
 
+// template<int CodebookTileSz=2, int RowTileSz=2>
+// void mithral_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
+//     const float* centroids, float* out_offsets, float& out_offset_sum,
+//     float& out_scale, float* out)
+// {
+//     switch(ncodebooks)
+// }
 
-template<int ncodebooks>
-void _compute_offsets_scale_from_mins_maxs(
-    const __m256* mins, const __m256* maxs, float* out_offsets,
-    float& out_offset_sum, float& out_scale)
-{
-    // we now have the mins and maxes for each codebook; compute offsets
-    // for each codebook, then global offset, then largest value - offset
-    // auto vmins = mins[0];
-    // float offset = 0;
-    out_offset_sum = 0;
-    __m256 vmax = _mm256_set1_ps(std::numeric_limits<float>::min());
-    for (int c = 0; c < ncodebooks; c++) {
-        auto vmin = broadcast_min(mins[c]);
-        auto offset = pfirst(vmin);  // minimum value
-        out_offsets[c] = offset;
-        out_offset_sum += offset;
-
-        // update vector of max vals seen so far
-        vmax = _mm256_max_ps(vmax, _mm256_sub_ps(maxs[c], vmin));
-    }
-    vmax = broadcast_max(vmax);
-    out_scale = pfirst(vmax);
-    if (out_scale <= 0.f) {
-        out_scale = 0.;
-        return; // data is constant; just return
-    }
-
-    // round scale up to nearest power of 2
-    float exponent = std::ceil(std::log2f(out_scale));
-    out_scale = std::exp2(-exponent);  // reciprocal so we can use fma
-    out_scale *= (255.f - 1e-10f);  // so max val is at most just under 255
-
-    // update offsets based on scale, so that one can incorporate offsets
-    // in an fma (specifically, fmsub to create lut and fma to invert)
-    for (int c = 0; c < ncodebooks; c++) {
-        out_offsets[c] *= out_scale;
-    }
-}
+// this is just so that we can profile this separately
 template<int ncodebooks, int RowTileSz=1>
 void mithral_learn_lut_offsets_scales(const float* luts_f32, int nrows,
     float* out_offsets, float& out_offset_sum, float& out_scale,
@@ -1017,8 +768,8 @@ void mithral_learn_lut_offsets_scales(const float* luts_f32, int nrows,
             maxs[c] = _mm256_max_ps(mins[c], vlut_stripe1);
         }
     }
-    _compute_offsets_scale_from_mins_maxs<ncodebooks>(
-        mins, maxs, out_offsets, out_offset_sum, out_scale);
+    _compute_offsets_scale_from_mins_maxs(
+        mins, maxs, ncodebooks, out_offsets, out_offset_sum, out_scale);
 }
 
 template<int ncodebooks, int RowTileSz=1>
@@ -1155,7 +906,7 @@ void quantize_luts(const float* luts_f32, int nrows, const float* offsets,
 }
 template<int RowTileSz=1>
 void quantize_luts(const float* luts_f32, int nrows, int ncodebooks,
-                           const float* offsets, float& scaleby,
+                           const float* offsets, float scaleby,
                            uint8_t* out_luts)
 {
     switch (ncodebooks) {
@@ -1175,6 +926,18 @@ void quantize_luts(const float* luts_f32, int nrows, int ncodebooks,
             luts_f32, nrows, offsets, scaleby, out_luts); break;
     }
 }
+
+template<int CodebookTileSz=2, int RowTileSz=2>
+void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
+    const float* centroids, float* tmp_offsets,
+    float& out_offset_sum, float& out_scale,
+    float* tmp_lut_f32, uint8_t* out)
+{
+    dense_lut_f32_fused(Q, nrows, ncols, ncodebooks, centroids,
+        tmp_offsets, out_offset_sum, out_scale, tmp_lut_f32);
+    quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
+}
+
 
 // template<int RowTileSz=1>
 // void mithral_quantize_luts(const float* luts_f32, int nrows, int ncodebooks,

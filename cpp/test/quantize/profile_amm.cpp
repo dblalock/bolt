@@ -32,7 +32,8 @@
     #include "memory.hpp"
 #endif
 
-static constexpr int kNreps = 5;
+static constexpr int kNreps = 3;
+// static constexpr int kNreps = 1;
 static constexpr int kNtrials = 20;
 // static constexpr int kNreps = 1;
 // static constexpr int kNtrials = 1;
@@ -623,6 +624,185 @@ void _amm_mithral_just_lut(const InputT* X, const float* W, int64_t nrows, int D
     }
 }
 
+
+// template<int Reduction=Reductions::DotProd>
+// void bolt_lut(const float* Q, int nrows, int ncols, const float* centroids,
+//                   int ncodebooks, uint8_t* out)
+// {
+//     auto in_ptr = Q;
+//     uint8_t* lut_out_ptr = (uint8_t*)out;
+//     for (int i = 0; i < nrows; i++) {
+//         bolt_lut(in_ptr, nrows, ncols, centroids, ncodebooks, lut_out_ptr);
+//         in_ptr += ncols;
+//         lut_out_ptr += 16 * ncodebooks;
+//     }
+// }
+
+template<int ncodebooks>
+void _dummy_lut(const float* q, int len, const float* centroids, uint8_t* out)
+{
+    for (int c = 0; c < ncodebooks; c++) {
+        out[c] = 0;
+        for (int j = 0; j < len; j++) {
+            out[c] += (j % 4) + (j & 0xabcd);
+        }
+    }
+}
+
+
+TEST_CASE("amm lut", "[amm][lut][profile]") {
+    // static constexpr int nrows = 1024*1000;
+    // static constexpr int nrows = 128*1000;
+    // static constexpr int nrows = 4096;
+    // static constexpr int nrows = 24 * 1000;
+    static constexpr int nrows = 24 * 100;
+    // static constexpr int nrows = 24 * 10;
+    // static constexpr int nrows = 24;
+    // static constexpr int nrows = 6;
+    // static constexpr int nrows = 128;
+    // static constexpr int64_t nrows = 1;
+    // static constexpr int ncols = 24 * 16;               // length of vectors
+    // static constexpr int ncols = 12 * 16;               // length of vectors
+    // static constexpr int ncols = 128;               // length of vectors
+    // static constexpr int ncols = 32;               // length of vectors
+    static constexpr int ncols = 16;               // length of vectors
+    // static constexpr int ncols = 8;               // length of vectors
+    // static constexpr int ncols = 1024 * 1024;               // length of vectors
+    static constexpr int bits_per_codebook = 4;
+    // static constexpr int ncodebooks = 32;
+    static constexpr int ncodebooks = 16;
+    // static constexpr int ncodebooks = 12;
+    // static constexpr int ncodebooks = 8;
+    // static constexpr int ncodebooks = 4;
+    // static constexpr int ncodebooks = 2;
+    static constexpr int ncentroids = (1 << bits_per_codebook);
+    // static constexpr int nbytes = ncodebooks / 2;
+
+    ColMatrix<float> centroids(ncodebooks * ncentroids, ncols);
+    centroids.setRandom();
+    RowMatrix<float> X(nrows, ncols);
+    X.setRandom();
+    RowMatrix<uint8_t> lut_out(nrows, ncodebooks * ncentroids);
+    lut_out.setRandom();
+
+    RowMatrix<float> lut_f32_out(nrows, ncodebooks * ncentroids);
+    lut_f32_out.setRandom();
+
+    RowVector<float> offsets(ncodebooks);
+
+    // printf("lut_out size: %d\n", (int)lut_out.size());
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "dummy lut ", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     _dummy_lut<ncodebooks>(X.data(), ncols,
+    //         centroids.data(), lut_out.data()));
+
+    float offset = 0.;
+    float scale = 1.;
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut cheating", kNtrials,
+        lut_out.data(), lut_out.size(),
+        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
+                centroids.data(), ncodebooks, lut_out.data()) ) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut         ", kNtrials,
+        lut_out.data(), lut_out.size(),
+        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols, centroids.data(),
+            ncodebooks, offsets.data(), scale, lut_out.data()) ) );
+
+    // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut    ", kNtrials,
+    // //     lut_out.data(), lut_out.size(),
+    // //     (mithral_lut(X.data(), nrows, ncols, ncodebooks,
+    // //         centroids.data(), lut_out.data())) );
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "just quantize lut 1", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (quantize_luts<1>(lut_f32_out.data(), nrows, ncodebooks,
+    //         offsets.data(), scale, lut_out.data())));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "just quantize lut 2", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (quantize_luts<2>(lut_f32_out.data(), nrows, ncodebooks,
+    //         offsets.data(), scale, lut_out.data())));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "just quantize lut 4", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (quantize_luts<4>(lut_f32_out.data(), nrows, ncodebooks,
+    //         offsets.data(), scale, lut_out.data())));
+
+
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral quant lut 1", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (mithral_quantize_luts(lut_f32_out.data(), nrows, ncodebooks,
+    //         offset, scale, lut_out.data())));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral quant lut 2", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (mithral_quantize_luts<2>(lut_f32_out.data(), nrows, ncodebooks,
+    //         offset, scale, lut_out.data())));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral quant lut 4", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (mithral_quantize_luts<4>(lut_f32_out.data(), nrows, ncodebooks,
+    //         offset, scale, lut_out.data())));
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral quant lut 8", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (mithral_quantize_luts<8>(lut_f32_out.data(), nrows, ncodebooks,
+    //         offset, scale, lut_out.data())));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "fused   lut f32 2,3", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32_fused<2,3>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), offsets.data(), offset, scale, lut_f32_out.data())) );
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "lut dense       2,3", kNtrials,
+        lut_out.data(), lut_out.size(),
+        (mithral_lut_dense<2,3>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), offsets.data(), offset, scale,
+            lut_f32_out.data(), lut_out.data())) );
+
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 1,1", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<1,1>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 1,2", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<1,2>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 1,3", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<1,3>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 2,1", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<2,1>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 2,2", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<2,2>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 2,3", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<2,3>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 2,4", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32<2,4>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 3,1", kNtrials,
+    // lut_out.data(), lut_out.size(),
+    //     (dense_lut_f32<3,1>(X.data(), nrows, ncols, ncodebooks,
+    //         centroids.data(), lut_f32_out.data())) );
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 3,2", kNtrials,
+    // lut_out.data(), lut_out.size(),
+    //     (dense_lut_f32<3,2>(X.data(), nrows, ncols, ncodebooks,
+    //         centroids.data(), lut_f32_out.data())) );
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 3,3", kNtrials,
+    // lut_out.data(), lut_out.size(),
+    //     (dense_lut_f32<3,3>(X.data(), nrows, ncols, ncodebooks,
+    //         centroids.data(), lut_f32_out.data())) );
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut f32 3,4", kNtrials,
+    // lut_out.data(), lut_out.size(),
+    //     (dense_lut_f32<3,4>(X.data(), nrows, ncols, ncodebooks,
+    //         centroids.data(), lut_f32_out.data())) );
+}
+
 // template<int UpcastEvery=4>
 template<class InputT, class ScaleT, class OffsetT>
 void _amm_mithral_tile(const InputT* X, int64_t nrows, int ncols,
@@ -855,7 +1035,6 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             scales.data(), offsets.data(),
             centroids.data(), ncodebooks,
             codes.data(), codes_packed.data(), luts.data(), out_mat.data()));
-
 
     // X.setRandom();
     msg = string_with_format(
