@@ -109,6 +109,17 @@ static inline __m256i broadcast_min(const __m256i a) {
     // so swap adjacent pairs of elements within each 128b half
     return _mm256_min_epi32(tmp2, _mm256_shuffle_epi32(tmp2, _MM_SHUFFLE(2,3,0,1)));
 }
+static inline __m256 broadcast_min(const __m256 a) {
+    auto tmp = _mm256_min_ps(a, _mm256_permute2f128_ps(a,a,1));
+    auto tmp2 = _mm256_min_ps(tmp, _mm256_shuffle_ps(tmp, tmp, _MM_SHUFFLE(1,0,3,2)));
+    return _mm256_min_ps(tmp2, _mm256_shuffle_ps(tmp2, tmp2, _MM_SHUFFLE(2,3,0,1)));
+}
+static inline __m256 broadcast_max(const __m256 a) {
+    auto tmp = _mm256_max_ps(a, _mm256_permute2f128_ps(a,a,1));
+    auto tmp2 = _mm256_max_ps(tmp, _mm256_shuffle_ps(tmp, tmp, _MM_SHUFFLE(1,0,3,2)));
+    return _mm256_max_ps(tmp2, _mm256_shuffle_ps(tmp2, tmp2, _MM_SHUFFLE(2,3,0,1)));
+}
+
 
 static inline __m256i packed_epu16_to_unpacked_epu8(const __m256i& a, const __m256i& b) {
     // indices to undo packus_epi32 followed by packus_epi16, once we've
@@ -153,6 +164,50 @@ static inline __m256i pack_ps_epi8_or_epu8(const __m256& x0, const __m256& x1,
     return lanefix;
 }
 
+
+static inline __m256i invert_pack_ps0to255_epu8_perm(const __m256i x) {
+    const __m256i shuffle_idxs = _mm256_setr_epi8(
+        0, 4, 8,  12,
+        1, 5, 9,  13,
+        2, 6, 10, 14,
+        3, 7, 11, 15,
+        0, 4, 8,  12, // 2nd half is same as first half
+        1, 5, 9,  13,
+        2, 6, 10, 14,
+        3, 7, 11, 15);
+    const __m256i vperm_idxs = _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7);
+    auto grouped = _mm256_shuffle_epi8(x, shuffle_idxs);
+    return _mm256_permutevar8x32_epi32(grouped, vperm_idxs);
+}
+
+// this is just here to reduce p5 pressure for the case that the floats
+// are known to be in the range [0, 255]; note that this will yield garbage if
+// this is not the case
+// TODO actually test this function
+template<bool Signed=false, bool SameOrder=true>
+static inline __m256i pack_ps0to255_epi8_or_epu8(
+    const __m256& x0, const __m256& x1, const __m256& x2, const __m256& x3)
+{
+    auto a = _mm256_cvtps_epi32(x0);
+    auto b = _mm256_cvtps_epi32(x1);
+    auto c = _mm256_cvtps_epi32(x2);
+    auto d = _mm256_cvtps_epi32(x3);
+    b = _mm256_slli_epi32(b, 8);
+    c = _mm256_slli_epi32(c, 16);
+    d = _mm256_slli_epi32(d, 24);
+    auto ab = _mm256_or_si256(a, b);
+    auto cd = _mm256_or_si256(c, d);
+    auto abcd = _mm256_or_si256(ab, cd);
+
+    if (Signed) {
+        abcd = _mm256_add_epi8(abcd, _mm256_set1_epi8(-128));
+    }
+
+    if (!SameOrder) { return abcd; }
+    return invert_pack_ps0to255_epu8_perm(abcd);
+}
+
+
 template<bool Signed=true, bool SameOrder=true>
 static inline __m256i load_4xf32_as_32xepi8_or_epu8(
     const float* x, const __m256& scales, const __m256& offsets)
@@ -174,7 +229,6 @@ static inline __m256i load_4xf32_as_32xepi8_or_epu8(
     auto x3 = _mm256_mul_ps(_mm256_loadu_ps(x + 24), scales);
     return pack_ps_epi8_or_epu8<Signed, SameOrder>(x0, x1, x2, x3);
 }
-
 
 // assumes N % 8 == 0, D % NReadCols == 0, M >= 2
 // gorgeous inner loop with <4, 3>: https://godbolt.org/z/lROnpg

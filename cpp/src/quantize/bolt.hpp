@@ -137,6 +137,7 @@ void bolt_lut(const float* q, int len, const float* centroids, uint8_t* out) {
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
     const int subvect_len = len / ncodebooks;
     assert(len % ncodebooks == 0); // TODO remove this constraint
+    // printf("calling bolt_lut; len = %d\n", len);
 
     __m256 accumulators[nstripes];
     __m256i dists_uint16_0 = _mm256_undefined_si256();
@@ -186,14 +187,28 @@ void bolt_lut(const float* q, int len, const float* centroids, uint8_t* out) {
 
 template<int Reduction=Reductions::DistL2>
 void bolt_lut(const float* q, int len, const float* centroids,
-    int nbytes, uint8_t* out)
+    int ncodebooks, uint8_t* out)
 {
-    switch(nbytes) {
-        case 2: bolt_lut<2>(q, len, centroids, out); break;
-        case 4: bolt_lut<4>(q, len, centroids, out); break;
-        case 8: bolt_lut<8>(q, len, centroids, out); break;
-        case 16: bolt_lut<16>(q, len, centroids, out); break;
-        case 32: bolt_lut<32>(q, len, centroids, out); break;
+    switch(ncodebooks) {
+        case 2: bolt_lut<1, Reduction>(q, len, centroids, out); break;
+        case 4: bolt_lut<2, Reduction>(q, len, centroids, out); break;
+        case 8: bolt_lut<4, Reduction>(q, len, centroids, out); break;
+        case 16: bolt_lut<8, Reduction>(q, len, centroids, out); break;
+        case 32: bolt_lut<16, Reduction>(q, len, centroids, out); break;
+        case 64: bolt_lut<32, Reduction>(q, len, centroids, out); break;
+        default: assert(false); // invalid ncodebooks
+    }
+}
+template<int Reduction=Reductions::DistL2>
+void bolt_lut(const float* Q, int nrows, int ncols, const float* centroids,
+                  int ncodebooks, uint8_t* out)
+{
+    auto in_ptr = Q;
+    uint8_t* lut_out_ptr = (uint8_t*)out;
+    for (int i = 0; i < nrows; i++) {
+        bolt_lut(in_ptr, ncols, centroids, ncodebooks, lut_out_ptr);
+        in_ptr += ncols;
+        lut_out_ptr += 16 * ncodebooks;
     }
 }
 
@@ -251,6 +266,8 @@ void bolt_lut(const float* q, int len, const float* centroids,
 
     __m256 scaleby_vect = _mm256_set1_ps(scaleby);
 
+    // int permute_calls_per_row = 0;
+
     for (int m = 0; m < ncodebooks; m++) { // for each codebook
         for (int i = 0; i < nstripes; i++) {
             accumulators[i] = _mm256_setzero_ps();
@@ -282,6 +299,8 @@ void bolt_lut(const float* q, int len, const float* centroids,
         __m256i dists_int32_low = _mm256_cvtps_epi32(dist0);
         __m256i dists_int32_high = _mm256_cvtps_epi32(dist1);
 
+
+
         // because we saturate to uint8s, we only get 32 objs to write after
         // two 16-element codebooks
         auto dists_uint16 = _mm256_packus_epi32(dists_int32_low, dists_int32_high);
@@ -291,7 +310,7 @@ void bolt_lut(const float* q, int len, const float* centroids,
             // undo the weird shuffling caused by the pack operations
             auto dists = packed_epu16_to_unpacked_epu8(
                 dists_uint16_0, dists_uint16);
-
+            // permute_calls_per_row++;
             _mm256_store_si256((__m256i*)out, dists);
             out += 32;
         } else {
@@ -300,20 +319,37 @@ void bolt_lut(const float* q, int len, const float* centroids,
             dists_uint16_0 = dists_uint16;
         }
     }
+    // printf("permute calls per row: %d\n", permute_calls_per_row);
 }
 
 template<int Reduction=Reductions::DistL2>
-void bolt_lut(const float* q, int len, const float* centroids, int nbytes,
+void bolt_lut(const float* q, int len, const float* centroids, int ncodebooks,
     const float* offsets, float scaleby, uint8_t* out)
 {
-    switch(nbytes) {
-        case 2: bolt_lut<2>(q, len, centroids, offsets, scaleby, out); break;
-        case 4: bolt_lut<4>(q, len, centroids, offsets, scaleby, out); break;
-        case 8: bolt_lut<8>(q, len, centroids, offsets, scaleby, out); break;
-        case 16: bolt_lut<16>(q, len, centroids, offsets, scaleby, out); break;
-        case 32: bolt_lut<32>(q, len, centroids, offsets, scaleby, out); break;
+    switch(ncodebooks) {
+        case 2: bolt_lut<1>(q, len, centroids, offsets, scaleby, out); break;
+        case 4: bolt_lut<2>(q, len, centroids, offsets, scaleby, out); break;
+        case 8: bolt_lut<4>(q, len, centroids, offsets, scaleby, out); break;
+        case 16: bolt_lut<8>(q, len, centroids, offsets, scaleby, out); break;
+        case 32: bolt_lut<16>(q, len, centroids, offsets, scaleby, out); break;
+        case 64: bolt_lut<32>(q, len, centroids, offsets, scaleby, out); break;
+        case 128: bolt_lut<64>(q, len, centroids, offsets, scaleby, out); break;
     }
 }
+template<int Reduction=Reductions::DistL2>
+void bolt_lut(const float* Q, int nrows, int ncols, const float* centroids,
+              int ncodebooks, const float* offsets, float scaleby, uint8_t* out)
+{
+    auto in_ptr = Q;
+    uint8_t* lut_out_ptr = (uint8_t*)out;
+    for (int i = 0; i < nrows; i++) {
+        bolt_lut(in_ptr, ncols, centroids, ncodebooks,
+                 offsets, scaleby, lut_out_ptr);
+        in_ptr += ncols;
+        lut_out_ptr += 16 * ncodebooks;
+    }
+}
+
 // basically just a transpose with known centroid sizes
 // note that this doesn't have to be fast because we do it once after training
 //
