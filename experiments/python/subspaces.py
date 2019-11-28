@@ -374,54 +374,138 @@ def greedy_eigenvector_threshold(X, subspace_len, sample_how='deterministic',
     # return all_idxs # TODO rm after debug
 
 
+def ksparse_pca(X, ncomponents, k):
+    N, D = X.shape
+    from sklearn.linear_model import OrthogonalMatchingPursuit
+    omp = OrthogonalMatchingPursuit(n_nonzero_coefs=k, fit_intercept=False)
+
+    X_res = np.copy(X)
+
+    V = None
+    for i in range(ncomponents):
+        # compute ideal projection, and resulting latent values
+        v = top_principal_component(X_res).reshape(D, 1)
+        if i > 0:
+            # gram-schmidt to orthogonalize; we don't get to use this exact
+            # vector anyway, so we don't care too much about numerical issues;
+            # also, principal component of residuals should be in a subspace
+            # that's orthogonal to V already, so might be able to prove this
+            # step isn't even necessary
+            prods = (V.T @ v).ravel()   # (D x i+1).T @ (D x 1) = i+1 x 1
+            # print("prods shape: ", prods.shape)
+            # print("V shape: ", V.shape)
+            # print("v shape: ", v.shape)
+            # print("projections shape: ", (V * prods).shape)
+            v -= (V * prods).sum(axis=1, keepdims=True)
+            # V = np.hstack((V, v))
+            # V, R = np.linalg.qr(V)
+            # v = V[-1]
+        h = X_res @ v  # N x 1
+
+        # compute sparse version of this ideal projection
+        v = omp.fit(X, h).coef_.reshape(-1, 1)
+        v /= np.linalg.norm(v)
+        assert np.sum(v != 0) == k
+
+        # update V, ensuring that it remains orthonormal
+        # TODO does this provably converge?
+        if i > 0:
+            niters_ortho = 5
+            for it in range(niters_ortho):
+                prods = (V.T @ v).ravel()
+                # print("prods shape: ", prods.shape)
+                # print("V shape: ", V.shape)
+                # print("v shape: ", v.shape)
+                # print("projections shape: ", (V * prods).shape)
+                v -= (V * prods.ravel()).sum(axis=1, keepdims=True)
+                zero_out_idxs = np.argsort(np.abs(v))[:k]
+                v[zero_out_idxs] = 0
+                v /= np.linalg.norm(v)
+            V = np.hstack((V, v))
+        else:
+            V = v
+
+        # now update X_res; residuals from best linear approx of input given H
+        H = X_res @ V
+        W, _, _, _ = np.linalg.lstsq(H, X, rcond=None)
+        X_res = X - (H @ W)
+
+    return V
+
+
 # ================================================================ main
 
 def main():
     # np.random.seed(1234)
     # np.random.seed(6)
-    # N, D = 20, 6
-    N, D = 10000, 128
+    # N, D = 20, 10
+    # N, D = 10000, 128
     # N, D = 1000, 128
     # N, D = 1000, 512
     # N, D = 10000, 64
+    N, D = 10000, 32
+    # N, D = 10000, 16
     # N, D = 10000, 8
     # N, D = 10000, 10
-    X = np.random.randn(N, D).astype(np.float32)
+
+    # create X with low-rank structure
+    d = int(D / 4)
+    X0 = np.random.randn(N, d).astype(np.float32)
+    X1 = np.random.randn(d, D).astype(np.float32)
+    X = X0 @ X1
+
+    # X = np.random.randn(N, D).astype(np.float32)
     # greedy_eigenvector_threshold(X, 3)
     # greedy_eigenvector_threshold(X, 3, sample_how='deterministic')
     # greedy_eigenvector_threshold(X, 3, sample_how='importance')
     # greedy_eigenvector_threshold(X, 3, use_corr=True)
 
-    from sklearn.decomposition import PCA
-    # # Z = X - X.mean(axis=0)
-    # # pca = PCA(n_components=D).fit(X.T @ X)
-    # pca = PCA(n_components=D).fit(X)
-    # eigenvecs = pca.components_
-    # print("PCA components:", eigenvecs)
-    # print("PCA singular vals:", pca.singular_values_)
-    # v, lamda = top_principal_component(X, return_eigenval=True, init='gauss')
-    # print("v: ", v)
-    # print("v * eigenvecs: ", (eigenvecs * v).sum(axis=1))
+    k = 4
+    V = ksparse_pca(X, d, k)
+    H = X @ V
+    W, _, _, _ = np.linalg.lstsq(H, X, rcond=None)
+    X_res = X - (H @ W)
+    print("X sq frob norm: ", np.sum(X * X))
+    print("X res sq frob norm: ", np.sum(X_res * X_res))
 
     from sklearn.decomposition import PCA
-    import time
+    pca = PCA(n_components=d).fit(X)
+    # print("pca explained variance: ", pca.explained_variance_)
+    V = pca.components_.T
+    H = X @ V
+    W, _, _, _ = np.linalg.lstsq(H, X, rcond=None)
+    X_res = X - (H @ W)
+    print("pca X res sq frob norm: ", np.sum(X_res * X_res))
 
-    # pca = PCA(n_components=D)
-    # pca = PCA(n_components=D, svd_solver='full')  # TODO rm
-    pca = PCA(n_components=1, svd_solver='full')  # TODO rm
-    # pca = PCA(n_components=1, svd_solver='randomized')
-    t = time.perf_counter()
-    pca.fit(X)
-    nsecs = time.perf_counter() - t
-    print("pca time (s): ", nsecs)
+    # # # Z = X - X.mean(axis=0)
+    # # # pca = PCA(n_components=D).fit(X.T @ X)
+    # # pca = PCA(n_components=D).fit(X)
+    # # eigenvecs = pca.components_
+    # # print("PCA components:", eigenvecs)
+    # # print("PCA singular vals:", pca.singular_values_)
+    # # v, lamda = top_principal_component(X, return_eigenval=True, init='gauss')
+    # # print("v: ", v)
+    # # print("v * eigenvecs: ", (eigenvecs * v).sum(axis=1))
 
-    t = time.perf_counter()
-    v = top_principal_component(X)
-    nsecs = time.perf_counter() - t
-    print("our time (s): ", nsecs)
+    # from sklearn.decomposition import PCA
+    # import time
 
-    print("v * eigenvecs: ", (pca.components_ * v).sum(axis=1)[:5])
-    # print("cossim between vecs: ", pca.components_ @ v)
+    # # pca = PCA(n_components=D)
+    # # pca = PCA(n_components=D, svd_solver='full')  # TODO rm
+    # pca = PCA(n_components=1, svd_solver='full')  # TODO rm
+    # # pca = PCA(n_components=1, svd_solver='randomized')
+    # t = time.perf_counter()
+    # pca.fit(X)
+    # nsecs = time.perf_counter() - t
+    # print("pca time (s): ", nsecs)
+
+    # t = time.perf_counter()
+    # v = top_principal_component(X)
+    # nsecs = time.perf_counter() - t
+    # print("our time (s): ", nsecs)
+
+    # print("v * eigenvecs: ", (pca.components_ * v).sum(axis=1)[:5])
+    # # print("cossim between vecs: ", pca.components_ @ v)
 
 
 if __name__ == '__main__':
