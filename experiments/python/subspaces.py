@@ -374,9 +374,6 @@ def greedy_eigenvector_threshold(X, subspace_len, sample_how='deterministic',
     # return all_idxs # TODO rm after debug
 
 
-# def ksparse_pca(X, ncomponents, k, dims_can_be_reused=False,
-                # atleast_one_new_dim=False):
-                # atleast_one_new_dim=True):
 # def ksparse_pca(X, ncomponents, k, algo='anydims'):
 # def ksparse_pca(X, ncomponents, k, algo='noreuse'):
 def ksparse_pca(X, ncomponents, k, algo='1uniq'):
@@ -388,6 +385,12 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
 
     from sklearn.linear_model import OrthogonalMatchingPursuit
     omp = OrthogonalMatchingPursuit(n_nonzero_coefs=k, fit_intercept=False)
+    if algo == '1uniq':
+        assert k > 1
+        omp_initial = OrthogonalMatchingPursuit(
+            n_nonzero_coefs=k - 1, fit_intercept=False)
+        omp_final = OrthogonalMatchingPursuit(
+            n_nonzero_coefs=1, fit_intercept=False)
 
     X = np.asfarray(X)  # we'll be taking subsets of columns a lot
     X_res = np.copy(X)
@@ -429,9 +432,7 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
                 # all_used_idxs += set(used_idxs)
             else:
                 # compute k-1 sparse v
-                omp = OrthogonalMatchingPursuit(
-                    n_nonzero_coefs=k - 1, fit_intercept=False)
-                v = omp.fit(X, h).coef_.ravel()
+                v = omp_initial.fit(X, h).coef_.ravel()
                 initial_nonzero_idxs = np.where(v != 0)[0]
 
                 # now find last zero to add, from set that have never been used
@@ -440,9 +441,8 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
                 use_allowed_idxs = set(allowed_idxs) - set(initial_nonzero_idxs)
                 use_allowed_idxs = np.array(sorted(list(use_allowed_idxs)))
                 X_subs = X[:, use_allowed_idxs]
-                omp = OrthogonalMatchingPursuit(
-                    n_nonzero_coefs=1, fit_intercept=False)
-                soln = omp.fit(X_subs, h_res).coef_.ravel()
+
+                soln = omp_final.fit(X_subs, h_res).coef_.ravel()
                 new_nonzero_idx = use_allowed_idxs[np.where(soln != 0)[0][0]]
 
                 # now take union of all these idxs to get nonzero idxs to use
@@ -480,7 +480,8 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
         if i > 0:
             # if dims_can_be_reused:
             if algo != 'noreuse':
-                niters_ortho = 1000
+                # niters_ortho = 1000
+                niters_ortho = 100
                 for it in range(niters_ortho):
                     prods = (V.T @ v).ravel()
                     # print("prods shape: ", prods.shape)
@@ -506,6 +507,11 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
                     assert nnz <= k
                     v /= np.linalg.norm(v)
                     v = v.reshape(-1, 1)
+
+                    if np.max(np.abs(prods)) < 1e-5:  # TODO add tol param
+                        # print("breaking at iter: ", it)
+                        break  # pretty converged
+
         if algo in ('noreuse', '1uniq'):
             used_idxs = np.where(v != 0)[0]
             # used_idxs = [np.argmax(np.abs(v))]  # only eliminate 1 idx
@@ -555,9 +561,10 @@ def main():
     # greedy_eigenvector_threshold(X, 3, use_corr=True)
 
     # k = 1  # k = 1 is really interesting; corresponds to just subsampling cols
+    k = 2
     # k = 4
     # k = 6
-    k = 8
+    # k = 8
     k = min(k, int(D / d))
     V = ksparse_pca(X, d, k)
     H = X @ V
