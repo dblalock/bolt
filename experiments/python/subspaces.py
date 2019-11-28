@@ -374,12 +374,27 @@ def greedy_eigenvector_threshold(X, subspace_len, sample_how='deterministic',
     # return all_idxs # TODO rm after debug
 
 
-def ksparse_pca(X, ncomponents, k):
+# def ksparse_pca(X, ncomponents, k, dims_can_be_reused=False,
+                # atleast_one_new_dim=False):
+                # atleast_one_new_dim=True):
+# def ksparse_pca(X, ncomponents, k, algo='anydims'):
+# def ksparse_pca(X, ncomponents, k, algo='noreuse'):
+def ksparse_pca(X, ncomponents, k, algo='1uniq'):
     N, D = X.shape
+    k = int(k)
+    assert k < D  # TODO run dense randomized PCA to handle this case
+    if algo == 'noreuse':
+        assert ncomponents * k <= D  # TODO allow dims to be included >1 time
+
     from sklearn.linear_model import OrthogonalMatchingPursuit
     omp = OrthogonalMatchingPursuit(n_nonzero_coefs=k, fit_intercept=False)
 
+    X = np.asfarray(X)  # we'll be taking subsets of columns a lot
     X_res = np.copy(X)
+
+    # allowed_idxs = set(np.arange(D))
+    allowed_idxs = np.arange(D)
+    # all_used_idxs = set()
 
     V = None
     for i in range(ncomponents):
@@ -403,24 +418,101 @@ def ksparse_pca(X, ncomponents, k):
         h = X_res @ v  # N x 1
 
         # compute sparse version of this ideal projection
-        v = omp.fit(X, h).coef_.reshape(-1, 1)
+        # if False:
+        if algo == 'anydims':
+            v = omp.fit(X, h).coef_
+        elif algo == '1uniq':  # 1 new idx -> possible to make orthogonal
+            assert k > 1
+            if i == 0:
+                v = omp.fit(X, h).coef_
+                # used_idxs = np.where(v != 0)[0]
+                # all_used_idxs += set(used_idxs)
+            else:
+                # compute k-1 sparse v
+                omp = OrthogonalMatchingPursuit(
+                    n_nonzero_coefs=k - 1, fit_intercept=False)
+                v = omp.fit(X, h).coef_.ravel()
+                initial_nonzero_idxs = np.where(v != 0)[0]
+
+                # now find last zero to add, from set that have never been used
+                h_res = h - (X @ v)
+
+                use_allowed_idxs = set(allowed_idxs) - set(initial_nonzero_idxs)
+                use_allowed_idxs = np.array(sorted(list(use_allowed_idxs)))
+                X_subs = X[:, use_allowed_idxs]
+                omp = OrthogonalMatchingPursuit(
+                    n_nonzero_coefs=1, fit_intercept=False)
+                soln = omp.fit(X_subs, h_res).coef_.ravel()
+                new_nonzero_idx = use_allowed_idxs[np.where(soln != 0)[0][0]]
+
+                # now take union of all these idxs to get nonzero idxs to use
+                use_idxs = list(initial_nonzero_idxs) + [new_nonzero_idx]
+                use_idxs = np.array(use_idxs)
+                # print("use_idxs", use_idxs)
+
+                # given nonzero idxs, least squares to get v
+                X_subs = X[:, use_idxs]
+                soln, _, _, _ = np.linalg.lstsq(X_subs, h, rcond=None)
+
+                v = np.zeros(D)
+                v[use_idxs] = soln.ravel()
+        else:  # dims outright can't be reused
+            assert algo == 'noreuse'
+            X_subs = X[:, allowed_idxs]
+            assert len(allowed_idxs) >= k
+            soln = omp.fit(X_subs, h).coef_
+            v = np.zeros(D)
+            v[allowed_idxs] = soln
+
+        v = v.reshape(-1, 1)
         v /= np.linalg.norm(v)
         assert np.sum(v != 0) == k
 
         # update V, ensuring that it remains orthonormal
-        # TODO does this provably converge?
+        # TODO the issue with this is that there doesn't necessarily *exist*
+        # a k-sparse vector that's orthogonal to all others picked so far; we
+        # could solve this by requiring dk <= D and making it impossible to
+        # select the same input dimension twice; that's more restrictive than
+        # is strictly needed though; what would be really nice is just writing
+        # our own OMP that you can tell to not select certain idxs, because
+        # that would create a combination that can't be made orthogonal;
+        # probably adapt https://github.com/scikit-learn/scikit-learn/blob/1495f69242646d239d89a5713982946b8ffcf9d9/sklearn/linear_model/omp.py#L407
         if i > 0:
-            niters_ortho = 5
-            for it in range(niters_ortho):
-                prods = (V.T @ v).ravel()
-                # print("prods shape: ", prods.shape)
-                # print("V shape: ", V.shape)
-                # print("v shape: ", v.shape)
-                # print("projections shape: ", (V * prods).shape)
-                v -= (V * prods.ravel()).sum(axis=1, keepdims=True)
-                zero_out_idxs = np.argsort(np.abs(v))[:k]
-                v[zero_out_idxs] = 0
-                v /= np.linalg.norm(v)
+            # if dims_can_be_reused:
+            if algo != 'noreuse':
+                niters_ortho = 1000
+                for it in range(niters_ortho):
+                    prods = (V.T @ v).ravel()
+                    # print("prods shape: ", prods.shape)
+                    # print("V shape: ", V.shape)
+                    # print("v shape: ", v.shape)
+                    # print("projections shape: ", (V * prods).shape)
+                    v -= (V * prods.ravel()).sum(axis=1, keepdims=True)
+                    v = v.ravel()
+                    zero_out_idxs = np.argsort(np.abs(v))[:-k]
+                    # keep_idxs = np.argsort(np.abs(v))[-k:]
+                    # print("i, it: ", i, it)
+                    # print(f"zeroing out {len(zero_out_idxs)} / {D} indices")
+                    # print("nnz before zeroing: ", np.sum(v != 0))
+                    # old_v = v
+                    # v = np.zeros(D)
+                    # v[keep_idxs] = old_v[keep_idxs]
+
+                    v[zero_out_idxs] = 0
+                    nnz = np.sum(v != 0)
+                    # print("nnz: ", nnz)
+                    # print("len v:", len(v))
+                    # print("v", v)
+                    assert nnz <= k
+                    v /= np.linalg.norm(v)
+                    v = v.reshape(-1, 1)
+        if algo in ('noreuse', '1uniq'):
+            used_idxs = np.where(v != 0)[0]
+            # used_idxs = [np.argmax(np.abs(v))]  # only eliminate 1 idx
+            allowed_idxs = set(allowed_idxs) - set(used_idxs)
+            allowed_idxs = np.array(sorted(list(allowed_idxs)))
+
+        if i > 0:
             V = np.hstack((V, v))
         else:
             V = v
@@ -442,17 +534,19 @@ def main():
     # N, D = 10000, 128
     # N, D = 1000, 128
     # N, D = 1000, 512
-    # N, D = 10000, 64
-    N, D = 10000, 32
+    N, D = 10000, 64
+    # N, D = 10000, 32
     # N, D = 10000, 16
     # N, D = 10000, 8
     # N, D = 10000, 10
+    d = int(D / 4)
 
     # create X with low-rank structure
-    d = int(D / 4)
+    np.random.seed(123)
     X0 = np.random.randn(N, d).astype(np.float32)
     X1 = np.random.randn(d, D).astype(np.float32)
     X = X0 @ X1
+    X += np.random.randn(N, D).astype(np.float32) * .1
 
     # X = np.random.randn(N, D).astype(np.float32)
     # greedy_eigenvector_threshold(X, 3)
@@ -460,22 +554,57 @@ def main():
     # greedy_eigenvector_threshold(X, 3, sample_how='importance')
     # greedy_eigenvector_threshold(X, 3, use_corr=True)
 
-    k = 4
+    # k = 1  # k = 1 is really interesting; corresponds to just subsampling cols
+    # k = 4
+    # k = 6
+    k = 8
+    k = min(k, int(D / d))
     V = ksparse_pca(X, d, k)
     H = X @ V
     W, _, _, _ = np.linalg.lstsq(H, X, rcond=None)
     X_res = X - (H @ W)
     print("X sq frob norm: ", np.sum(X * X))
     print("X res sq frob norm: ", np.sum(X_res * X_res))
+    # print("nnz in V cols: ", (V != 0).sum(axis=0))
 
     from sklearn.decomposition import PCA
     pca = PCA(n_components=d).fit(X)
     # print("pca explained variance: ", pca.explained_variance_)
-    V = pca.components_.T
-    H = X @ V
+    V2 = pca.components_.T
+    H = X @ V2
     W, _, _, _ = np.linalg.lstsq(H, X, rcond=None)
     X_res = X - (H @ W)
     print("pca X res sq frob norm: ", np.sum(X_res * X_res))
+
+    VtV = V.T @ V
+    VtV2 = V2.T @ V2
+    our_abs_offdiags = np.abs(VtV) - np.diag(np.diag(VtV))
+    pca_abs_offdiags = np.abs(VtV2) - np.diag(np.diag(VtV2))
+    print("our max abs off-diagonal, pca max abs off-diagonal:")
+    print(np.max(our_abs_offdiags))
+    print(np.max(pca_abs_offdiags))
+    print("our mean abs off-diagonal, pca mean abs off-diagonal:")
+    print(np.mean(our_abs_offdiags))
+    print(np.mean(pca_abs_offdiags))
+
+    import matplotlib.pyplot as plt
+    import seaborn as sb
+    _, axes = plt.subplots(2)
+    # sb.heatmap(V.T @ V, ax=axes[0], cmap='RdBu')
+    # sb.heatmap(V2.T @ V2, ax=axes[1], cmap='RdBu')
+    sb.heatmap(V.T @ V, ax=axes[0])
+    sb.heatmap(V2.T @ V2, ax=axes[1])
+    # axes[0].imshow(V.T @ V, interpolation='nearest', cmap='RdBu')
+    # plt.colorbar(ax=axes[0])
+    # axes[0].imshow(V2.T @ V2, interpolation='nearest', cmap='RdBu')
+    # plt.colorbar(ax=axes[1])
+    axes[0].set_title("our V.T @ V")
+    axes[1].set_title("pca V.T @ V")
+    plt.tight_layout()
+    plt.show()
+
+    # print("our V.T @ V: ", V.T @ V)
+    # print("pca V.T @ V: ", V2.T @ V2)
 
     # # # Z = X - X.mean(axis=0)
     # # # pca = PCA(n_components=D).fit(X.T @ X)
