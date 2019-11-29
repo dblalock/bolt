@@ -480,37 +480,55 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
         if i > 0:
             # if dims_can_be_reused:
             if algo != 'noreuse':
+
+                nnz_idxs = np.where(v != 0)[0]
+                assert len(nnz_idxs) <= k
+                V_subs = V[nnz_idxs]
+                v_subs = v[nnz_idxs]
+
                 # niters_ortho = 1000
                 niters_ortho = 100
                 for it in range(niters_ortho):
-                    prods = (V.T @ v).ravel()
-                    # print("prods shape: ", prods.shape)
-                    # print("V shape: ", V.shape)
-                    # print("v shape: ", v.shape)
-                    # print("projections shape: ", (V * prods).shape)
-                    v -= (V * prods.ravel()).sum(axis=1, keepdims=True)
-                    v = v.ravel()
-                    zero_out_idxs = np.argsort(np.abs(v))[:-k]
-                    # keep_idxs = np.argsort(np.abs(v))[-k:]
-                    # print("i, it: ", i, it)
-                    # print(f"zeroing out {len(zero_out_idxs)} / {D} indices")
-                    # print("nnz before zeroing: ", np.sum(v != 0))
-                    # old_v = v
-                    # v = np.zeros(D)
-                    # v[keep_idxs] = old_v[keep_idxs]
 
-                    v[zero_out_idxs] = 0
-                    nnz = np.sum(v != 0)
-                    # print("nnz: ", nnz)
-                    # print("len v:", len(v))
-                    # print("v", v)
-                    assert nnz <= k
-                    v /= np.linalg.norm(v)
-                    v = v.reshape(-1, 1)
+                    if False:
+                        prods = (V.T @ v).ravel()
+                        # print("prods shape: ", prods.shape)
+                        # print("V shape: ", V.shape)
+                        # print("v shape: ", v.shape)
+                        # print("projections shape: ", (V * prods).shape)
+                        v -= (V * prods).sum(axis=1, keepdims=True)
+                        v = v.ravel()
+                        zero_out_idxs = np.argsort(np.abs(v))[:-k]
+                        # keep_idxs = np.argsort(np.abs(v))[-k:]
+                        # print("i, it: ", i, it)
+                        # print(f"zeroing out {len(zero_out_idxs)} / {D} indices")
+                        # print("nnz before zeroing: ", np.sum(v != 0))
+                        # old_v = v
+                        # v = np.zeros(D)
+                        # v[keep_idxs] = old_v[keep_idxs]
+
+                        v[zero_out_idxs] = 0
+                        nnz = np.sum(v != 0)
+                        # print("nnz: ", nnz)
+                        # print("len v:", len(v))
+                        # print("v", v)
+                        assert nnz <= k
+                        v /= np.linalg.norm(v)
+                        v = v.reshape(-1, 1)
+                    else:
+                        prods = (V_subs.T @ v_subs).ravel()
+                        v_subs -= (V_subs * prods).sum(axis=1, keepdims=True)
+                        # v_subs = v_subs.ravel()
 
                     if np.max(np.abs(prods)) < 1e-5:  # TODO add tol param
                         # print("breaking at iter: ", it)
                         break  # pretty converged
+
+            v = v.ravel()
+            v[:] = 0
+            v[nnz_idxs] = v_subs.ravel()
+            v /= np.linalg.norm(v)
+            v = v.reshape(-1, 1)
 
         if algo in ('noreuse', '1uniq'):
             used_idxs = np.where(v != 0)[0]
@@ -548,7 +566,7 @@ def main():
     d = int(D / 4)
 
     # create X with low-rank structure
-    np.random.seed(123)
+    # np.random.seed(123)
     X0 = np.random.randn(N, d).astype(np.float32)
     X1 = np.random.randn(d, D).astype(np.float32)
     X = X0 @ X1
