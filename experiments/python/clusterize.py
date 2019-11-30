@@ -196,7 +196,9 @@ def _cumsse_cols(X):
 # def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
 def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
                       # return_possible_vals_losses=False, force_val='median'):
-                      return_possible_vals_losses=False, force_val=None):
+                      return_possible_vals_losses=False, force_val=None,
+                      # shrink_towards_median=True):
+                      shrink_towards_median=False):
 
     X_orig = X if X_orig is None else X_orig
     # X_orig = X # TODO rm
@@ -271,6 +273,15 @@ def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
     sses = sses_head
     sses[:-1] += sses_tail[1:]  # sse of X_sort[:i] + sse of X_sort[i:]
     sses = sses.sum(axis=1)
+
+    if shrink_towards_median:
+        minsse, maxsse = np.min(sses), np.max(sses)
+        scale = maxsse - minsse
+        # n_over_2 = N // 2
+        # scale = (maxsse - minsse) / n_over_2
+        coeffs = np.abs(np.arange(N, dtype=np.float32))
+        penalties = coeffs * (scale / np.max(coeffs))
+        sses += penalties
 
     # # TODO rm
     # E_X = X.mean(axis=0)
@@ -1050,7 +1061,7 @@ def _sparse_encoded_lstsq_backward_elim(X_enc, Y, nnz_blocks, K=16):
 def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
     ncodebooks = X_enc.shape[1]
     if nnz_blocks < 1:
-        nnz_blocks = int(np.ceil(np.sqrt(ncodebooks)))
+        nnz_blocks = int(np.sqrt(ncodebooks) + .5)
 
     # return _sparse_encoded_lstsq_backward_elim(
     #     X_enc, Y, nnz_blocks=nnz_blocks, K=K)
@@ -1127,10 +1138,10 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
 
     # optimize centroids discriminatively conditioned on assignments
     X_enc = mithral_encode(X, all_splits)
-    # W = encoded_lstsq(X_enc, X)  # 16C x D
+    W = encoded_lstsq(X_enc, X)  # 16C x D
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
-    W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=2)
+    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=2)
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
     all_centroids = W.reshape(ncodebooks, 16, D)
 
