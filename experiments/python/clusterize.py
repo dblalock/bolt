@@ -987,6 +987,110 @@ def _sparse_encoded_lstsq_gomp(X_enc, Y, nnz_blocks, K=16):
     return W, keep_codebook_idxs
 
 
+# each codebook has const number of nonzero idxs
+def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
+                                  # uniform_sparsity=False):  # never better
+                                  uniform_sparsity=True):
+    ncodebooks = X_enc.shape[1]
+    M = Y.shape[1]
+    nnz_per_centroid = min(M, int(nnz_per_centroid))
+    assert nnz_per_centroid >= int(np.ceil(M / ncodebooks))
+    assert nnz_per_centroid <= M
+
+    # precompute XtX and XtY and create initial dense W
+    XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
+    XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+    XtY = _XtY_encoded(X_enc, Y, K=K)
+    W = encoded_lstsq(X_enc, Y, XtX=XtX, XtY=XtY)  # KC x M
+
+    XtX = np.asfarray(XtX)  # since we'll be slicing columns
+
+    # score all blocks of W
+    all_scores = np.empty((ncodebooks, M), dtype=np.float)  # C x M
+    for c in range(ncodebooks):
+        Xc = X_enc[:, c].reshape(-1, 1)
+        start_idx = c * K
+        end_idx = start_idx + K
+        Wc = W[start_idx:end_idx]
+
+        Yc = _XtY_encoded(Xc, Wc, K=K)  # N x M
+        all_scores[c] = np.linalg.norm(Yc, axis=0)
+
+    pq_idxs = _pq_codebook_start_end_idxs(M, ncodebooks)
+
+    # now pick which cols to keep in each codebook
+    keep_mask = np.zeros((ncodebooks, M), dtype=np.bool)
+    # subvec_len = int(np.ceil(M / ncodebooks))
+    for c in range(ncodebooks):
+        # initialize with PQ
+        start_idx, end_idx = pq_idxs[c]
+        keep_mask[c, start_idx:end_idx] = 1
+
+        subvec_len = end_idx - start_idx
+        keep_nidxs_extra = nnz_per_centroid - subvec_len
+        scores = all_scores[c]
+        scores[start_idx:end_idx] = 0
+
+        if uniform_sparsity:
+            # take as many other (best) nonzero idxs as we we're allowed to
+            best_idxs = np.argsort(scores)[-keep_nidxs_extra:]
+            keep_mask[c, best_idxs] = True
+
+    if not uniform_sparsity:
+        scores = all_scores.ravel()
+        nkept_idxs = M  # number of nonzeros used already
+        keep_nidxs_total = nnz_per_centroid * ncodebooks
+        keep_nidxs_extra = keep_nidxs_total - nkept_idxs
+        keep_idxs = np.argsort(scores)[-keep_nidxs_extra:]
+        flat_mask = keep_mask.ravel()
+        flat_mask[keep_idxs] = 1
+        keep_mask = flat_mask.reshape(keep_mask.shape)
+
+    # at this point, we have the mask for which cols of each centroid to keep;
+    # now we just need to go from a mask to a set of indices and a sparse
+    # matrix of centroids
+    W_sparse = np.empty((ncodebooks * K, M), dtype=np.float32)
+    if uniform_sparsity:
+        ret_idxs = np.empty((ncodebooks, nnz_per_centroid), dtype=np.int)
+    else:
+        ret_idxs = []
+    # else:
+        # ret_idxs = np.zeros((ncodebooks, M), dtype=np.int) - 1
+    for c in range(ncodebooks):
+        idxs = np.where(keep_mask[c] != 0)[0]
+        if uniform_sparsity:
+            assert len(idxs) == nnz_per_centroid
+            ret_idxs[c] = idxs
+        else:
+            ret_idxs.append(idxs)
+
+        zero_idxs = np.where(keep_mask[c] == 0)[0]
+        start_idx = c * K
+        end_idx = start_idx + K
+        Wc = W[start_idx:end_idx]
+        Wc[:, zero_idxs] = 0
+        W_sparse[start_idx:end_idx] = Wc
+
+    # now refit W_sparse to each output col; right now it's just the original
+    # W with a bunch of entries zeroed
+    for m in range(M):
+        w = W_sparse[:, m]
+        xty = XtY[:, m]
+        keep_idxs = np.where(w != 0)[0]
+        use_XtX = XtX[keep_idxs][:, keep_idxs]
+        use_xty = xty[keep_idxs]
+        w_subs = np.linalg.solve(use_XtX, use_xty)
+        w[:] = 0
+        w[keep_idxs] = w_subs
+        W_sparse[:, m] = w
+
+    nnzs = [len(idxs) for idxs in ret_idxs]
+    print("nnzs: ", nnzs)
+
+    # print(f"returning {ret_idxs.shape[1]} nonzeros per centroid...")
+    return W_sparse, ret_idxs
+
+
 def _sparse_encoded_lstsq_backward_elim(X_enc, Y, nnz_blocks, K=16):
     ncodebooks = X_enc.shape[1]
     eliminate_nblocks = ncodebooks - nnz_blocks
@@ -1065,7 +1169,33 @@ def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
 
     # return _sparse_encoded_lstsq_backward_elim(
     #     X_enc, Y, nnz_blocks=nnz_blocks, K=K)
-    return _sparse_encoded_lstsq_gomp(X_enc, Y, nnz_blocks=nnz_blocks, K=K)
+    # return _sparse_encoded_lstsq_gomp(X_enc, Y, nnz_blocks=nnz_blocks, K=K)
+
+    nnz_per_centroid = int(nnz_blocks * Y.shape[1] / ncodebooks)
+    return _sparse_encoded_lstsq_elim_v2(
+        X_enc, Y, nnz_per_centroid=nnz_per_centroid, K=K)
+
+
+def _pq_codebook_start_end_idxs(D, ncodebooks):
+    D = int(D)
+    ncodebooks = int(ncodebooks)
+    assert D >= ncodebooks
+    idxs = np.empty((ncodebooks, 2), dtype=np.int)
+    full_subvec_len = D // ncodebooks
+    start_idx = 0
+    for c in range(ncodebooks):
+        subvec_len = full_subvec_len
+        if c < (D % ncodebooks):
+            subvec_len += 1
+        end_idx = min(D, start_idx + subvec_len)
+        idxs[c, 0] = start_idx
+        idxs[c, 1] = end_idx
+
+        start_idx = end_idx
+
+    assert idxs[0, 0] == 0
+    assert idxs[-1, -1] == D
+    return idxs
 
 
 def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
@@ -1080,7 +1210,9 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
     all_centroids = np.zeros(
         (ncodebooks, ncentroids_per_codebook, D), dtype=np.float32)
     all_splits = []
-    subvec_len = int(np.ceil(D / ncodebooks))
+    # full_subvec_len = int(D // ncodebooks)
+    pq_idxs = _pq_codebook_start_end_idxs(D, ncodebooks)
+    subvec_len = int(np.ceil(D / ncodebooks))  # for non-pq heuristics
 
     nonzeros_heuristic = 'pq'
     # nonzeros_heuristic = 'pca'
@@ -1091,8 +1223,12 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
     all_buckets = []
     for c in range(ncodebooks):
         if nonzeros_heuristic == 'pq':
-            start_idx = c * subvec_len
-            end_idx = min(D, start_idx + subvec_len)
+            start_idx, end_idx = pq_idxs[c]
+            # subvec_len = full_subvec_len
+            # if c < (D % ncodebooks):
+            #     subvec_len += 1
+            #     start_idx = c * subvec_len
+            # end_idx = min(D, start_idx + subvec_len)
             idxs = np.arange(start_idx, end_idx)
         elif nonzeros_heuristic == 'pca':
             v = subs.top_principal_component(X_res)
@@ -1138,10 +1274,10 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
 
     # optimize centroids discriminatively conditioned on assignments
     X_enc = mithral_encode(X, all_splits)
-    W = encoded_lstsq(X_enc, X)  # 16C x D
+    # W = encoded_lstsq(X_enc, X)  # 16C x D
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
-    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=2)
+    W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=2)
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
     all_centroids = W.reshape(ncodebooks, 16, D)
 
@@ -1153,7 +1289,6 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
     X_res = X_orig - X_hat
     # X_hat = np.zeros_like(X)
     print("X res var / X var after lstsq: ", X_res.var() / X_orig.var())
-
 
     if return_buckets:
         return all_splits, all_centroids, all_buckets
@@ -1821,9 +1956,7 @@ def _plot_stuff_on_trace():
     plt.show()
 
 
-def main():
-    # _plot_stuff_on_trace()
-
+def test_encoded_ops():
     N, C, K = 100, 8, 16
     X_enc = np.random.randint(K, size=(N, C))
     # print(X_enc)
@@ -1849,6 +1982,15 @@ def main():
     XW = _XW_encoded(X_enc, W)
     XW2 = X_bin @ W
     assert np.all(XW == XW2)
+
+
+def main():
+    test_encoded_ops()
+
+    # print(_pq_codebook_start_end_idxs(6, 3))
+    # print(_pq_codebook_start_end_idxs(8, 3))
+    # print(_pq_codebook_start_end_idxs(9, 3))
+    # print(_pq_codebook_start_end_idxs(10, 3))
 
 
 if __name__ == '__main__':
