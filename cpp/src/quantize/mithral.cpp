@@ -35,7 +35,7 @@ void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
     float& out_scale, float*__restrict__ out)
 {
     static constexpr int codebook_tile_sz = 2;
-    static constexpr int row_tile_sz = 3;
+    static constexpr int row_tile_sz = 2;
     // assert(ncodebooks % codebook_tile_sz == 0);
     // assert(nrows % row_tile_sz == 0);  // TODO handle trailing rows in fused func
     // // ^ has to be handled in fused func so that mins/maxs include trailing
@@ -54,7 +54,7 @@ void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
 {
     static constexpr int lut_sz = 16;
     static constexpr int CodebookTileSz = 2;
-    static constexpr int RowTileSz = 3;
+    static constexpr int RowTileSz = 2;
     assert(ncodebooks % CodebookTileSz == 0);
 
     // handle most rows
@@ -73,8 +73,52 @@ void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
 
     // NOTE: if we hardcode this to 1 instead of having a switch, or just
     // rm handling of the trailing rows entirely, code is twice as fast
-    dense_lut_f32<CodebookTileSz, 1>(
-            Q, nrows_trailing, ncols, ncodebooks, centroids, out);
+    if (nrows_trailing > 0) {
+        dense_lut_f32<CodebookTileSz, 1>(
+                Q, nrows_trailing, ncols, ncodebooks, centroids, out);
+    }
+
+    // switch(nrows_trailing) {
+    //     case 0: break;
+    //     case 1: dense_lut_f32<CodebookTileSz, 1>(
+    //         Q, nrows_trailing, ncols, ncodebooks, centroids, out); break;
+    //     case 2: dense_lut_f32<CodebookTileSz, 2>(
+    //         Q, nrows_trailing, ncols, ncodebooks, centroids, out); break;
+    //     case 3: dense_lut_f32<CodebookTileSz, 3>(
+    //         Q, nrows_trailing, ncols, ncodebooks, centroids, out); break;
+    // }
+}
+
+void sparse_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
+                    const float* centroids,
+                    const int* idxs, int nnz_per_centroid, float* out)
+{
+    static constexpr int lut_sz = 16;
+    static constexpr int CodebookTileSz = 2;
+    static constexpr int RowTileSz = 2;
+    assert(ncodebooks % CodebookTileSz == 0);
+
+    // handle most rows
+    auto nrows_trailing = nrows % RowTileSz;
+    auto nrows_round = nrows - nrows_trailing;
+    if (nrows_round > 0) {
+        sparse_lut_f32<CodebookTileSz, RowTileSz>(
+            Q, nrows_round, ncols, ncodebooks,
+            centroids, idxs, nnz_per_centroid, out);
+    }
+    // handle trailing rows
+    auto q_row_stride = ncols;
+    Q += q_row_stride * nrows_round;
+    auto out_row_stride = ncodebooks * lut_sz;
+    out += out_row_stride * nrows_round;
+
+    // NOTE: if we hardcode this to 1 instead of having a switch, or just
+    // rm handling of the trailing rows entirely, code is twice as fast
+    if (nrows_trailing > 0) {
+        sparse_lut_f32<CodebookTileSz, 1>(
+                Q, nrows_trailing, ncols, ncodebooks, centroids,
+                idxs, nnz_per_centroid, out);
+    }
 
     // switch(nrows_trailing) {
     //     case 0: break;
@@ -96,16 +140,32 @@ void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
     //
     // unfused stats computation
     //
-    dense_lut_f32(Q, nrows, ncols, ncodebooks, centroids, tmp_lut_f32);
-    mithral_learn_lut_offsets_scales(tmp_lut_f32, nrows, ncodebooks,
-        tmp_offsets, out_offset_sum, out_scale);
+    // dense_lut_f32(Q, nrows, ncols, ncodebooks, centroids, tmp_lut_f32);
+    // mithral_learn_lut_offsets_scales(tmp_lut_f32, nrows, ncodebooks,
+    //     tmp_offsets, out_offset_sum, out_scale);
 
     // fusing is like 3% faster with D=128,C=16, and D=32,C=16; so might
     // as well fuse, but sparse lut funcs don't need to worry about fusing
     // in mins/maxs computation; EDIT, well for N=C=8, about 15% faster
-    // dense_lut_f32_fused(
-    //     Q, nrows, ncols, ncodebooks, centroids,
-    //     tmp_offsets, out_offset_sum, out_scale, tmp_lut_f32);
+    dense_lut_f32_fused(
+        Q, nrows, ncols, ncodebooks, centroids,
+        tmp_offsets, out_offset_sum, out_scale, tmp_lut_f32);
+
+    quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
+}
+
+void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
+    const float* centroids, const int* idxs, int nnz_per_centroid,
+    float*__restrict__ tmp_offsets, float& out_offset_sum, float& out_scale,
+    float*__restrict__ tmp_lut_f32, uint8_t* out)
+{
+    //
+    // unfused stats computation
+    //
+    sparse_lut_f32(Q, nrows, ncols, ncodebooks, centroids,
+                   idxs, nnz_per_centroid, tmp_lut_f32);
+    mithral_learn_lut_offsets_scales(tmp_lut_f32, nrows, ncodebooks,
+        tmp_offsets, out_offset_sum, out_scale);
 
     quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
 }

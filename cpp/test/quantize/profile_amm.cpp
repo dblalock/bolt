@@ -19,6 +19,7 @@
     #include "src/utils/eigen_utils.hpp"
     #include "src/utils/timing_utils.hpp"
     #include "src/utils/memory.hpp"
+    // #include "src/utils/arr/array_utils.hpp"  // just for rand_idxs
     #include "test/testing_utils/testing_utils.hpp"
 #else
     #include "catch.hpp"
@@ -29,6 +30,7 @@
     #include "eigen_utils.hpp"
     #include "timing_utils.hpp"
     #include "testing_utils.hpp"
+    // #include "array_utils.hpp"  // just for rand_idxs
     #include "memory.hpp"
 #endif
 
@@ -575,14 +577,25 @@ void _amm_mithral_nolut(const InputT* X, int64_t nrows, int ncols,
 
 
 
+
+// struct mithral_encode_params {
+//     int64_t nrows;
+//     int ncols;
+//     int ncodebooks;
+// };
+
 // TODO create a struct or something for params because this has gotten
 // completely unmanageable
 template<class InputT, class ScaleT, class OffsetT>
 void _amm_mithral(const InputT* X, const float* W, int64_t nrows, int D, int M,
     const uint32_t* splitdims, const int8_t* all_splitvals,
     const ScaleT* scales, const OffsetT* offsets, const float* centroids,
-    int ncodebooks, uint8_t* out_enc, uint8_t* out_enc_packed, int8_t* luts,
-    int16_t* out_mat)
+    int ncodebooks,
+    // const int* idxs, const int nnz_per_centroid,
+    uint8_t* out_enc, uint8_t* out_enc_packed,
+    // float*__restrict__ out_offsets, float& out_offset_sum, float& out_scale,
+    // float* out_luts_f32,
+    int8_t* out_luts, int16_t* out_mat)
 {
     // encode input
     multisplit_encode_4b_colmajor(
@@ -590,7 +603,13 @@ void _amm_mithral(const InputT* X, const float* W, int64_t nrows, int D, int M,
         offsets, ncodebooks, out_enc);
     zip_bolt_colmajor(out_enc, nrows, ncodebooks, out_enc_packed);
     // create luts
-    uint8_t* lut_out_ptr = (uint8_t*)luts;
+    uint8_t* lut_out_ptr = (uint8_t*)out_luts;
+    // mithral_lut_sparse(
+    //     W, D, ncodebooks, centroids, idxs, nnz_per_centroid,
+    //     offsets
+    //     luts_f32);
+
+
     for (int i = 0; i < M; i++) {
         mithral_lut_v1(W, D, ncodebooks, centroids, lut_out_ptr);
         lut_out_ptr += 16 * ncodebooks;
@@ -599,7 +618,7 @@ void _amm_mithral(const InputT* X, const float* W, int64_t nrows, int D, int M,
     // do the amm
     auto nblocks = nrows / 32;
     auto out_ptr = (uint8_t*)out_mat;
-    uint8_t* lut_ptr = (uint8_t*)luts;
+    uint8_t* lut_ptr = (uint8_t*)out_luts;
     static constexpr int UpcastEvery = 8;
     auto out_col_stride = UpcastEvery >= ncodebooks ? nrows : 2 * nrows;
     for (int i = 0; i < M; i++) {
@@ -655,8 +674,8 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     // static constexpr int nrows = 128*1000;
     // static constexpr int nrows = 4096;
     // static constexpr int nrows = 24 * 1000;
-    static constexpr int nrows = 24 * 500;
-    // static constexpr int nrows = 24 * 100;
+    // static constexpr int nrows = 24 * 500;
+    static constexpr int nrows = 24 * 100;
     // static constexpr int nrows = 24 * 10;
     // static constexpr int nrows = 24;
     // static constexpr int nrows = 6;
@@ -664,20 +683,25 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     // static constexpr int64_t nrows = 1;
     // static constexpr int ncols = 24 * 16;               // length of vectors
     // static constexpr int ncols = 12 * 16;               // length of vectors
+    // static constexpr int ncols = 1024;               // length of vectors
     // static constexpr int ncols = 128;               // length of vectors
+    static constexpr int ncols = 127;               // length of vectors
     // static constexpr int ncols = 32;               // length of vectors
     // static constexpr int ncols = 16;               // length of vectors
-    static constexpr int ncols = 8;               // length of vectors
+    // static constexpr int ncols = 8;               // length of vectors
     // static constexpr int ncols = 1024 * 1024;               // length of vectors
     static constexpr int bits_per_codebook = 4;
     // static constexpr int ncodebooks = 32;
-    // static constexpr int ncodebooks = 16;
+    static constexpr int ncodebooks = 16;
     // static constexpr int ncodebooks = 12;
-    static constexpr int ncodebooks = 8;
+    // static constexpr int ncodebooks = 8;
     // static constexpr int ncodebooks = 4;
     // static constexpr int ncodebooks = 2;
     static constexpr int ncentroids = (1 << bits_per_codebook);
     // static constexpr int nbytes = ncodebooks / 2;
+    static constexpr int nnz = ncols;  // like 10-15% slower than dense; or
+    // static constexpr int nnz = ncols * (2.f / ncodebooks);
+    printf("nnz: %d\n", nnz);
 
     ColMatrix<float> centroids(ncodebooks * ncentroids, ncols);
     centroids.setRandom();
@@ -692,6 +716,23 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     RowVector<float> offsets(ncodebooks);
     offsets.setRandom();
 
+    RowMatrix<int> idxs(ncodebooks, nnz);
+    // idxs.setRandom();
+    int all_idxs[ncols];
+    for (int i = 0; i < ncols; i++) {
+        all_idxs[i] = i;
+    }
+    std::random_device rd;
+    std::mt19937 g(rd());  // why can't shuffle just create its own...
+    for (int c = 0; c < ncodebooks; c++) {  // random sequential idxs
+        auto begin = std::begin(all_idxs);
+        std::shuffle(begin, begin + ncols, g);
+        std::sort(begin, begin + nnz);
+        for (int j = 0; j < nnz; j++) {
+            idxs(c, j) = all_idxs[j];
+        }
+    }
+
     // printf("lut_out size: %d\n", (int)lut_out.size());
 
     // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "dummy lut ", kNtrials,
@@ -702,14 +743,14 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     float offset = 0.;
     float scale = 1.;
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut cheating", kNtrials,
-        lut_out.data(), lut_out.size(),
-        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
-                centroids.data(), ncodebooks, lut_out.data()) ) );
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut         ", kNtrials,
-        lut_out.data(), lut_out.size(),
-        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols, centroids.data(),
-            ncodebooks, offsets.data(), scale, lut_out.data()) ) );
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut cheating ", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
+    //             centroids.data(), ncodebooks, lut_out.data()) ) );
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut          ", kNtrials,
+    //     lut_out.data(), lut_out.size(),
+    //     (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols, centroids.data(),
+    //         ncodebooks, offsets.data(), scale, lut_out.data()) ) );
 
     // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut    ", kNtrials,
     // //     lut_out.data(), lut_out.size(),
@@ -740,13 +781,16 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     //         centroids.data(), offsets.data(), offset, scale,
     //         lut_f32_out.data(), lut_out.data())) );
     //     // lut_out.data(), lut_out.size(),
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "lut dense     2,3", kNtrials,
-        lut_f32_out.data(), lut_f32_out.size(),
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut dense ", kNtrials,
+        lut_out.data(), lut_out.size(),
         (mithral_lut_dense(X.data(), nrows, ncols, ncodebooks,
             centroids.data(), offsets.data(), offset, scale,
             lut_f32_out.data(), lut_out.data())) );
-
-
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut sparse", kNtrials,
+        lut_out.data(), lut_out.size(),
+        (mithral_lut_sparse(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, offsets.data(), offset, scale,
+            lut_f32_out.data(), lut_out.data())) );
 
     // SELF: pick up by putting wrapper funcs in a cpp file; what happens right
     // now is that if we uncomment these calls to the fused func below, the
@@ -779,6 +823,31 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     //     lut_out.data(), lut_out.size(),
     //     (quantize_luts<4>(lut_f32_out.data(), nrows, ncodebooks,
     //         offsets.data(), scale, lut_out.data())));
+
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "sparse lut    1,1", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (sparse_lut_f32<1,1>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "sparse lut    1,2", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (sparse_lut_f32<1,2>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "sparse lut    1,3", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (sparse_lut_f32<1,3>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "sparse lut    2,1", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (sparse_lut_f32<2,1>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "sparse lut    2,2", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (sparse_lut_f32<2,2>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "sparse lut    2,3", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (sparse_lut_f32<2,3>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), idxs.data(), nnz, lut_f32_out.data())) );
 
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "dense lut f32 1,1", kNtrials,

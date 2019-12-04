@@ -36,12 +36,19 @@ void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
 void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
                  const float* centroids, float* out);
 
+void sparse_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
+                    const float* centroids,
+                    const int* idxs, int nnz_per_centroid, float* out);
+
 void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
     const float* centroids, float*__restrict__ tmp_offsets,
     float& out_offset_sum, float& out_scale,
     float*__restrict__ tmp_lut_f32, uint8_t* out);
 
-
+void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
+    const float* centroids, const int* idxs, int nnz_per_centroid,
+    float*__restrict__ tmp_offsets, float& out_offset_sum, float& out_scale,
+    float*__restrict__ tmp_lut_f32, uint8_t* out);
 
 // ================================================================ here
 
@@ -567,42 +574,10 @@ void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
         }
     }
 }
-// force it to instantiate this template
-template void dense_lut_f32<2, 3>(const float* Q, int nrows, int ncols,
-    int ncodebooks, const float* centroids, float* out);
+// // force it to instantiate this template
+// template void dense_lut_f32<2, 3>(const float* Q, int nrows, int ncols,
+//     int ncodebooks, const float* centroids, float* out);
 
-
-
-// void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
-//                  const float* centroids, float* out)
-// {
-//     static constexpr int lut_sz = 16;
-//     static constexpr int CodebookTileSz = 2;
-//     static constexpr int RowTileSz = 3;
-
-//     // handle most rows
-//     auto nrows_trailing = nrows % RowTileSz;
-//     auto nrows_round = nrows - nrows_trailing;
-//     if (nrows_round > 0) {
-//         dense_lut_f32<CodebookTileSz, RowTileSz>(
-//             Q, nrows_round, ncols, ncodebooks,
-//             centroids, out);
-//     }
-//     // handle trailing rows
-//     auto q_row_stride = ncols;
-//     Q += q_row_stride * nrows_round;
-//     auto out_row_stride = ncodebooks * lut_sz;
-//     out += out_row_stride * nrows_round;
-//     switch(nrows_trailing) {
-//         case 0: break;
-//         case 1: dense_lut_f32<CodebookTileSz, 1>(
-//             Q, nrows_trailing, ncols, ncodebooks, centroids, out); break;
-//         case 2: dense_lut_f32<CodebookTileSz, 2>(
-//             Q, nrows_trailing, ncols, ncodebooks, centroids, out); break;
-//         case 3: dense_lut_f32<CodebookTileSz, 3>(
-//             Q, nrows_trailing, ncols, ncodebooks, centroids, out); break;
-//     }
-// }
 
 // this is basically just a dense matmul that also tracks the min/max
 // product; Q = nrows, ncols; centroids = ncols, ncodebooks; but centroids.T
@@ -771,6 +746,108 @@ void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
         mins, maxs, ncodebooks, out_offsets, out_offset_sum, out_scale);
 }
 
+template<int CodebookTileSz=2, int RowTileSz=2>
+void sparse_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
+                     const float* centroids,
+                     const int* idxs, int nnz_per_centroid,
+                     float* out)
+{
+    static constexpr int ncentroids = 16;
+    static constexpr int lut_sz = ncentroids;
+    static constexpr int packet_width = 8; // objs per simd register
+    static constexpr int nstripes = lut_sz / packet_width;
+    assert(ncodebooks % CodebookTileSz == 0);
+    assert(nrows % RowTileSz == 0);
+
+    __m256 accumulators[CodebookTileSz][RowTileSz][nstripes];
+    __m256 vbroadcasted[RowTileSz];
+
+    const float* query_start_ptrs[RowTileSz];
+    const int* idx_ptrs[CodebookTileSz];
+    const float* centroids_ptrs[CodebookTileSz];
+    float* out_ptrs[RowTileSz][CodebookTileSz];
+
+    auto q_row_stride = ncols;
+    auto idxs_codebook_stride = nnz_per_centroid;
+    auto centroids_codebook_stride = ncentroids * ncols;
+    auto out_row_stride = ncodebooks * lut_sz;
+    auto out_codebook_stride = lut_sz;
+
+    auto ncodebook_blocks = ncodebooks / CodebookTileSz;
+    auto nrow_blocks = nrows / RowTileSz;
+
+    for (int r = 0; r < nrow_blocks; r++) {
+        // prefetch contents of rows, so we don't end up with random access
+        // EDIT: doesn't help; is actually slightly slower
+        // static constexpr int cache_line_sz_bytes = 64;  // on almost everything
+        // static constexpr int stride = cache_line_sz_bytes / sizeof(Q[0]);
+        // for (int rr = 0; rr < RowTileSz; rr++) {
+        //         auto row = (r * RowTileSz) + rr;
+        //         query_start_ptrs[rr] = Q + (q_row_stride * row);
+        //     }
+        // for (int j = 0; j < ncols; j += stride) {
+        //     for (int rr = 0; rr < RowTileSz; rr++) {
+        //         __builtin_prefetch(query_start_ptrs[rr] + j);
+        //     }
+        // }
+        // compute all luts for this block of rows
+        for (int c = 0; c < ncodebook_blocks; c++) {
+            for (int cc = 0; cc < CodebookTileSz; cc++) {
+                auto codebook = (c * CodebookTileSz) + cc;
+                // set centroid start ptrs for this codebook
+                centroids_ptrs[cc] =
+                    centroids + (centroids_codebook_stride * codebook);
+                // set idxs start ptrs for this codebook
+                idx_ptrs[cc] = idxs + (idxs_codebook_stride * codebook);
+
+                for (int rr = 0; rr < RowTileSz; rr++) {
+                    // set output ptrs for this codebook
+                    auto row = (r * RowTileSz) + rr;
+                    out_ptrs[rr][cc] = out + (out_row_stride * row) +
+                        (out_codebook_stride * codebook);
+                    // zero accumulators
+                    for (int s = 0; s < nstripes; s++) {
+                        accumulators[cc][rr][s] = _mm256_setzero_ps();
+                    }
+                }
+            }
+            for (int rr = 0; rr < RowTileSz; rr++) {
+                auto row = (r * RowTileSz) + rr;
+                query_start_ptrs[rr] = Q + (q_row_stride * row);
+            }
+
+            // compute sums for each output row for this block of codebooks
+            for (int j = 0; j < nnz_per_centroid; j++) {
+                for (int cc = 0; cc < CodebookTileSz; cc++) {
+                    auto idx = *idx_ptrs[cc];
+                    idx_ptrs[cc]++;
+                    for (int rr = 0; rr < RowTileSz; rr++) {
+                        auto row_start_ptr = query_start_ptrs[rr];
+                        auto qval = row_start_ptr[idx];
+                        vbroadcasted[rr] = _mm256_set1_ps(qval);
+                    }
+                    for (int s = 0; s < nstripes; s++) {
+                        auto centroids_col = _mm256_load_ps(centroids_ptrs[cc]);
+                        centroids_ptrs[cc] += packet_width;
+                        for (int rr = 0; rr < RowTileSz; rr++) {
+                            accumulators[cc][rr][s] = fma(vbroadcasted[rr],
+                                centroids_col, accumulators[cc][rr][s]);
+                        }
+                    }
+                }
+            }
+            // write out sums
+            for (int rr = 0; rr < RowTileSz; rr++) {
+                for (int cc = 0; cc < CodebookTileSz; cc++) {
+                    for (int s = 0; s < nstripes; s++) {
+                        _mm256_store_ps(out_ptrs[rr][cc], accumulators[cc][rr][s]);
+                        out_ptrs[rr][cc] += packet_width;
+                    }
+                }
+            }
+        }
+    }
+}
 
 // this is just so that we can profile this separately
 // template<int ncodebooks, int RowTileSz=1>
@@ -1028,73 +1105,6 @@ void quantize_luts(const float* luts_f32, int nrows, int ncodebooks,
             luts_f32, nrows, offsets, scaleby, out_luts); break;
     }
 }
-
-// template<int CodebookTileSz=2, int RowTileSz=2>
-// void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
-//     const float* centroids, float*__restrict__ tmp_offsets,
-//     float& out_offset_sum, float& out_scale,
-//     float*__restrict__ tmp_lut_f32, uint8_t* out)
-// {
-//     dense_lut_f32_fused<CodebookTileSz, RowTileSz>(
-//         Q, nrows, ncols, ncodebooks, centroids,
-//         tmp_offsets, out_offset_sum, out_scale, tmp_lut_f32);
-//     // dense_lut_f32_fused<CodebookTileSz, RowTileSz>(
-//     // dense_lut_f32<CodebookTileSz, RowTileSz>(
-//         // Q, nrows, ncols, ncodebooks, centroids, tmp_lut_f32);
-//     quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
-// }
-
-
-// template<int RowTileSz=1>
-// void mithral_quantize_luts(const float* luts_f32, int nrows, int ncodebooks,
-//                            float& out_offset, float& out_scale,
-//                            uint8_t* out_luts)
-// {
-//     switch (ncodebooks) {
-//         case 2: mithral_quantize_luts<2, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 4: mithral_quantize_luts<4, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 6: mithral_quantize_luts<6, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 8: mithral_quantize_luts<8, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 12: mithral_quantize_luts<12, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 16: mithral_quantize_luts<16, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 32: mithral_quantize_luts<32, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 64: mithral_quantize_luts<64, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//         case 128: mithral_quantize_luts<128, RowTileSz>(
-//             luts_f32, nrows, out_offset, out_scale, out_luts); break;
-//     }
-// }
-
-// void mithral_lut(const float* Q, int nrows, int ncols, int ncodebooks,
-//                  const float* centroids, uint8_t* out)
-// {
-
-
-
-
-
-//     // SELF: pick up here by calling mithral_lut_f32 followed by
-//     // mithral_quantize_luts
-
-
-
-
-
-//     auto in_ptr = Q;
-//     uint8_t* lut_out_ptr = (uint8_t*)out;
-//     for (int i = 0; i < nrows; i++) {
-//         mithral_lut(in_ptr, ncols, ncodebooks, centroids, lut_out_ptr);
-//         in_ptr += ncols;
-//         lut_out_ptr += 16 * ncodebooks;
-//     }
-// }
 
 
 /* https://godbolt.org/z/5zEJ6q
