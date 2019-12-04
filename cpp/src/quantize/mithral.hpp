@@ -566,11 +566,12 @@ void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
 // is already in a block-colmajor layout, with block size of 16; also Q
 // is rowmajor
 template<int CodebookTileSz=2, int RowTileSz=2>
-void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
+void _dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
     // const float* centroids, float* out)
     // SELF: above args are fast, while ones below make it like 2x slower
-    const float* centroids, float*__restrict__ out_offsets, float& out_offset_sum,
-    float& out_scale, float*__restrict__ out)
+    __m256*__restrict__ mins, __m256*__restrict__ maxs,
+    const float* centroids, float*__restrict__ out_offsets,
+    float& out_offset_sum, float& out_scale, float*__restrict__ out)
 {
     static constexpr int ncentroids = 16;
     static constexpr int lut_sz = ncentroids;
@@ -586,12 +587,12 @@ void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
     const float* centroids_ptrs[CodebookTileSz];
     float* out_ptrs[RowTileSz][CodebookTileSz];
 
-    __m256 mins[ncodebooks];
-    __m256 maxs[ncodebooks];
-    for (int c = 0; c < ncodebooks; c++) {
-        mins[c] = _mm256_set1_ps(std::numeric_limits<float>::max());
-        maxs[c] = _mm256_set1_ps(std::numeric_limits<float>::min());
-    }
+    // __m256 mins[ncodebooks];
+    // __m256 maxs[ncodebooks];
+    // for (int c = 0; c < ncodebooks; c++) {
+    //     mins[c] = _mm256_set1_ps(std::numeric_limits<float>::max());
+    //     maxs[c] = _mm256_set1_ps(std::numeric_limits<float>::min());
+    // }
 
     auto q_row_stride = ncols;
     auto centroids_codebook_stride = ncentroids * ncols;
@@ -667,8 +668,77 @@ void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
             }
         }
     }
+}
+
+template<int CodebookTileSz=2, int RowTileSz=2>
+void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
+    // const float* centroids, float* out)
+    // SELF: above args are fast, while ones below make it like 2x slower
+    const float* centroids, float*__restrict__ out_offsets,
+    float& out_offset_sum, float& out_scale, float*__restrict__ out)
+{
+    static constexpr int ncentroids = 16;
+    static constexpr int lut_sz = ncentroids;
+    static_assert(RowTileSz >= 1, "RowTileSz must be >= 1");
+    static_assert(RowTileSz <= 4, "RowTileSz must be <= 4 for now");
+
+    // initilize mins and maxes; note that it's okay for the two calls to
+    // see different mins and maxes since these arrays aren't used except
+    // to compute the offsets and scale at the very end
+    __m256 mins[ncodebooks];
+    __m256 maxs[ncodebooks];
+    for (int c = 0; c < ncodebooks; c++) {
+        mins[c] = _mm256_set1_ps(std::numeric_limits<float>::max());
+        maxs[c] = _mm256_set1_ps(std::numeric_limits<float>::min());
+    }
+    // handle most rows
+    auto nrows_trailing = nrows % RowTileSz;
+    auto nrows_round = nrows - nrows_trailing;
+    if (nrows_round > 0) {
+        _dense_lut_f32_fused<CodebookTileSz, RowTileSz>(
+            Q, nrows_round, ncols, ncodebooks, mins, maxs,
+            centroids, out_offsets, out_offset_sum, out_scale, out);
+    }
+    // handle trailing rows
+    auto q_row_stride = ncols;
+    Q += q_row_stride * nrows_round;
+    auto out_row_stride = ncodebooks * lut_sz;
+    out += out_row_stride * nrows_round;
+    switch(nrows_trailing) {
+        case 0: break;
+        case 1: _dense_lut_f32_fused<CodebookTileSz, 1>(
+            Q, nrows_trailing, ncols, ncodebooks, mins, maxs,
+            centroids, out_offsets, out_offset_sum, out_scale, out); break;
+        case 2: _dense_lut_f32_fused<CodebookTileSz, 2>(
+            Q, nrows_trailing, ncols, ncodebooks, mins, maxs,
+            centroids, out_offsets, out_offset_sum, out_scale, out); break;
+        case 3: _dense_lut_f32_fused<CodebookTileSz, 3>(
+            Q, nrows_trailing, ncols, ncodebooks, mins, maxs,
+            centroids, out_offsets, out_offset_sum, out_scale, out); break;
+    }
+    // write out stats using mins and maxs
     _compute_offsets_scale_from_mins_maxs(
         mins, maxs, ncodebooks, out_offsets, out_offset_sum, out_scale);
+}
+
+
+void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
+    // const float* centroids, float* out)
+    // SELF: above args are fast, while ones below make it like 2x slower
+    const float* centroids, float*__restrict__ out_offsets, float& out_offset_sum,
+    float& out_scale, float*__restrict__ out)
+{
+    static constexpr int codebook_tile_sz = 2;
+    static constexpr int row_tile_sz = 3;
+    // assert(ncodebooks % codebook_tile_sz == 0);
+    // assert(nrows % row_tile_sz == 0);  // TODO handle trailing rows in fused func
+    // // ^ has to be handled in fused func so that mins/maxs include trailing
+    // // rows; for now, just require padding of query with zero rows; way to
+    // // do this is by just having below func take in mins and maxes
+
+    dense_lut_f32_fused<codebook_tile_sz, row_tile_sz>(
+            Q, nrows, ncols, ncodebooks, centroids,
+            out_offsets, out_offset_sum, out_scale, out);
 }
 
 // template<int CodebookTileSz=2, int RowTileSz=2>
