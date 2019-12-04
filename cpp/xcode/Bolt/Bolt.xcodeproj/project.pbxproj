@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		725BA8572351557D00CACF41 /* test_avx_utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725BA8562351557D00CACF41 /* test_avx_utils.cpp */; };
 		725BA85923528EF800CACF41 /* avx_utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725BA85823528EF700CACF41 /* avx_utils.cpp */; };
+		725ED6E2239737EC00F1283F /* mithral.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725ED6E1239737EC00F1283F /* mithral.cpp */; };
 		72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72A5A650234BC43100E4E256 /* profile_amm.cpp */; };
 		72B4CB0E23676106005D3A3D /* test_mithral.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72B4CB0D23676106005D3A3D /* test_mithral.cpp */; };
 		72B4DA4023677825005D3A3D /* single.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72B4D40E23677821005D3A3D /* single.cpp */; };
@@ -41,6 +42,7 @@
 /* Begin PBXFileReference section */
 		725BA8562351557D00CACF41 /* test_avx_utils.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = test_avx_utils.cpp; path = ../test_avx_utils.cpp; sourceTree = "<group>"; };
 		725BA85823528EF700CACF41 /* avx_utils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = avx_utils.cpp; sourceTree = "<group>"; };
+		725ED6E1239737EC00F1283F /* mithral.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = mithral.cpp; path = ../../src/quantize/mithral.cpp; sourceTree = "<group>"; };
 		72A5A64F234A8E4A00E4E256 /* multisplit.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multisplit.hpp; sourceTree = "<group>"; };
 		72A5A650234BC43100E4E256 /* profile_amm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_amm.cpp; sourceTree = "<group>"; };
 		72B4CB0C23675F98005D3A3D /* mithral.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = mithral.hpp; sourceTree = "<group>"; };
@@ -1706,6 +1708,7 @@
 		72DE62D21E5F7467009B5E61 = {
 			isa = PBXGroup;
 			children = (
+				725ED6E1239737EC00F1283F /* mithral.cpp */,
 				72DE62DD1E5F7467009B5E61 /* Bolt */,
 				72DE62DC1E5F7467009B5E61 /* Products */,
 			);
@@ -1899,6 +1902,7 @@
 				72B4DA6523677825005D3A3D /* double.cpp in Sources */,
 				72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */,
 				72B4DA6423677825005D3A3D /* xerbla.cpp in Sources */,
+				725ED6E2239737EC00F1283F /* mithral.cpp in Sources */,
 				72B4DA4123677825005D3A3D /* complex_single.cpp in Sources */,
 				72DE646D1E5F74ED009B5E61 /* main.cpp in Sources */,
 				72E01C721EB8DF840038A2B9 /* test_multicodebook.cpp in Sources */,

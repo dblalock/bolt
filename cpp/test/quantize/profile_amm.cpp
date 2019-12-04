@@ -592,7 +592,7 @@ void _amm_mithral(const InputT* X, const float* W, int64_t nrows, int D, int M,
     // create luts
     uint8_t* lut_out_ptr = (uint8_t*)luts;
     for (int i = 0; i < M; i++) {
-        mithral_lut(W, D, ncodebooks, centroids, lut_out_ptr);
+        mithral_lut_v1(W, D, ncodebooks, centroids, lut_out_ptr);
         lut_out_ptr += 16 * ncodebooks;
     }
 
@@ -619,7 +619,7 @@ void _amm_mithral_just_lut(const InputT* X, const float* W, int64_t nrows, int D
 {
     uint8_t* lut_out_ptr = (uint8_t*)luts;
     for (int i = 0; i < M; i++) {
-        mithral_lut(W, D, ncodebooks, centroids, lut_out_ptr);
+        mithral_lut_v1(W, D, ncodebooks, centroids, lut_out_ptr);
         lut_out_ptr += 16 * ncodebooks;
     }
 }
@@ -655,7 +655,8 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     // static constexpr int nrows = 128*1000;
     // static constexpr int nrows = 4096;
     // static constexpr int nrows = 24 * 1000;
-    static constexpr int nrows = 24 * 100;
+    static constexpr int nrows = 24 * 500;
+    // static constexpr int nrows = 24 * 100;
     // static constexpr int nrows = 24 * 10;
     // static constexpr int nrows = 24;
     // static constexpr int nrows = 6;
@@ -663,16 +664,16 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     // static constexpr int64_t nrows = 1;
     // static constexpr int ncols = 24 * 16;               // length of vectors
     // static constexpr int ncols = 12 * 16;               // length of vectors
-    static constexpr int ncols = 128;               // length of vectors
+    // static constexpr int ncols = 128;               // length of vectors
     // static constexpr int ncols = 32;               // length of vectors
     // static constexpr int ncols = 16;               // length of vectors
-    // static constexpr int ncols = 8;               // length of vectors
+    static constexpr int ncols = 8;               // length of vectors
     // static constexpr int ncols = 1024 * 1024;               // length of vectors
     static constexpr int bits_per_codebook = 4;
     // static constexpr int ncodebooks = 32;
-    static constexpr int ncodebooks = 16;
+    // static constexpr int ncodebooks = 16;
     // static constexpr int ncodebooks = 12;
-    // static constexpr int ncodebooks = 8;
+    static constexpr int ncodebooks = 8;
     // static constexpr int ncodebooks = 4;
     // static constexpr int ncodebooks = 2;
     static constexpr int ncentroids = (1 << bits_per_codebook);
@@ -712,7 +713,7 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
 
     // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut    ", kNtrials,
     // //     lut_out.data(), lut_out.size(),
-    // //     (mithral_lut(X.data(), nrows, ncols, ncodebooks,
+    // //     (mithral_lut_v1(X.data(), nrows, ncols, ncodebooks,
     // //         centroids.data(), lut_out.data())) );
 
     // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral quant lut 1", kNtrials,
@@ -732,16 +733,16 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     //     (mithral_quantize_luts<8>(lut_f32_out.data(), nrows, ncodebooks,
     //         offset, scale, lut_out.data())));
 
-        // lut_out.data(), lut_out.size(),
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "lut dense       2,2", kNtrials,
+    //     // lut_out.data(), lut_out.size(),
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "lut dense       2,2", kNtrials,
+    //     lut_f32_out.data(), lut_f32_out.size(),
+    //     (mithral_lut_dense(X.data(), nrows, ncols, ncodebooks,
+    //         centroids.data(), offsets.data(), offset, scale,
+    //         lut_f32_out.data(), lut_out.data())) );
+    //     // lut_out.data(), lut_out.size(),
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "lut dense     2,3", kNtrials,
         lut_f32_out.data(), lut_f32_out.size(),
-        (mithral_lut_dense<2,2>(X.data(), nrows, ncols, ncodebooks,
-            centroids.data(), offsets.data(), offset, scale,
-            lut_f32_out.data(), lut_out.data())) );
-        // lut_out.data(), lut_out.size(),
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "lut dense       2,3", kNtrials,
-        lut_f32_out.data(), lut_f32_out.size(),
-        (mithral_lut_dense<2,3>(X.data(), nrows, ncols, ncodebooks,
+        (mithral_lut_dense(X.data(), nrows, ncols, ncodebooks,
             centroids.data(), offsets.data(), offset, scale,
             lut_f32_out.data(), lut_out.data())) );
 
@@ -807,6 +808,10 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "dense lut f32 2,4", kNtrials,
         lut_f32_out.data(), lut_f32_out.size(),
         (dense_lut_f32<2,4>(X.data(), nrows, ncols, ncodebooks,
+            centroids.data(), lut_f32_out.data())) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "dense lut f32    ", kNtrials,
+        lut_f32_out.data(), lut_f32_out.size(),
+        (dense_lut_f32(X.data(), nrows, ncols, ncodebooks,
             centroids.data(), lut_f32_out.data())) );
     // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "dense lut f32 3,1", kNtrials,
     // lut_out.data(), lut_out.size(),
