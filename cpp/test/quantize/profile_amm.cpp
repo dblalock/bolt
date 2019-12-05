@@ -575,14 +575,242 @@ void _amm_mithral_nolut(const InputT* X, int64_t nrows, int ncols,
     }
 }
 
-
-
-
-// struct mithral_encode_params {
-//     int64_t nrows;
-//     int ncols;
-//     int ncodebooks;
+// template<typename T> struct mithral_input_type_traits<> {};
+// template<> struct mithral_input_type_traits<float> {
+//     using data_t = float;
+//     using encoding_scale_t = float;
+//     using encoding_offset_t = float;
 // };
+// template<> struct mithral_input_type_traits<int16_t> {
+//     using data_t = int16_t;
+//     using encoding_scale_t = uint8_t;  // shifts
+//     using encoding_offset_t = int16_t;
+// };
+// template<> struct mithral_input_type_traits<int8_t> {
+//     using data_t = int8_t;
+//     using encoding_scale_t = uint8_t;  // unused
+//     using encoding_offset_t = uint8_t; // unused
+// };
+
+template<class InputT> struct mithral_input_type_traits {};
+template<> struct mithral_input_type_traits<float> {
+    using encoding_scales_type = float;
+    using encoding_offsets_type = float;
+    using output_type = int16_t;
+};
+template<> struct mithral_input_type_traits<int16_t> {
+    using encoding_scales_type = uint8_t;
+    using encoding_offsets_type = int16_t;
+    using output_type = int16_t;
+};
+template<> struct mithral_input_type_traits<int8_t> {
+    using encoding_scales_type = uint8_t;    // doesn't matter; unused
+    using encoding_offsets_type = uint8_t;  // doesn't matter; unused
+    using output_type = int16_t;
+};
+
+// template<class InputT, class ScaleT, class OffsetT>
+template<class InputT>
+struct mithral_encode_params {
+    using traits = mithral_input_type_traits<InputT>;
+    using scale_t = typename traits::encoding_scales_type;
+    using offset_t = typename traits::encoding_offsets_type;
+
+    const InputT* X;
+    int nrows;
+    int ncols;
+    int ncodebooks;
+    const uint32_t* splitdims;
+    const int8_t* all_splitvals;
+    const scale_t* scales;
+    const offset_t* offsets;
+};
+
+struct mithral_lut_params {
+    const float* Q;
+    int nrows; /// nrows in Q matrix
+    int ncols; /// ncols in Q matrix
+    int ncodebooks;
+    const float* centroids;
+    const int* idxs;
+    int nnz_per_centroid;
+    float* tmp_lut_f32;
+    float out_offset_sum;
+    float out_scale;
+    uint8_t* out;
+};
+
+struct mithral_scan_params {
+    const uint8_t* codes;
+    int nblocks;
+    int ncodebooks;
+    const uint8_t* luts;
+    uint8_t* dists_out;
+};
+
+
+template<class InputT>
+struct mithral_amm {
+    using traits = mithral_input_type_traits<InputT>;
+    using scale_t = typename traits::encoding_scales_type;
+    using offset_t = typename traits::encoding_offsets_type;
+    using output_t = typename traits::output_type;
+    static constexpr int scan_block_nrows = 32;
+    static constexpr int lut_sz = 16;
+
+    // NxD matrix @ DxM matrix
+    mithral_amm(int N, int D, int M, int ncodebooks, const float* centroids,
+                // for encoding
+                const uint32_t* splitdims, const int8_t* splitvals,
+                const scale_t* encode_scales, const offset_t* encode_offsets,
+                // for lut creation
+                const int* idxs, int nnz_per_centroid):
+        N(N), D(D), M(M), ncodebooks(ncodebooks), centroids(centroids),
+        splitdims(splitdims), splitvals(splitvals),
+        encode_scales(encode_scales), encode_offsets(encode_offsets),
+        idxs(idxs), nnz_per_centroid(nnz_per_centroid),
+        tmp_codes(N, ncodebooks), codes(N, ncodebooks),
+        tmp_luts_f32(N, ncodebooks * lut_sz), luts(N, ncodebooks * lut_sz),
+        out_mat(N, M)
+    {}
+
+    void encode(const InputT* X) {
+        // TODO add strides to these funcs so that we can pad number
+        // of rows, so scan can rely on nrows being a multiple of 32
+        multisplit_encode_4b_colmajor(
+            X, N, D, splitdims, splitvals, encode_scales,
+            encode_offsets, ncodebooks, tmp_codes.data());
+        zip_bolt_colmajor(tmp_codes.data(), N, ncodebooks, codes.data());
+    }
+
+    void lut(const float* Q) {
+        mithral_lut_sparse(Q, M, D, ncodebooks, centroids,
+            idxs, nnz_per_centroid, out_offset_sum, out_scale,
+            tmp_luts_f32.data(), luts.data());
+    }
+
+    void scan() {
+        auto nblocks = N / scan_block_nrows;
+        mithral_scan(codes.data(), nblocks, ncodebooks, M,
+                     luts.data(), (uint8_t*)out_mat.data());
+    }
+
+    // ctor params
+    int N;
+    int D;
+    int M;
+    int ncodebooks;
+    const float* centroids;
+    const uint32_t* splitdims;
+    const int8_t* splitvals;
+    const scale_t* encode_scales;
+    const offset_t* encode_offsets;
+    const int* idxs;
+    int nnz_per_centroid;
+
+    // storage for intermediate values
+    ColMatrix<uint8_t> tmp_codes;
+    ColMatrix<uint8_t> codes;
+    RowMatrix<float> tmp_luts_f32;
+    RowMatrix<uint8_t> luts;
+
+    // outputs
+    float out_offset_sum;
+    float out_scale;
+    ColMatrix<output_t> out_mat;
+};
+
+template<class InputT>
+struct mithral_amm_task {
+    using traits = mithral_input_type_traits<InputT>;
+    using scale_t = typename traits::encoding_scales_type;
+    using offset_t = typename traits::encoding_offsets_type;
+    using output_t = typename traits::output_type;
+    static constexpr int scan_block_nrows = 32;
+    static constexpr int ncentroids = 16;
+    static constexpr int nsplits_per_codebook = 4;
+    static constexpr int max_splitvals = 1 << 4;
+
+    mithral_amm_task(int N, int D, int M, int ncodebooks,
+                     float lut_work_multiplier):
+        N_padded(N % scan_block_nrows == 0 ? N :
+            N + (scan_block_nrows - (N % scan_block_nrows))),
+        centroids(ncentroids * ncodebooks, D),
+        nsplits(ncodebooks * nsplits_per_codebook),
+        splitdims(nsplits),
+        splitvals(max_splitvals, nsplits),
+        encode_scales(nsplits),
+        encode_offsets(nsplits),
+        nnz_per_centroid(lut_work_multiplier * D / ncodebooks),
+        idxs(ncodebooks, nnz_per_centroid),
+        amm(N_padded, D, M, ncodebooks, centroids.data(),
+            splitdims.data(), splitvals.data(),
+            encode_scales.data(), encode_offsets.data(),
+            idxs.data(), nnz_per_centroid),
+        X(N_padded, D),
+        Q(D, M)
+    {
+        centroids.setRandom();
+        splitdims.setRandom();
+        for (int i = 0; i < splitdims.size(); i++) {
+            splitdims(i) = splitdims(i) % D;
+        }
+        splitvals.setRandom();
+        encode_scales.setRandom();
+        encode_offsets.setRandom();
+
+        // randomly initialize idxs, ensuring all are unique and < D
+        idxs.setRandom();
+        int all_idxs[D];
+        for (int i = 0; i < D; i++) {
+            all_idxs[i] = i;
+        }
+        std::random_device rd;
+        std::mt19937 g(rd());  // why can't shuffle just create its own...
+        for (int c = 0; c < ncodebooks; c++) {  // random sequential idxs
+            std::shuffle(all_idxs, all_idxs + D, g);
+            std::sort(all_idxs, all_idxs + nnz_per_centroid);
+            for (int j = 0; j < nnz_per_centroid; j++) {
+                idxs(c, j) = all_idxs[j];
+            }
+        }
+
+        X.setRandom();
+        Q.setRandom();
+        // splitdims.unaryExpr([](const uint32_t x) { return x % D; });
+    }
+
+    void encode() { amm.encode(X.data()); }
+    void lut() { amm.lut(Q.data()); }
+    void scan() { amm.scan(); }
+
+    void run_matmul() {
+        encode();
+        lut();
+        scan();
+    }
+
+    const ColMatrix<output_t>& output() const { return amm.out_mat; }
+
+    // stuff we pass into the amm object (would be learned during training)
+    int N_padded;
+    ColMatrix<float> centroids;
+    int nsplits;
+    RowVector<uint32_t> splitdims;
+    ColMatrix<int8_t> splitvals;
+    RowVector<scale_t> encode_scales;
+    RowVector<offset_t> encode_offsets;
+    int nnz_per_centroid;
+    RowMatrix<int> idxs;
+
+    // amm object
+    mithral_amm<InputT> amm;
+
+    // random data
+    ColMatrix<InputT> X;
+    ColMatrix<float> Q;
+};
+
 
 // TODO create a struct or something for params because this has gotten
 // completely unmanageable
@@ -684,8 +912,8 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     // static constexpr int ncols = 24 * 16;               // length of vectors
     // static constexpr int ncols = 12 * 16;               // length of vectors
     // static constexpr int ncols = 1024;               // length of vectors
-    // static constexpr int ncols = 128;               // length of vectors
-    static constexpr int ncols = 127;               // length of vectors
+    static constexpr int ncols = 128;               // length of vectors
+    // static constexpr int ncols = 127;               // length of vectors
     // static constexpr int ncols = 32;               // length of vectors
     // static constexpr int ncols = 16;               // length of vectors
     // static constexpr int ncols = 8;               // length of vectors
@@ -699,8 +927,8 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     // static constexpr int ncodebooks = 2;
     static constexpr int ncentroids = (1 << bits_per_codebook);
     // static constexpr int nbytes = ncodebooks / 2;
-    static constexpr int nnz = ncols;  // like 10-15% slower than dense; or
-    // static constexpr int nnz = ncols * (2.f / ncodebooks);
+    // static constexpr int nnz = ncols;  // like 10-15% slower than dense; or
+    static constexpr int nnz = ncols * (2.f / ncodebooks);
     printf("nnz: %d\n", nnz);
 
     ColMatrix<float> centroids(ncodebooks * ncentroids, ncols);
@@ -725,9 +953,8 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     std::random_device rd;
     std::mt19937 g(rd());  // why can't shuffle just create its own...
     for (int c = 0; c < ncodebooks; c++) {  // random sequential idxs
-        auto begin = std::begin(all_idxs);
-        std::shuffle(begin, begin + ncols, g);
-        std::sort(begin, begin + nnz);
+        std::shuffle(all_idxs, all_idxs + ncols, g);
+        std::sort(all_idxs, all_idxs + nnz);
         for (int j = 0; j < nnz; j++) {
             idxs(c, j) = all_idxs[j];
         }
@@ -743,14 +970,14 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     float offset = 0.;
     float scale = 1.;
 
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut cheating ", kNtrials,
-    //     lut_out.data(), lut_out.size(),
-    //     (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
-    //             centroids.data(), ncodebooks, lut_out.data()) ) );
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut          ", kNtrials,
-    //     lut_out.data(), lut_out.size(),
-    //     (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols, centroids.data(),
-    //         ncodebooks, offsets.data(), scale, lut_out.data()) ) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut cheating ", kNtrials,
+        lut_out.data(), lut_out.size(),
+        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
+                centroids.data(), ncodebooks, lut_out.data()) ) );
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt lut          ", kNtrials,
+        lut_out.data(), lut_out.size(),
+        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols, centroids.data(),
+            ncodebooks, offsets.data(), scale, lut_out.data()) ) );
 
     // // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut    ", kNtrials,
     // //     lut_out.data(), lut_out.size(),
@@ -784,12 +1011,12 @@ TEST_CASE("amm lut", "[amm][lut][profile]") {
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut dense ", kNtrials,
         lut_out.data(), lut_out.size(),
         (mithral_lut_dense(X.data(), nrows, ncols, ncodebooks,
-            centroids.data(), offsets.data(), offset, scale,
+            centroids.data(), offset, scale,
             lut_f32_out.data(), lut_out.data())) );
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "mithral lut sparse", kNtrials,
         lut_out.data(), lut_out.size(),
         (mithral_lut_sparse(X.data(), nrows, ncols, ncodebooks,
-            centroids.data(), idxs.data(), nnz, offsets.data(), offset, scale,
+            centroids.data(), idxs.data(), nnz, offset, scale,
             lut_f32_out.data(), lut_out.data())) );
 
     // SELF: pick up by putting wrapper funcs in a cpp file; what happens right
@@ -1173,26 +1400,65 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             codes.data(), codes_packed.data()));
 }
 
-TEST_CASE("amm actual matmul multisplit", "[amm][multisplit][mithral][matmul][profile]") {
-    // _profile_multisplit(128 * 1000, 64, 32, 4);
+template<class InputT=float>
+void _profile_mithral(uint32_t N, uint32_t D, uint32_t M, int ncodebooks,
+                      float lut_work_multiplier=2) {
+    mithral_amm_task<InputT> task(N, D, M, ncodebooks, lut_work_multiplier);
+
+    std::string msg;
+    // printf("----\n");
+    // switch(InputT)
+    std::string dtype_str("f32");
+    if (sizeof(InputT) == 1) {
+        dtype_str = "i8 ";
+    } else if (sizeof(InputT) == 2) {
+        dtype_str = "i16";
+    }
+
+    msg = string_with_format(
+        "%s amm mithral N, D, M, C, lut_work_coef: "
+            "%6d, %3d, %3d, %2d, %.1f\t",
+        dtype_str.c_str(), N, D, M, ncodebooks, lut_work_multiplier);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.run_matmul());
+
+}
+
+// TEST_CASE("amm actual matmul multisplit", "[amm][multisplit][mithral][matmul][profile]") {
+//     // _profile_multisplit(128 * 1000, 64, 32, 4);
+//      std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+//     // std::vector<int> ncodebooks {4, 64};
+// //    std::vector<int> ncodebooks {4, 16, 64};
+//     // std::vector<int> ncodebooks {64};
+//     // std::vector<int> ncodebooks {4};
+//     for (auto c  : ncodebooks) {
+//         printf("ncodebooks = %d\n", c);
+//         _profile_multisplit<float>(10000, 512, 10, c);  // cifar10
+//         _profile_multisplit<float>(10000, 512, 100, c); // cifar100
+// //        223590
+//         _profile_multisplit<float>(223590, 96, 12, c);  // ecg
+//         _profile_multisplit<int16_t>(223590, 96, 12, c);  // ecg
+// //        _profile_multisplit<float>(57593, 24, 3, c);  // ecg
+// //        _profile_multisplit<int16_t>(57593, 24, 3, c);  // ecg
+//         // _profile_multisplit(115193, 24, 3, c);       // ecg
+//         // _profile_multisplit(230393, 24, 3, c);       // ecg
+//         _profile_multisplit<float>(49284, 27, 2, c);   // caltech
+//         _profile_multisplit<int8_t>(49284, 27, 2, c);   // caltech
+//     }
+// }
+
+TEST_CASE("amm mithral", "[amm][multisplit][mithral][matmul][profile]") {
      std::vector<int> ncodebooks {4, 8, 16, 32, 64};
-    // std::vector<int> ncodebooks {4, 64};
-//    std::vector<int> ncodebooks {4, 16, 64};
-    // std::vector<int> ncodebooks {64};
-    // std::vector<int> ncodebooks {4};
+     // std::vector<int> ncodebooks {4};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
-        _profile_multisplit<float>(10000, 512, 10, c);  // cifar10
-        _profile_multisplit<float>(10000, 512, 100, c); // cifar100
-//        223590
-        _profile_multisplit<float>(223590, 96, 12, c);  // ecg
-        _profile_multisplit<int16_t>(223590, 96, 12, c);  // ecg
-//        _profile_multisplit<float>(57593, 24, 3, c);  // ecg
-//        _profile_multisplit<int16_t>(57593, 24, 3, c);  // ecg
-        // _profile_multisplit(115193, 24, 3, c);       // ecg
-        // _profile_multisplit(230393, 24, 3, c);       // ecg
-        _profile_multisplit<float>(49284, 27, 2, c);   // caltech
-        _profile_multisplit<int8_t>(49284, 27, 2, c);   // caltech
+        _profile_mithral<float>(10000, 512, 10, c);  // cifar10
+        _profile_mithral<float>(10000, 512, 100, c); // cifar100
+        _profile_mithral<float>(223590, 96, 12, c);  // ecg
+        _profile_mithral<int16_t>(223590, 96, 12, c);  // ecg
+        _profile_mithral<float>(49284, 27, 2, c);   // caltech
+        _profile_mithral<int8_t>(49284, 27, 2, c);   // caltech
     }
 }
 

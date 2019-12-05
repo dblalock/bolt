@@ -133,10 +133,10 @@ void sparse_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
 
 
 void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
-    const float* centroids, float*__restrict__ tmp_offsets,
-    float& out_offset_sum, float& out_scale,
+    const float* centroids, float& out_offset_sum, float& out_scale,
     float*__restrict__ tmp_lut_f32, uint8_t* out)
 {
+    float tmp_offsets[ncodebooks];
     //
     // unfused stats computation
     //
@@ -156,7 +156,7 @@ void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
 
 void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
     const float* centroids, const int* idxs, int nnz_per_centroid,
-    float*__restrict__ tmp_offsets, float& out_offset_sum, float& out_scale,
+    float& out_offset_sum, float& out_scale,
     float*__restrict__ tmp_lut_f32, uint8_t* out)
 {
     //
@@ -164,8 +164,8 @@ void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
     //
     sparse_lut_f32(Q, nrows, ncols, ncodebooks, centroids,
                    idxs, nnz_per_centroid, tmp_lut_f32);
+    float tmp_offsets[ncodebooks];
     mithral_learn_lut_offsets_scales(tmp_lut_f32, nrows, ncodebooks,
         tmp_offsets, out_offset_sum, out_scale);
-
     quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
 }

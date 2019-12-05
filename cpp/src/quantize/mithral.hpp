@@ -41,13 +41,12 @@ void sparse_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
                     const int* idxs, int nnz_per_centroid, float* out);
 
 void mithral_lut_dense(const float* Q, int nrows, int ncols, int ncodebooks,
-    const float* centroids, float*__restrict__ tmp_offsets,
-    float& out_offset_sum, float& out_scale,
+    const float* centroids, float& out_offset_sum, float& out_scale,
     float*__restrict__ tmp_lut_f32, uint8_t* out);
 
 void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
     const float* centroids, const int* idxs, int nnz_per_centroid,
-    float*__restrict__ tmp_offsets, float& out_offset_sum, float& out_scale,
+    float& out_offset_sum, float& out_scale,
     float*__restrict__ tmp_lut_f32, uint8_t* out);
 
 // ================================================================ here
@@ -1914,7 +1913,7 @@ static constexpr bool is_power_of_2(int64_t x) {
 // whatever based on the type
 //
 // https://godbolt.org/z/cP80FF
-template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=false>
+template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=true>
 void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
                    uint8_t* dists_out)
 {
@@ -2055,6 +2054,23 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
         case 32: mithral_scan<16, UpcastEvery>(codes, nblocks, luts, out); break;
         case 64: mithral_scan<32, UpcastEvery>(codes, nblocks, luts, out); break;
         case 128: mithral_scan<64, UpcastEvery>(codes, nblocks, luts, out); break;
+    }
+}
+
+void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+                  int noutputs, const uint8_t* luts, uint8_t* dists_out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int lut_sz = 16;
+    auto out_ptr = dists_out;
+    auto out_stride = nblocks * block_nrows;
+    auto lut_ptr = luts;
+    auto lut_stride = ncodebooks * lut_sz;
+
+    for (int i = 0; i < noutputs; i++) {
+        mithral_scan(codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+        out_ptr += out_stride;
+        lut_ptr += lut_stride;
     }
 }
 
