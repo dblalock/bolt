@@ -129,24 +129,71 @@ def zstd_decompress(buff, decomp=None):
 #     return np.packbits(bitvec)
 
 
+# def bitunpack(X, nbits_per_element):
+#     was_1d = X.ndim == 1
+#     X = np.atleast_2d(X)
+
+#     N, D = X.shape
+#     ret = np.unpackbits(X, axis=1)
+#     if was_1d:
+#         ret = ret.squeeze()
+#     return ret
+
+
 # @numba.njit(fastmath=True)
 def bitpack(X, nbits_per_element):
     was_1d = X.ndim == 1
     X = np.atleast_2d(X)
-
     N, D = X.shape
-    nbits_per_row = D * nbits_per_element
-    bitmat = np.zeros((N, nbits_per_row), dtype=np.bool)
+
+    # orig_elemsz = X.dtype.itemsize
+    orig_elemsz_bits = 8 * X.dtype.itemsize
+    assert X.dtype in (np.uint8, np.uint16)
+
+    assert X.dtype in (np.uint8, np.uint16)
+    if nbits_per_element == orig_elemsz_bits:
+        ret = X
+    elif X.dtype == np.uint8:
+        # print("N, D, nbits: ", N, D, nbits_per_element)
+        # shape = X.shape
+        X = X.ravel()
+        # unpacked = np.unpackbits(X, count=nbits_per_element, bitorder='little', axis=-1)
+        unpacked = np.unpackbits(X, bitorder='little', axis=-1)
+        # print("unpacked initial shape: ", unpacked.shape)
+        unpacked = unpacked.reshape(N * D, 8)[:, :nbits_per_element]
+        # print("unpacked new shape: ", unpacked.shape)
+        ret = np.packbits(unpacked.reshape(N, -1), axis=1)
+        # ret = ret.reshape(N, -1)
+        # print("ret.shape: ", ret.shape)
+
+    else:
+        # X_low = (X & 0xff)[:, :, np.newaxis]
+        # X_high = ((X & 0xff00) >> 8)[:, :, np.newaxis]
+        # X_combined = np.concatenate([X_low, X_high], axis=-1)
+        # X = X[:, :, np.newaxis]
+        # X = np.concatenate([X, X], axis=-1)
+        # X[:, :, 0] = X[:, :, 0] & 0xff
+        # X[:, :, 1] = (X[:, :, 1] & 0xff00) >> 8
+        # X = X.reshape(N, 2 * D).astype(np.uint8)
+        X = np.ascontiguousarray(X).view(np.uint8).reshape(N, 2 * D)
+
+        # print("X shape: ", X.shape)
+        unpacked = np.unpackbits(X, axis=1, bitorder='little')
+        unpacked = unpacked.reshape(N, orig_elemsz_bits, D)
+        # unpacked = unpacked[:, ::-1, :]  # low bits in low idxs
+        unpacked = np.ascontiguousarray(unpacked[:, :nbits_per_element])
+        ret = np.packbits(unpacked.reshape(N, -1))
+
+    # nbits_per_row = D * nbits_per_element
     # bitmat = np.zeros((N, nbits_per_row), dtype=np.uint8)
+    # for j in range(D):
+    #     col = X[:, j]
+    #     start_idx = j * nbits_per_element
+    #     for b in range(nbits_per_element):
+    #         bit = (col >> b) & 1
+    #         bitmat[:, start_idx + b] = bit
+    # ret = np.packbits(bitmat, axis=1)
 
-    for j in range(D):
-        col = X[:, j]
-        start_idx = j * nbits_per_element
-        for b in range(nbits_per_element):
-            bit = (col >> b) & 1
-            bitmat[:, start_idx + b] = bit
-
-    ret = np.packbits(bitmat, axis=1)
     if was_1d:
         ret = ret.squeeze()
     return ret
@@ -179,11 +226,12 @@ def _sprintz_header_sz(headers, header_elem_nbits):
     return header_sz
 
 
-# def sprintz_compressed_size(X, nbits=None, postproc='zstd'):
 # def sprintz_packed_size(X, nbits=None, just_return_sz=False, postproc='zstd'):
 def sprintz_packed_size(X, nbits=None, just_return_sz=True, postproc=None):
     if nbits is None:
         nbits = {1: 8, 2: 16}.get(X.dtype.itemsize, 16)
+
+    unsigned_dtype = {8: np.uint8, 16: np.uint16}[nbits]
 
     window_len = 8
     pad_nrows = X.shape[0] % window_len
@@ -196,7 +244,7 @@ def sprintz_packed_size(X, nbits=None, just_return_sz=True, postproc=None):
         X = quantize(X, nbits=nbits)
     if np.min(X) < 0:
         # print("sprintz: zigzag_encoding X!")
-        X = zigzag_encode(X)
+        X = zigzag_encode(X).astype(unsigned_dtype)
     # else:
     #     print("sprintz: not zigzag_encoding X!")
 
