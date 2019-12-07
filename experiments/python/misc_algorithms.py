@@ -14,7 +14,7 @@ def _to_np(A):
     return A.cpu().detach().numpy()
 
 
-def neighbor_compression(X, labels, k, niters=10000, verbose=1):
+def neighbor_compression(X, labels, k, niters=1000, verbose=1):
     N, D = X.shape
 
     # one-hot encode labels
@@ -24,39 +24,53 @@ def neighbor_compression(X, labels, k, niters=10000, verbose=1):
         Y[i, labels[i]] = 1
 
     # intialize centroids
-    C, assignments = kmeans(X, k)
+    C, _ = kmeans(X, k)
 
     # convert to torch tensors for optimization
     Y = torch.from_numpy(Y)
     C = torch.tensor(C.T, requires_grad=True)  # not from_numpy to allow grad
     X = torch.from_numpy(X)
+    # having trained class affinities doesn't really seem to help
+    Z = torch.randn(k, nclasses, requires_grad=True)
 
     loss_fn = torch.nn.CrossEntropyLoss()
-    params = [C]
-    opt = optim.SGD(params, lr=.1, momentum=.9)
+    # opt = optim.SGD([C], lr=.1, momentum=.9)
+    opt = optim.SGD([C, Z], lr=.1, momentum=.9)
 
-    X_norms_sq = (X * X).sum(dim=1).view(-1, 1)
+    # X_norms_sq = (X * X).sum(dim=1).view(-1, 1)
     for t in range(niters):
         temperature = np.log2(t + 2)  # +2 so that it starts at 1 at t=0
 
-        # compute distances to all centroids
-        prods = torch.mm(X, C)
-        # norms_sq = torch.sqrt(torch.sum(C * C))
-        # dists_sq = prods - norms_sq
-        C_norms_sq = torch.sqrt(torch.sum(C * C, dim=0))
-        dists_sq = -2 * prods
-        dists_sq += X_norms_sq
-        dists_sq += C_norms_sq
-        neg_dists_sq = -dists_sq
+        # # compute distances to all centroids
+        # # prods = torch.mm(X, C)
+        # prods = X @ C
+        # # norms_sq = torch.sqrt(torch.sum(C * C))
+        # # dists_sq = prods - norms_sq
+        # # C_norms_sq = torch.sqrt(torch.sum(C * C, dim=0))
+        # # C_norms_sq = torch.sum(C * C, dim=0)
+        # # dists_sq = -2 * prods
+        # # dists_sq += X_norms_sq
+        # # dists_sq += C_norms_sq
+        # # neg_dists_sq = -dists_sq
+        # neg_dists_sq = prods
 
-        # update soft labels for each centroid
-        similarities = F.softmax(neg_dists_sq, dim=0)  # N x C; sim to each sample
-        class_affinities = similarities.transpose(0, 1) @ Y  # C x nclasses
-        class_affinities = F.softmax(class_affinities * temperature, dim=1)
+        # # # update soft labels for each centroid
+        # # similarities = F.softmax(neg_dists_sq, dim=0)  # N x C; sim to each sample
+        # # class_affinities = similarities.transpose(0, 1) @ Y  # C x nclasses
+        # # class_affinities = F.softmax(class_affinities * temperature, dim=1)
 
-        # update class assignments for inputs
-        centroid_similarities = F.softmax(neg_dists_sq * temperature, dim=1)  # N x C
-        logits = centroid_similarities @ class_affinities
+        # # update class assignments for inputs
+        # # centroid_similarities = F.softmax(neg_dists_sq * temperature, dim=1)  # N x C
+        # centroid_similarities = F.softmax(neg_dists_sq, dim=1)  # N x C
+        # # centroid_similarities = torch.exp(neg_dists_sq / np.sqrt(D))
+        # # logits = centroid_similarities @ class_affinities
+        # logits = centroid_similarities @ Z
+
+        # way simpler version
+        similarities = F.softmax(X @ C, dim=1)  # N x C
+        # logits = similarities @ Z
+        affinities = F.softmax(Z * temperature, dim=1)
+        logits = similarities @ affinities
 
         # update params and print how we're doing
         loss = loss_fn(logits, labels)
@@ -69,13 +83,16 @@ def neighbor_compression(X, labels, k, niters=10000, verbose=1):
             print("acc: ", acc)
             print("{:.3f}".format(loss.item()))  # convert to python float
 
-    return _to_np(C).T, _to_np(class_affinities)
+    # return _to_np(C).T, _to_np(class_affinities)
+
+    centroid_labels = np.argmax(_to_np(Z), axis=1)
+    return _to_np(C).T, centroid_labels
 
 
 # or at least, ProtoNN without the L0 constraints; also with simultaneous
 # updates to all param tensors instead of alternating
 # def protonn(X, labels, k, niters=10000, verbose=1, gamma=1):
-def protonn(X, labels, k, niters=10000, verbose=1, gamma=-1):
+def protonn(X, labels, k, niters=1000, verbose=1, gamma=-1):
     N, D = X.shape
     if gamma < 1:
         gamma = 1. / np.sqrt(D)  # makes it struggle less / not make NaNs
@@ -88,7 +105,7 @@ def protonn(X, labels, k, niters=10000, verbose=1, gamma=-1):
         Y[i, labels[i]] = 1
 
     # intialize centroids
-    C, assignments = kmeans(X, k)
+    C, _ = kmeans(X, k)
     # W = np.random.randn(D, D).astype(np.float32)
     # C = C @ W
     W = np.eye(D).astype(np.float32)  # better than randn init
@@ -104,9 +121,10 @@ def protonn(X, labels, k, niters=10000, verbose=1, gamma=-1):
     Z = torch.randn(k, nclasses, requires_grad=True)
 
     loss_fn = torch.nn.CrossEntropyLoss()
-    opt = optim.SGD([C, W, Z], lr=.1, momentum=.9)
+    # opt = optim.SGD([C, W, Z], lr=.1, momentum=.9)
+    opt = optim.SGD([C, Z], lr=.1, momentum=.9)
 
-    nbatches = 4
+    nbatches = 1
     batch_sz = int(np.ceil(N / nbatches))
     # batch_sz = 1024
     # nbatches = int(np.ceil(N / batch_sz))
@@ -126,7 +144,8 @@ def protonn(X, labels, k, niters=10000, verbose=1, gamma=-1):
 
             # compute distances to all centroids
             # embeddings = X @ W
-            embeddings = X_batch @ W
+            # embeddings = X_batch @ W
+            embeddings = X_batch
             embed_norms_sq = (embeddings * embeddings).sum(dim=1, keepdim=True)
 
             # prods = torch.mm(embeddings, C)
@@ -236,7 +255,7 @@ def linear_regression_log_loss(
 def main():
     # N, D = 10000, 20
     N, D = 1000, 20
-    niters = 10000
+    niters = 1000
     X = np.random.randn(N, D).astype(np.float32)
 
     # ------------------------ linear regression with weird loss
@@ -249,8 +268,9 @@ def main():
     nclasses = 5
     labels = torch.randint(nclasses, size=(N,))
 
-    # C, affinities = neighbor_compression(X, labels, K, niters=niters)
-    C, W, Z = protonn(X, labels, K, niters=niters)
+    # C, W, Z = protonn(X, labels, K, niters=niters)  # significantly worse
+    C, centroid_labels = neighbor_compression(X, labels, K, niters=niters)
+    print("centroid_labels:", centroid_labels)
     print("C type, shape", type(C), C.shape)
     print("done")
 
