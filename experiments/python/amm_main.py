@@ -10,7 +10,7 @@ import zstandard as zstd  # pip install zstandard
 from . import amm
 from . import matmul_datasets as md
 from . import pyience as pyn
-# from . import vq_amm
+from . import compress
 
 from . import amm_methods as methods
 
@@ -83,6 +83,69 @@ def _blosc_compress(buff, elem_sz=8, compressor='zstd', shuffle=blosc.SHUFFLE):
                           cname=compressor, shuffle=shuffle)
 
 
+def nbits_cost(diffs, signed=True):
+    """
+    >>> [nbits_cost(i) for i in [0, 1, 2, 3, 4, 5, 7, 8, 9]]
+    [0, 2, 3, 3, 4, 4, 4, 5, 5]
+    >>> [nbits_cost(i) for i in [-1, -2, -3, -4, -5, -7, -8, -9]]
+    [1, 2, 3, 3, 4, 4, 4, 5]
+    >>> nbits_cost([])
+    array([], dtype=int32)
+    >>> nbits_cost([0, 2, 1, 0])
+    array([0, 3, 2, 0], dtype=int32)
+    >>> nbits_cost([0, 2, 1, 3, 4, 0], signed=False)
+    array([0, 2, 1, 2, 3, 0], dtype=int32)
+    """
+    if diffs is None:
+        return None
+
+    diffs = np.asarray(diffs, dtype=np.int32)
+    if diffs.size == 0:
+        return np.array([], dtype=np.int32)
+
+    if not signed:
+        assert np.all(diffs >= 0)
+        pos_idxs = diffs > 0
+        nbits = np.zeros(diffs.shape, dtype=np.int32)
+        nbits[pos_idxs] = np.floor(np.log2(diffs[pos_idxs])) + 1
+        nbits[~pos_idxs] = 0
+        return nbits
+
+    # shape = diffs.shape
+    # diffs = diffs.ravel()
+    # zero_idxs = (diffs == 0)
+    # # nbits[zero_idxs] = 0
+    # nbits = np.zeros(len(diffs), dtype=np.int32)
+    # diffs = diffs[~zero_idxs]
+    # equiv_diffs = np.abs(diffs) + (diffs >= 0).astype(np.int32)  # +1 if < 0
+    # # assert np.all(np.abs(diffs) > 0)
+    # # assert np.all(equiv_diffs > 0)
+    # nbits[~zero_idxs] = np.ceil(np.log2(equiv_diffs)) + 1
+    # nbits = np.asarray(nbits, dtype=np.int32)  # next line can't handle scalar
+    # assert np.all(nbits >= 0)
+
+    shape = diffs.shape
+    diffs = diffs.ravel()
+    equiv_diffs = np.abs(diffs) + (diffs >= 0).astype(np.int32)  # +1 if < 0
+    nbits = np.ceil(np.log2(equiv_diffs)) + 1
+    nbits = np.asarray(nbits, dtype=np.int32)  # next line can't handle scalar
+    nbits[diffs == 0] = 0
+    assert np.all(nbits >= 0)
+
+    return nbits.reshape(shape) if nbits.size > 1 else nbits[0]  # unpack if scalar
+
+
+def zigzag_encode(x):
+    """
+    >>> [zigzag_encode(i) for i in [0,1,-1,2,-2,3,-3]]
+    [0, 1, 2, 3, 4, 5, 6]
+    >>> zigzag_encode([0,1,-1,2,-2,3,-3])
+    array([0, 1, 2, 3, 4, 5, 6], dtype=int32)
+    """
+    x = np.asarray(x, dtype=np.int32)
+    return (np.abs(x) << 1) - (x > 0).astype(np.int32)
+
+
 # def _compute_compression_metrics(ar, quantize_to_type=np.uint16):
 def _compute_compression_metrics(ar):
     # if quantize_to_type is not None:
@@ -92,15 +155,23 @@ def _compute_compression_metrics(ar):
     # ar -= 32768  # center at 0
     # ar = ar.astype(np.int16)
 
-    elem_sz = ar.dtype.itemsize
+    # elem_sz = ar.dtype.itemsize
+    # return {'nbytes_raw': ar.nbytes,
+    #         'nbytes_blosc_noshuf': len(_blosc_compress(
+    #             ar, elem_sz=elem_sz, shuffle=blosc.NOSHUFFLE)),
+    #         'nbytes_blosc_byteshuf': len(_blosc_compress(
+    #             ar, elem_sz=elem_sz, shuffle=blosc.SHUFFLE)),
+    #         'nbytes_blosc_bitshuf': len(_blosc_compress(
+    #             ar, elem_sz=elem_sz, shuffle=blosc.BITSHUFFLE)),
+    #         'nbytes_zstd': len(_zstd_compress(ar)),
+    #         'nbits_cost': nbits_cost(ar).sum() // 8,
+    #         'nbits_cost_zigzag':
+    #             nbits_cost(zigzag_encode(ar), signed=False).sum() // 8,
+    #         'nbytes_sprintz': compress.sprintz_packed_size(ar)
+    #         }
+
     return {'nbytes_raw': ar.nbytes,
-            # 'nbytes_blosc_noshuf': len(_blosc_compress(
-            #     ar, elem_sz=elem_sz, shuffle=blosc.NOSHUFFLE)),
-            'nbytes_blosc_byteshuf': len(_blosc_compress(
-                ar, elem_sz=elem_sz, shuffle=blosc.SHUFFLE)),
-            'nbytes_blosc_bitshuf': len(_blosc_compress(
-                ar, elem_sz=elem_sz, shuffle=blosc.BITSHUFFLE)),
-            'nbytes_zstd': len(_zstd_compress(ar))}
+            'nbytes_sprintz': compress.sprintz_packed_size(ar)}
 
 
 def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
@@ -112,24 +183,18 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     metrics = {'raw_mse': raw_mse, 'y_var': y_var, 'r_sq': r_sq}
     if compression_metrics:
 
-        def quantize(X, minval, maxval, nbits=16):
-            upper = (1 << nbits) - 1
-            dtype_min = 1 << (nbits - 1)
+        # Y_q = compress.quantize(Y, nbits=8)
+        # Y_hat_q = compress.quantize(Y_hat, nbits=8)
+        # diffs_q = Y_q - Y_hat_q
+        # # diffs_q = compress.zigzag_encode(diffs_q).astype(np.uint8)
+        # assert Y_q.dtype == np.int8
+        # assert diffs_q.dtype == np.int8
 
-            X = np.maximum(0, X - minval)
-            X = np.minimum(upper, (X / maxval) * upper)
-            X -= dtype_min  # center at 0
-
-            dtype = {16: np.int16, 12: np.int16, 8: np.int8}[nbits]
-            return X.astype(dtype)
-
-        minval = np.min(Y)
-        maxval = np.max(Y)
-        Y_q = quantize(Y, minval, maxval, nbits=8)
-        Y_hat_q = quantize(Y_hat, minval, maxval, nbits=8)
+        Y_q = compress.quantize(Y, nbits=12)
+        Y_hat_q = compress.quantize(Y_hat, nbits=12)
         diffs_q = Y_q - Y_hat_q
-        assert Y_q.dtype == np.int8
-        assert diffs_q.dtype == np.int8
+        assert Y_q.dtype == np.int16
+        assert diffs_q.dtype == np.int16
 
         # Y_q = quantize_i16(Y)
 
@@ -257,8 +322,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 # limit_ntasks=10, compression_metrics=True)
-                 limit_ntasks=10, compression_metrics=False)
+                 limit_ntasks=5, compression_metrics=True)
+                 # limit_ntasks=10, compression_metrics=False)
 
 
 def main_caltech(methods=None, saveas='caltech'):
@@ -295,7 +360,7 @@ def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Exact'])
-    main_cifar10(methods='Mithral')
+    # main_cifar10(methods='Mithral')
     # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='Mithral')
     # main_cifar100(methods='MithralPQ')
@@ -338,6 +403,8 @@ def main():
     # main_ecg(methods=['Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'PQ', 'Exact'])
     # main_caltech(methods=['Bolt', 'PQ', 'Exact'])
+    # main_cifar10(methods='Exact')
+    main_ecg(methods='Exact')
     # main_ecg(methods='Bolt')
     # main_ecg(methods=['Bolt', 'Bolt+Perm'])
     # main_caltech(methods=['Bolt+Perm', 'Bolt'])

@@ -8,6 +8,7 @@ import numpy as np
 from sklearn import linear_model
 
 from python.datasets import caltech, sharee, incart
+from python import misc_algorithms as algo
 from python import window
 
 from joblib import Memory
@@ -69,7 +70,9 @@ class MatmulTask(object):
 
 # ================================================================ ECG
 
-def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
+def _load_x_y_w_for_ar_model(data, window_len=4, verbose=1, N_train=-1,
+                             # estimator='minlog'):
+                             estimator='ridge'):
 
     # # TODO rm after debug
     # print("initial data shape: ", data.shape)
@@ -98,32 +101,39 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 
     # fit the autoregressive model (just a filter)
     # est = linear_model.LinearRegression(fit_intercept=False)
-    est = linear_model.Ridge(
-        # alpha=.01*len(Y_train)*np.var(data), fit_intercept=False)
-        # alpha=(.01 * np.var(data)), fit_intercept=False)
-        alpha=(.1 * np.var(data)), fit_intercept=False)
-    # est = linear_model.Lasso(
-    #     # alpha=.001*np.sum(np.abs(Y_train)), fit_intercept=False)
-    #     # alpha=1e-4*(Y_train * Y_train).sum(), fit_intercept=False)
-    #     alpha=(1e-2 * Y_train.var()), fit_intercept=False)
-    est.fit(X_train, Y_train)
-    W = est.coef_.T
+    if estimator == 'ridge':
+        est = linear_model.Ridge(
+            # alpha=.01*len(Y_train)*np.var(data), fit_intercept=False)
+            # alpha=(.01 * np.var(data)), fit_intercept=False)
+            alpha=(.1 * np.var(data)), fit_intercept=False)
+        # est = linear_model.Lasso(
+        #     # alpha=.001*np.sum(np.abs(Y_train)), fit_intercept=False)
+        #     # alpha=1e-4*(Y_train * Y_train).sum(), fit_intercept=False)
+        #     alpha=(1e-2 * Y_train.var()), fit_intercept=False)
+        est.fit(X_train, Y_train)
+        W = est.coef_.T
+    else:
+        W = algo.linear_regression_log_loss(X_train, Y_train)
 
     if verbose > 0:
-        print("ts ar model: data.shape: ", data.shape)
-        print("ts ar model: windows.shape: ", windows.shape)
+        # print("ts ar model: data.shape: ", data.shape)
+        # print("ts ar model: windows.shape: ", windows.shape)
         print("ts ar model: X shape: ", X.shape)
         print("ts ar model: Y shape: ", Y.shape)
-        print("train r^2:", est.score(X_train, Y_train))
-        print("test r^2:", est.score(X_test, Y_test))
+        try:
+            print("train r^2:", est.score(X_train, Y_train))
+            print("test r^2:", est.score(X_test, Y_test))
+        except UnboundLocalError:  # not using sklearn estimator
+            pass
         diffs = Y[1:] - Y[:-1]
         # print("column variances of diffs", np.var(diffs, axis=0))
         # print("column variances of Y", np.var(Y, axis=0))
         # print("var(diffs), var(Y)", np.var(diffs), np.var(Y))
         print("var(diffs) / var(Y)", np.var(diffs) / np.var(Y))
-        print("coeffs: ")
-        for i in range(0, len(W), 10):
-            print(W[i:(i + 10)])
+        # print("coeffs: ")
+        # for i in range(0, len(W), 10):
+        #     print(W[i:(i + 10)])
+
         # Y_hat_train = est.predict(X_train)
         # Y_hat_test = est.predict(X_test)
         # print("Y_hat_train var / 1e3", np.var(Y_hat_train, axis=0) / 1e3)
@@ -147,7 +157,7 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
                       X_test=X_test, Y_test=Y_test, W_train=W)
 
 
-# def load_ecg_x_y_w_for_recording(recording, window_len=8):
+# def load_ecg_x_y_w_for_recording(recording, window_len=4):
 #     return _load_x_y_w_for_ar_model(recording, window_len=window_len)
 
 # @_memory.cache
@@ -161,12 +171,12 @@ def _load_x_y_w_for_ar_model(data, window_len=8, verbose=1, N_train=-1):
 
 # @_memory.cache()  # caching is no faster than just recomputing with ridge
 # @_memory.cache()
-def load_sharee_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=.5):
+def load_sharee_x_y_w_for_recording_id(rec_id, window_len=4, limit_nhours=.5):
     rec = sharee.load_recording(rec_id, limit_nhours=limit_nhours)
     return _load_x_y_w_for_ar_model(rec, window_len=window_len)
 
 
-def load_sharee_tasks(window_len=8, validate=False, **kwargs):
+def load_sharee_tasks(window_len=4, validate=False, **kwargs):
     rec_ids = sharee.load_recording_ids()
     for i, rec_id in enumerate(rec_ids):
         task = load_sharee_x_y_w_for_recording_id(
@@ -182,12 +192,12 @@ def load_sharee_tasks(window_len=8, validate=False, **kwargs):
 # ------------------------------------------------ incart
 
 # @_memory.cache()
-def load_incart_x_y_w_for_recording_id(rec_id, window_len=8, limit_nhours=1):
+def load_incart_x_y_w_for_recording_id(rec_id, window_len=4, limit_nhours=1):
     rec = incart.load_recording(rec_id, limit_nhours=limit_nhours)
     return _load_x_y_w_for_ar_model(rec, window_len=window_len)
 
 
-def load_incart_tasks(window_len=8, validate=False, **kwargs):
+def load_incart_tasks(window_len=4, validate=False, **kwargs):
     rec_ids = incart.load_recording_ids()
     for i, rec_id in enumerate(rec_ids):
         task = load_incart_x_y_w_for_recording_id(
