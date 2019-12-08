@@ -19,19 +19,20 @@ def neighbor_compression(X, labels, k, niters=1000, verbose=1):
 
     # one-hot encode labels
     nclasses = len(np.unique(labels))
-    Y = np.zeros((N, nclasses), dtype=np.float32)
-    for i in range(N):
-        Y[i, labels[i]] = 1
+    # Y = np.zeros((N, nclasses), dtype=np.float32)
+    # for i in range(N):
+    #     Y[i, labels[i]] = 1
 
     # intialize centroids
     C, _ = kmeans(X, k)
 
     # convert to torch tensors for optimization
-    Y = torch.from_numpy(Y)
+    # Y = torch.from_numpy(Y)
     C = torch.tensor(C.T, requires_grad=True)  # not from_numpy to allow grad
     X = torch.from_numpy(X)
     # having trained class affinities doesn't really seem to help
     Z = torch.randn(k, nclasses, requires_grad=True)
+    labels = torch.from_numpy(labels)
 
     loss_fn = torch.nn.CrossEntropyLoss()
     # opt = optim.SGD([C], lr=.1, momentum=.9)
@@ -92,37 +93,44 @@ def neighbor_compression(X, labels, k, niters=1000, verbose=1):
 # or at least, ProtoNN without the L0 constraints; also with simultaneous
 # updates to all param tensors instead of alternating
 # def protonn(X, labels, k, niters=10000, verbose=1, gamma=1):
-def protonn(X, labels, k, niters=1000, verbose=1, gamma=-1):
+def protonn(X, labels, k, d=-1, niters=1000, verbose=1, gamma=-1):
     N, D = X.shape
     if gamma < 1:
         gamma = 1. / np.sqrt(D)  # makes it struggle less / not make NaNs
         # gamma = 1. / D
+    if d < 1:
+        d = D
 
-    # one-hot encode labels
+    labels = torch.from_numpy(labels)
+
+    # # one-hot encode labels
     nclasses = len(np.unique(labels))
-    Y = np.zeros((N, nclasses), dtype=np.float32)
-    for i in range(N):
-        Y[i, labels[i]] = 1
+    # Y = np.zeros((N, nclasses), dtype=np.float32)
+    # for i in range(N):
+    #     Y[i, labels[i]] = 1
 
     # intialize centroids
     C, _ = kmeans(X, k)
-    # W = np.random.randn(D, D).astype(np.float32)
+    W = np.random.randn(D, d).astype(np.float32)
     # C = C @ W
-    W = np.eye(D).astype(np.float32)  # better than randn init
+    # W = np.eye(D).astype(np.float32)[:, :d]  # better than randn init
 
     # convert to torch tensors for optimization
-    Y = torch.from_numpy(Y)
+    # Y = torch.from_numpy(Y)
     C = torch.tensor(C.T, requires_grad=True)  # not from_numpy to allow grad
     X = torch.from_numpy(X)
     W = torch.tensor(W, requires_grad=True)  # not from_numpy to allow grad
+    # gamma = torch.tensor(np.array(gamma, dtype=np.float32), requires_grad=True)
+    # labels = torch.from_numpy(labels)
     # print("W", W[:10])
     # return None, None, None
 
     Z = torch.randn(k, nclasses, requires_grad=True)
 
     loss_fn = torch.nn.CrossEntropyLoss()
-    # opt = optim.SGD([C, W, Z], lr=.1, momentum=.9)
-    opt = optim.SGD([C, Z], lr=.1, momentum=.9)
+    # opt = optim.SGD([C, Z], lr=.1, momentum=.9)
+    opt = optim.SGD([C, W, Z], lr=.1, momentum=.9)
+    # opt = optim.SGD([C, W, Z, gamma], lr=.1, momentum=.9)
 
     nbatches = 1
     batch_sz = int(np.ceil(N / nbatches))
@@ -155,9 +163,17 @@ def protonn(X, labels, k, niters=1000, verbose=1, gamma=-1):
             dists_sq += embed_norms_sq
             dists_sq += C_norms_sq
             neg_dists_sq = -dists_sq
+            # print("gamma: ", gamma)
+            # use_gamma = torch.clamp(gamma, max=1.)
+            # use_gamma = torch.clamp(gamma, 0, 1)
+            # use_gamma = F.sigmoid(gamma)
+            # gamma = torch.min((1, gamma))
+            # gamma = torch.max((0, gamma))
+
             assert np.min(_to_np(dists_sq)) >= 0
             assert np.max(_to_np(neg_dists_sq)) <= 0
             similarities = torch.exp(gamma * neg_dists_sq)  # N x C
+            # similarities = torch.exp(use_gamma * neg_dists_sq)  # N x C
 
             logits = similarities @ Z
             # print("logits shape: ", logits.shape)
@@ -182,6 +198,7 @@ def protonn(X, labels, k, niters=1000, verbose=1, gamma=-1):
             # update params and print how we're doing
             # loss = loss_fn(logits, labels)
             loss = loss_fn(logits, labels_batch)
+            # loss += .01 * (gamma * gamma).sum()
             loss.backward()
             opt.step()
             opt.zero_grad()
@@ -192,8 +209,158 @@ def protonn(X, labels, k, niters=1000, verbose=1, gamma=-1):
                 acc = torch.mean((labels[perm_idxs] == labels_hat).type(torch.float))
                 print("acc: ", acc)
                 print("{:.3f}".format(loss.item()))  # convert to python float
+                # print("gamma: ", gamma.item())
 
     return _to_np(C).T, _to_np(W), _to_np(Z)
+
+
+def stochastic_neighbor_compression(X, labels, k, niters=1000, verbose=1, gamma=-1):
+    N, D = X.shape
+    if gamma < 1:
+        gamma = 1. / np.sqrt(D)  # makes it struggle less / not make NaNs
+        # gamma = 1. / D
+
+    # labels = torch.from_numpy(labels)
+
+    # one-hot encode labels
+    nclasses = len(np.unique(labels))
+    # Y = np.zeros((N, nclasses), dtype=np.float32)
+    # for i in range(N):
+    #     Y[i, labels[i]] = 1
+
+    # intialize centroids by sampling from each class in proportion to its
+    # relative frequency
+    # labels = labels.ravel()
+    uniq_lbls, counts = np.unique(labels, return_counts=True)
+    sort_idxs = np.argsort(counts)
+    uniq_lbls = uniq_lbls[sort_idxs]
+    counts = counts[sort_idxs]
+    remaining_counts = np.cumsum(counts[::-1])[::-1]
+    nremaining_samples = k
+
+    # C = np.empty((k, D), dtype=np.float32)
+    C = []
+    C_labels = []
+    # affinities = np.zeros((k, nclasses), dtype=np.float32)
+
+    for i, lbl in enumerate(uniq_lbls):
+        count = counts[i]
+        target_frac = count / remaining_counts[i]
+        target_nsamples = int(nremaining_samples * target_frac)
+        target_nsamples = max(1, target_nsamples)
+        nremaining_samples -= target_nsamples
+
+        lbl_idxs = np.where(labels == lbl)[0]
+        # print("lbl, count, num lbl idxs: ", lbl, count, len(lbl_idxs))
+        assert len(lbl_idxs) == count
+        # X_subs = X[lbl_idxs]
+        use_idxs = np.random.choice(count, size=target_nsamples, replace=False)
+        keep_idxs = lbl_idxs[use_idxs]
+        C.append(X[keep_idxs])
+        C_labels.append(np.full(target_nsamples, lbl, dtype=np.int32))
+    C = np.vstack(C)
+    # print("k, C shape", k, C.shape)
+    assert C.shape == (k, D)
+    C_labels = np.hstack(C_labels)
+    assert C_labels.shape == (k,)
+
+    # C = np.random.randn(k, D).astype(np.float32)
+
+    # one-hot encode labels
+    affinities = torch.zeros((k, nclasses), dtype=torch.int)
+    for kk in range(k):
+        affinities[kk, C_labels[kk]] = 1
+
+    # W = np.random.randn(D, D).astype(np.float32)
+    # C = C @ W
+    # W = np.eye(D).astype(np.float32)  # better than randn init
+
+    # convert to torch tensors for optimization
+    # Y = torch.from_numpy(Y)
+    C = torch.tensor(C.T, requires_grad=True)  # not from_numpy to allow grad
+    X = torch.from_numpy(X)
+    labels = torch.from_numpy(labels)
+    gamma = torch.tensor(np.array(gamma, dtype=np.float32))
+    # affinities = torch.from_numpy(affinities)
+    # print("labels shape: ", labels.shape)
+    # print("uniq labels: ", uniq_lbls)
+    # print("uniq label counts: ", counts)
+    # labels = labels.reshape(-1, 1)
+    # print("labels shape: ", labels.shape)
+    # W = torch.tensor(W, requires_grad=True)  # not from_numpy to allow grad
+    # print("W", W[:10])
+    # return None, None, None
+
+    Z = torch.randn(k, nclasses, requires_grad=True)
+
+    loss_fn = torch.nn.CrossEntropyLoss()
+    opt = optim.SGD([C], lr=.1, momentum=.9)
+    # opt = optim.SGD([C, gamma], lr=.1, momentum=.9)
+
+    nbatches = 1
+    batch_sz = int(np.ceil(N / nbatches))
+    # batch_sz = 1024
+    # nbatches = int(np.ceil(N / batch_sz))
+
+    # for t in range(50):
+    for t in range(niters):
+        perm = np.random.permutation(N)
+        for b in range(nbatches):
+            start_idx = b * batch_sz
+            end_idx = min(start_idx + batch_sz, N)
+            perm_idxs = perm[start_idx:end_idx]
+
+            X_batch = X[perm_idxs]
+            labels_batch = labels[perm_idxs]
+
+            # temperature = np.log2(t + 2)  # +2 so that it starts at 1 at t=0
+
+            # compute distances to all centroids
+            # embeddings = X @ W
+            # embeddings = X_batch @ W
+            embeddings = X_batch
+            embed_norms_sq = (embeddings * embeddings).sum(dim=1, keepdim=True)
+
+            # prods = torch.mm(embeddings, C)
+            prods = embeddings @ C
+            C_norms_sq = torch.sum(C * C, dim=0)
+            dists_sq = -2 * prods
+            dists_sq += embed_norms_sq
+            dists_sq += C_norms_sq
+            neg_dists_sq = -dists_sq
+            # print("min dist sq: ", torch.min(dists_sq).item())
+            assert np.min(_to_np(dists_sq)) >= -1e-3
+            assert np.max(_to_np(neg_dists_sq)) <= 1e-3
+            similarities = torch.exp(gamma * neg_dists_sq)  # N x C
+
+            # logits = similarities @ affinities
+            logits = similarities @ Z
+
+            # print("logits shape: ", logits.shape)
+            # print("logits shape: ", logits.shape)
+            # print("dists_sq shape", dists_sq.shape)
+            # print("dists_sq", dists_sq[:10])
+            # print("C_norms_sq", C_norms_sq)
+            # print("embed_norms_sq", embed_norms_sq[:10])
+            # print("similarities", similarities[:10])
+            # print("logits", logits[:10])
+
+            # update params and print how we're doing
+            loss = loss_fn(logits, labels_batch)
+            loss += gamma * gamma
+            loss.backward()
+            opt.step()
+            opt.zero_grad()
+            # if (verbose > 0) and (t % 10 == 0):
+            # if (verbose > 0) and ((t + 1) % 10 == 0):
+            if (verbose > 0) and ((t + 1) % 10 == 0) and b == 0:
+                _, labels_hat = torch.max(logits, dim=1)
+                acc = torch.mean((labels[perm_idxs] == labels_hat).type(torch.float))
+                print("acc: {:.3f}".format(acc.item()))
+                print("{:.3f}".format(loss.item()))  # convert to python float
+                # print("gamma: ", gamma.item())
+
+    return _to_np(C).T, C_labels
 
 
 def linear_regression_log_loss(
@@ -255,7 +422,8 @@ def linear_regression_log_loss(
 def main():
     # N, D = 10000, 20
     N, D = 1000, 20
-    niters = 1000
+    # niters = 1000
+    niters = 10000
     X = np.random.randn(N, D).astype(np.float32)
 
     # ------------------------ linear regression with weird loss
@@ -266,10 +434,13 @@ def main():
     # ------------------------ neighbor compression
     K = 16
     nclasses = 5
-    labels = torch.randint(nclasses, size=(N,))
+    # labels = torch.randint(nclasses, size=(N,))
+    # labels = _to_np(torch.randint(nclasses, size=(N,)))
+    labels = np.random.randint(nclasses, size=(N,))
 
     # C, W, Z = protonn(X, labels, K, niters=niters)  # significantly worse
-    C, centroid_labels = neighbor_compression(X, labels, K, niters=niters)
+    C, centroid_labels = stochastic_neighbor_compression(X, labels, K, niters=niters)
+    # C, centroid_labels = neighbor_compression(X, labels, K, niters=niters)
     print("centroid_labels:", centroid_labels)
     print("C type, shape", type(C), C.shape)
     print("done")
