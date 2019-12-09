@@ -257,9 +257,9 @@ def _get_all_independent_vars():
 # @functools.lru_cache(maxsize=None)
 # @_memory.cache
 def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
-                            **kwargs):
+                            Y_train, **kwargs):
     est = _estimator_for_method_id(method_id, **hparams_dict)
-    est.fit(X_train, W_train, **kwargs)
+    est.fit(X_train, W_train, Y=Y_train, **kwargs)
     return est
 
 
@@ -289,7 +289,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
                     pprint.pprint(hparams_dict)
 
                 est = _fitted_est_for_hparams(
-                    method_id, hparams_dict, task.X_train, task.W_train)
+                    method_id, hparams_dict,
+                    task.X_train, task.W_train, task.Y_train)
                 try:
                     for trial in range(ntrials):
                         metrics = _eval_amm(
@@ -406,6 +407,8 @@ def main():
     # main_cifar10(methods='Exact')
     main_ecg(methods='Exact')
     # main_ecg(methods='Bolt')
+    # main_ecg(methods='Mithral')
+    # main_ecg(methods=['Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Bolt+Perm'])
     # main_caltech(methods=['Bolt+Perm', 'Bolt'])
 

@@ -6,8 +6,9 @@ import os
 import numpy as np
 # import pathlib as pl
 from sklearn import linear_model
+from scipy import signal
 
-from python.datasets import caltech, sharee, incart
+from python.datasets import caltech, sharee, incart, ucr
 from python import misc_algorithms as algo
 from python import window
 
@@ -531,6 +532,27 @@ def load_cifar100_tasks():
 
 def load_cifar_tasks():
     return load_cifar10_tasks() + load_cifar100_tasks()
+
+
+# ================================================================ ucr
+
+def _load_compressed_train_test_for_dset(dset_name, k=128, min_train_sz=-1):
+    dset = ucr.UCRDataset(dset_name)
+    if min_train_sz is None or min_train_sz < k:
+        min_train_sz = k
+
+    dset.X_train = signal.resample()
+
+    nclasses = len(np.unique(dset.y_test))
+    if nclasses > k:
+        return None  # some class will have no centroids
+    if len(dset.X_train) < min_train_sz:
+        return None
+    X_train, y_train = algo.stochastic_neighbor_compression(
+        dset.X_train, dset.Y_train, k)
+
+    info = {'lbls_train': y_train, 'lbls_test': dset.y_test}
+
 
 
 # ================================================================ main
