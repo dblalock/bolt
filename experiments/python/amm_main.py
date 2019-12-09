@@ -83,69 +83,6 @@ def _blosc_compress(buff, elem_sz=8, compressor='zstd', shuffle=blosc.SHUFFLE):
                           cname=compressor, shuffle=shuffle)
 
 
-def nbits_cost(diffs, signed=True):
-    """
-    >>> [nbits_cost(i) for i in [0, 1, 2, 3, 4, 5, 7, 8, 9]]
-    [0, 2, 3, 3, 4, 4, 4, 5, 5]
-    >>> [nbits_cost(i) for i in [-1, -2, -3, -4, -5, -7, -8, -9]]
-    [1, 2, 3, 3, 4, 4, 4, 5]
-    >>> nbits_cost([])
-    array([], dtype=int32)
-    >>> nbits_cost([0, 2, 1, 0])
-    array([0, 3, 2, 0], dtype=int32)
-    >>> nbits_cost([0, 2, 1, 3, 4, 0], signed=False)
-    array([0, 2, 1, 2, 3, 0], dtype=int32)
-    """
-    if diffs is None:
-        return None
-
-    diffs = np.asarray(diffs, dtype=np.int32)
-    if diffs.size == 0:
-        return np.array([], dtype=np.int32)
-
-    if not signed:
-        assert np.all(diffs >= 0)
-        pos_idxs = diffs > 0
-        nbits = np.zeros(diffs.shape, dtype=np.int32)
-        nbits[pos_idxs] = np.floor(np.log2(diffs[pos_idxs])) + 1
-        nbits[~pos_idxs] = 0
-        return nbits
-
-    # shape = diffs.shape
-    # diffs = diffs.ravel()
-    # zero_idxs = (diffs == 0)
-    # # nbits[zero_idxs] = 0
-    # nbits = np.zeros(len(diffs), dtype=np.int32)
-    # diffs = diffs[~zero_idxs]
-    # equiv_diffs = np.abs(diffs) + (diffs >= 0).astype(np.int32)  # +1 if < 0
-    # # assert np.all(np.abs(diffs) > 0)
-    # # assert np.all(equiv_diffs > 0)
-    # nbits[~zero_idxs] = np.ceil(np.log2(equiv_diffs)) + 1
-    # nbits = np.asarray(nbits, dtype=np.int32)  # next line can't handle scalar
-    # assert np.all(nbits >= 0)
-
-    shape = diffs.shape
-    diffs = diffs.ravel()
-    equiv_diffs = np.abs(diffs) + (diffs >= 0).astype(np.int32)  # +1 if < 0
-    nbits = np.ceil(np.log2(equiv_diffs)) + 1
-    nbits = np.asarray(nbits, dtype=np.int32)  # next line can't handle scalar
-    nbits[diffs == 0] = 0
-    assert np.all(nbits >= 0)
-
-    return nbits.reshape(shape) if nbits.size > 1 else nbits[0]  # unpack if scalar
-
-
-def zigzag_encode(x):
-    """
-    >>> [zigzag_encode(i) for i in [0,1,-1,2,-2,3,-3]]
-    [0, 1, 2, 3, 4, 5, 6]
-    >>> zigzag_encode([0,1,-1,2,-2,3,-3])
-    array([0, 1, 2, 3, 4, 5, 6], dtype=int32)
-    """
-    x = np.asarray(x, dtype=np.int32)
-    return (np.abs(x) << 1) - (x > 0).astype(np.int32)
-
-
 # def _compute_compression_metrics(ar, quantize_to_type=np.uint16):
 def _compute_compression_metrics(ar):
     # if quantize_to_type is not None:
@@ -212,12 +149,27 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
 
     # eval softmax accuracy TODO better criterion for when to try this
     if task.info:
-        b = task.info['biases']
-        logits_amm = Y_hat + b
-        logits_orig = Y + b
+        if task.info['problem'] == 'classify_linear':
+            b = task.info['biases']
+            logits_amm = Y_hat + b
+            logits_orig = Y + b
+            lbls_amm = np.argmax(logits_amm, axis=1).astype(np.int32)
+            lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
+        elif task.info['problem'] == '1nn':
+            lbls_centroids = task.info['lbls_centroids']
+            lbls_hat = []
+            W = task.W_test
+            centroid_norms_sq = (W * W).sum(axis=0)
+            sample_norms_sq = (task.X_test * task.X_test).sum(
+                axis=1, keepdims=True)
+            for prods in [Y_hat, Y]:
+                prods = Y_hat
+                dists_sq_hat = (-2 * prods) + centroid_norms_sq + sample_norms_sq
+                # assert np.min(dists_sq_hat) > -1e-5  # sanity check
+                centroid_idx = np.argmin(dists_sq_hat, axis=1)
+                lbls_hat.append(lbls_centroids[centroid_idx])
+            lbls_amm, lbls_orig = lbls_hat
         lbls = task.info['lbls_test'].astype(np.int32)
-        lbls_amm = np.argmax(logits_amm, axis=1).astype(np.int32)
-        lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
         metrics['acc_amm'] = np.mean(lbls_amm == lbls)
         metrics['acc_orig'] = np.mean(lbls_orig == lbls)
 
@@ -323,14 +275,21 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 limit_ntasks=5, compression_metrics=True)
                  # limit_ntasks=10, compression_metrics=False)
+                 limit_ntasks=5, compression_metrics=True)
 
 
 def main_caltech(methods=None, saveas='caltech'):
     tasks = md.load_caltech_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas,
                  ntasks=510, limit_ntasks=10)
+
+
+def main_ucr(methods=None, saveas='ucr'):
+    limit_ntasks = 10
+    tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
+    return _main(tasks=tasks, methods=methods, saveas=saveas,
+                 ntasks=23, limit_ntasks=limit_ntasks)
 
 
 def main_cifar10(methods=None, saveas='cifar10'):
@@ -346,7 +305,7 @@ def main_cifar100(methods=None, saveas='cifar100'):
 def main_all(methods=None):
     main_cifar10(methods=methods)
     main_cifar100(methods=methods)
-    main_ecg(methods=methods)
+    # main_ecg(methods=methods)
     main_caltech(methods=methods)
 
 
@@ -405,12 +364,15 @@ def main():
     # main_ecg(methods=['Bolt', 'PQ', 'Exact'])
     # main_caltech(methods=['Bolt', 'PQ', 'Exact'])
     # main_cifar10(methods='Exact')
-    main_ecg(methods='Exact')
+    # main_ecg(methods='Exact')
     # main_ecg(methods='Bolt')
     # main_ecg(methods='Mithral')
     # main_ecg(methods=['Bolt', 'Exact'])
     # main_ecg(methods=['Bolt', 'Bolt+Perm'])
     # main_caltech(methods=['Bolt+Perm', 'Bolt'])
+    # main_caltech(methods=['Exact', 'Bolt'])
+    main_ucr(methods=['Exact', 'Bolt'])
+    # main_ucr(methods=['Exact'])
 
     # imgs = md._load_caltech_train_imgs()
     # imgs = md._load_caltech_test_imgs()

@@ -23,11 +23,66 @@ def all_ucr_datasets():
 
 class UCRDataset(object):
 
-    def __init__(self, dataset_dir, sep='\t'):
-        self.name = dataset_dir
-        self.X_train, self.y_train = read_ucr_train_data(dataset_dir, sep=sep)
-        self.X_test, self.y_test = read_ucr_test_data(dataset_dir, sep=sep)
+    def __init__(self, dataset_dir, sep='\t', precondition=True):
         self.name = name_from_dir(dataset_dir)
+        self.X_train, y_train = read_ucr_train_data(dataset_dir, sep=sep)
+        self.X_test, y_test = read_ucr_test_data(dataset_dir, sep=sep)
+
+        # self.y_train = y_train
+        # self.y_test = y_test
+
+        all_lbls = np.r_[y_train, y_test]
+        uniq_lbls = np.unique(all_lbls)
+        new_lbls = np.argsort(uniq_lbls)  # same if labels are 0..(nclasses-1)
+        mapping = dict(zip(uniq_lbls, new_lbls))
+        self.y_train = np.array([mapping[lbl] for lbl in y_train])
+        self.y_test = np.array([mapping[lbl] for lbl in y_test])
+
+        # self.nclasses = len(uniq_lbls)
+
+        # MelbournePedestrian has nans, even though not in missing data list
+        for X in (self.X_train, self.X_test):
+            for d in range(X.shape[1]):
+                col = X[:, d]
+                nan_idxs = np.isnan(col)
+                if nan_idxs.sum() > 0:
+                    # print("self.name: ", self.name)
+                    # print("original number of nans: ", np.sum(nan_idxs))
+                    # X[nan_idxs, d] = col.mean()
+                    fillval = np.nanmedian(col)
+                    if np.isnan(fillval):
+                        # handle all-nan cols, which happens in Crop
+                        fillval = np.nanmedian(X)
+                    col[nan_idxs] = fillval
+                    # np.nan_to_num(col, copy=False, nan=np.median(col))
+                    # print("new number of nans: ", np.isnan(X[:, d]).sum())
+                    # print("new number of nans: ", np.isnan(col).sum())
+
+        if precondition:
+            # weaker than znormalizating since one offset and scale applied
+            # to all dims and all samples in both train and test sets; this
+            # is basically just here because the values in MelbournePedestrian
+            # are huge and screw up numerical algorithms
+            self.orig_mean = np.mean(self.X_train)
+            self.X_train -= self.orig_mean
+            self.X_test -= self.orig_mean
+            self.orig_std = np.std(self.X_train)
+            self.X_train /= self.orig_std
+            self.X_test /= self.orig_std
+
+        assert len(self.X_train) == len(self.y_train)
+        assert len(self.X_test) == len(self.y_test)
+
+        # if self.name == 'MelbournePedestrian':
+        #     print("I am MelbournePedestrian!")
+        #     print('new labels: ', new_lbls)
+        #     print("X_train num nans", np.sum(np.isnan(self.X_train)))
+        #     print("X_test num nans", np.sum(np.isnan(self.X_test)))
+        #     # import sys; sys.exit()
+
+        # if self.name == 'Wafer':
+        #     print("original uniq labels train", np.unique(self.y_train))
+        #     print("original uniq labels test", np.unique(self.y_test))
 
 
 def all_ucr_dataset_dirs():
@@ -52,7 +107,7 @@ def _ucr_datasets_in_dir(dirpath):
 
 @_memory.cache
 def _readtxt(path, sep=None):
-    return np.genfromtxt(path, delimiter=sep)
+    return np.genfromtxt(path, delimiter=sep).astype(np.float32)
 
 
 def read_data_file(path, sep=None, mean_norm=False):

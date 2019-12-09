@@ -471,7 +471,8 @@ def load_cifar10_tasks():
     # print(lbls_train[:100])
     # print("acc: ", acc)
 
-    info = {'biases': b, 'lbls_train': lbls_train, 'lbls_test': lbls_test}
+    info = {'problem': 'classify_linear', 'biases': b,
+            'lbls_train': lbls_train, 'lbls_test': lbls_test}
 
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
                        name='CIFAR-10 Softmax', info=info)]
@@ -536,23 +537,62 @@ def load_cifar_tasks():
 
 # ================================================================ ucr
 
-def _load_compressed_train_test_for_dset(dset_name, k=128, min_train_sz=-1):
+@_memory.cache
+def _load_ucr_tasks_for_dset(
+        dset_name, D=320, k=128, min_train_sz=-1, use_test_sz=1896):
+
     dset = ucr.UCRDataset(dset_name)
     if min_train_sz is None or min_train_sz < k:
         min_train_sz = k
-
-    dset.X_train = signal.resample()
 
     nclasses = len(np.unique(dset.y_test))
     if nclasses > k:
         return None  # some class will have no centroids
     if len(dset.X_train) < min_train_sz:
         return None
-    X_train, y_train = algo.stochastic_neighbor_compression(
-        dset.X_train, dset.Y_train, k)
+    if len(dset.X_test) < use_test_sz:
+        return None
 
-    info = {'lbls_train': y_train, 'lbls_test': dset.y_test}
+    X_train = dset.X_train
+    X_test = dset.X_test[:use_test_sz]
+    dset.y_test = dset.y_test[:use_test_sz]
+    X_train = signal.resample(X_train, D, axis=1).astype(np.float32)
+    X_test = signal.resample(X_test, D, axis=1).astype(np.float32)
 
+    print(f"compressing training set for dset: {dset.name}")
+    # centroids, lbls_centroids = algo.neighbor_compression(
+    centroids, lbls_centroids = algo.stochastic_neighbor_compression(
+        X_train, dset.y_train, k)
+
+    info = {'problem': '1nn', 'lbls_train': dset.y_train,
+            'lbls_test': dset.y_test, 'lbls_centroids': lbls_centroids}
+
+    W = centroids.T
+    Y_train = X_train @ W
+    Y_test = X_test @ W
+
+    # centroid_idxs = np.argmax(Y_train, axis=1)
+    # lbls_hat = lbls_centroids[centroid_idxs]
+    # print("initial train acc: ", np.mean(lbls_hat == dset.y_train))
+    # centroid_idxs = np.argmax(Y_test, axis=1)
+    # lbls_hat = lbls_centroids[centroid_idxs]
+    # print("initial test acc: ", np.mean(lbls_hat == dset.y_test))
+    # import sys; sys.exit()
+
+    return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
+                       name=f'ucr {dset.name} k={k}', info=info)]
+
+
+def load_ucr_tasks(limit_ntasks=-1, **kwargs):
+    all_tasks = []
+    for dset_name in ucr.all_ucr_dataset_dirs():
+        tasks = _load_ucr_tasks_for_dset(dset_name, **kwargs)
+        if tasks is not None:
+            all_tasks += tasks
+        if (limit_ntasks > 0) and (len(all_tasks) >= limit_ntasks):
+            all_tasks = all_tasks[:limit_ntasks]
+            break
+    return all_tasks
 
 
 # ================================================================ main
