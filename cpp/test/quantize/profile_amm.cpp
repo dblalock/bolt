@@ -40,6 +40,27 @@ static constexpr int kNtrials = 20;
 // static constexpr int kNreps = 1;
 // static constexpr int kNtrials = 1;
 
+// static constexpr int CALTECH_N = 49284;
+// static constexpr int CALTECH_D = 27;
+// static constexpr int CALTECH_M = 2;
+// static constexpr int CIFAR10_N = 10000;
+// static constexpr int CIFAR10_D = 512;
+// static constexpr int CIFAR10_M = 10;
+// static constexpr int CIFAR100_N = 10000;
+// static constexpr int CIFAR100_D = 512;
+// static constexpr int CIFAR100_M = 100;
+// static constexpr int UCR_N = 1896;
+// static constexpr int UCR_D = 320;
+// static constexpr int UCR_M = 128;
+
+struct MatmulTaskShape { int N, D, M; const char* name; };
+static constexpr MatmulTaskShape kCaltechTaskShape {49284, 27, 2, "Caltech"};
+static constexpr MatmulTaskShape kCifar10TaskShape {10000, 512, 10, "Cifar10"};
+static constexpr MatmulTaskShape kCifar100TaskShape {
+    10000, 512, 100, "Cifar100"};
+static constexpr MatmulTaskShape kUcrTaskShape {1896, 320, 128, "UCR"};
+
+
 TEST_CASE("amm profile smoketest", "[amm][profile]") {
     static constexpr int64_t nrows_enc = 128*100;   // number of rows to encode
     static constexpr int ncols = 64;               // length of vectors
@@ -490,16 +511,19 @@ template<class InputT> struct input_type_traits {};
 template<> struct input_type_traits<float> {
     using scales_type = float;
     using offsets_type = float;
+    const char* name = "f32";
     // using output_type = float;
 };
 template<> struct input_type_traits<int16_t> {
     using scales_type = uint8_t;
     using offsets_type = int16_t;
+    const char* name = "i16";
     // using output_type = int16_t;
 };
 template<> struct input_type_traits<int8_t> {
     using scales_type = uint8_t;    // doesn't matter; unused
     using offsets_type = uint8_t;  // doesn't matter; unused
+    const char* name = "i8";
     // using output_type = int8_t;
 };
 
@@ -672,7 +696,9 @@ struct mithral_amm {
         tmp_codes(N, ncodebooks), codes(N, ncodebooks),
         tmp_luts_f32(N, ncodebooks * lut_sz), luts(N, ncodebooks * lut_sz),
         out_mat(N, M)
-    {}
+    {
+        luts.setRandom();  // so profiling without LUT creation isn't undefined
+    }
 
     void encode(const InputT* X) {
         // TODO add strides to these funcs so that we can pad number
@@ -777,16 +803,17 @@ struct mithral_amm_task {
 
         X.setRandom();
         Q.setRandom();
-        // splitdims.unaryExpr([](const uint32_t x) { return x % D; });
     }
 
     void encode() { amm.encode(X.data()); }
     void lut() { amm.lut(Q.data()); }
     void scan() { amm.scan(); }
 
-    void run_matmul() {
+    void run_matmul(bool create_lut=true) {
         encode();
-        lut();
+        if (create_lut) {
+            lut();
+        }
         scan();
     }
 
@@ -1298,13 +1325,14 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
     std::string msg;
     printf("----\n");
+    std::string dtype_str(input_type_traits<InputT>{}.name);
     // switch(InputT)
-    std::string dtype_str("f32");
-    if (sizeof(InputT) == 1) {
-        dtype_str = "i8";
-    } else if (sizeof(InputT) == 2) {
-        dtype_str = "i16";
-    }
+    // std::string dtype_str("f32");
+    // if (sizeof(InputT) == 1) {
+    //     dtype_str = "i8";
+    // } else if (sizeof(InputT) == 2) {
+    //     dtype_str = "i16";
+    // }
 
     // msg = string_with_format(
     //     "%s amm mithral tile N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
@@ -1337,7 +1365,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
     //         codes.data(), codes_packed.data(), luts.data(), out_mat.data(), out_ncols));
 
     msg = string_with_format(
-        "%s amm mithral      N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        "%3s amm mithral      N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
@@ -1349,7 +1377,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
             codes.data(), codes_packed.data(), luts.data(), out_mat.data()));
 
     msg = string_with_format(
-        "%s amm mithral lut  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        "%3s amm mithral lut  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out_mat.data(), out_mat.size(),
@@ -1362,7 +1390,7 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 
     // X.setRandom();
     msg = string_with_format(
-        "%s amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
+        "%3s amm mithral enc  N, D, M, ncodebooks: %6d, %3d, %3d, %2d \t",
         dtype_str.c_str(), orig_N, D, M, ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         codes_packed.data(), codes_packed.size(),
@@ -1405,24 +1433,66 @@ void _profile_mithral(uint32_t N, uint32_t D, uint32_t M, int ncodebooks,
                       float lut_work_multiplier=2) {
     mithral_amm_task<InputT> task(N, D, M, ncodebooks, lut_work_multiplier);
 
+    printf("---- ncodebooks=%d\n", ncodebooks);
+
     std::string msg;
-    // printf("----\n");
-    // switch(InputT)
-    std::string dtype_str("f32");
-    if (sizeof(InputT) == 1) {
-        dtype_str = "i8 ";
-    } else if (sizeof(InputT) == 2) {
-        dtype_str = "i16";
-    }
+    auto dtype_str = input_type_traits<InputT>{}.name;
+    // std::string dtype_str("f32");
+    // if (sizeof(InputT) == 1) {
+    //     dtype_str = "i8 ";
+    // } else if (sizeof(InputT) == 2) {
+    //     dtype_str = "i16";
+    // }
 
     msg = string_with_format(
-        "%s amm mithral N, D, M, C, lut_work_coef: "
+        "%3s amm mithral       N, D, M, C, lut_work_coef:\t"
             "%6d, %3d, %3d, %2d, %.1f\t",
-        dtype_str.c_str(), N, D, M, ncodebooks, lut_work_multiplier);
+        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         task.output().data(), task.output().size(),
-        task.run_matmul());
+        task.run_matmul(true));
 
+    msg = string_with_format(
+        "%3s amm mithral nolut N, D, M, C:\t\t\t\t\t"
+            "%6d, %3d, %3d, %2d\t\t",
+        dtype_str, N, D, M, ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.run_matmul(false));
+
+    msg = string_with_format(
+        "%3s amm mithral enc   N, D, M, C, lut_work_coef:\t"
+            "%6d, %3d, %3d, %2d, %.1f\t",
+        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.encode());
+    msg = string_with_format(
+        "%3s amm mithral lut   N, D, M, C, lut_work_coef:\t"
+            "%6d, %3d, %3d, %2d, %.1f\t",
+        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.lut());
+    msg = string_with_format(
+        "%3s amm mithral scan  N, D, M, C, lut_work_coef:\t"
+            "%6d, %3d, %3d, %2d, %.1f\t",
+        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.scan());
+}
+
+template<class InputT=float>
+void _profile_mithral(const MatmulTaskShape& shape, std::vector<int> ncodebooks,
+                      float lut_work_multiplier=2)
+{
+    auto dtype_name = input_type_traits<InputT>{}.name;
+    printf("------------------------ %s %s\n", shape.name, dtype_name);
+    for (auto c : ncodebooks) {
+        _profile_mithral<InputT>(
+            shape.N, shape.D, shape.M, c, lut_work_multiplier);
+    }
 }
 
 // TEST_CASE("amm actual matmul multisplit", "[amm][multisplit][mithral][matmul][profile]") {
@@ -1450,16 +1520,30 @@ void _profile_mithral(uint32_t N, uint32_t D, uint32_t M, int ncodebooks,
 
 TEST_CASE("amm mithral", "[amm][multisplit][mithral][matmul][profile]") {
      std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+
+     float lut_work_const = 2;
+     _profile_mithral<int8_t>(kCaltechTaskShape, ncodebooks, lut_work_const);
+     _profile_mithral(kCaltechTaskShape, ncodebooks, lut_work_const);
+     _profile_mithral(kCifar10TaskShape, ncodebooks, lut_work_const);
+     _profile_mithral(kCifar100TaskShape, ncodebooks, lut_work_const);
+     _profile_mithral(kUcrTaskShape, ncodebooks, lut_work_const);
+
      // std::vector<int> ncodebooks {4};
-    for (auto c  : ncodebooks) {
-        printf("ncodebooks = %d\n", c);
-        _profile_mithral<float>(10000, 512, 10, c);  // cifar10
-        _profile_mithral<float>(10000, 512, 100, c); // cifar100
-        _profile_mithral<float>(223590, 96, 12, c);  // ecg
-        _profile_mithral<int16_t>(223590, 96, 12, c);  // ecg
-        _profile_mithral<float>(49284, 27, 2, c);   // caltech
-        _profile_mithral<int8_t>(49284, 27, 2, c);   // caltech
-    }
+    // for (auto c  : ncodebooks) {
+    //     printf("ncodebooks = %d\n", c);
+    //     // printf("----\n");
+    //     _profile_mithral<float>(10000, 512, 10, c);  // cifar10
+    //     // printf("----\n");
+    //     _profile_mithral<float>(10000, 512, 100, c); // cifar100
+    //     // printf("----\n");
+    //     _profile_mithral<float>(223590, 96, 12, c);  // ecg
+    //     // printf("----\n");
+    //     _profile_mithral<int16_t>(223590, 96, 12, c);  // ecg
+    //     // printf("----\n");
+    //     _profile_mithral<float>(49284, 27, 2, c);   // caltech
+    //     // printf("----\n");
+    //     _profile_mithral<int8_t>(49284, 27, 2, c);   // caltech
+    // }
 }
 
 template<class MatrixT1, class MatrixT2, class MatrixT3>
@@ -1498,14 +1582,16 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
 
     // time it
     {
-        std::string msg = string_with_format("blas matmul N, D, M: %6d, %3d, %3d \t",
+        std::string msg = string_with_format(
+            "blas matmul               N, D, M:    %6d, %3d, %3d \t\t\t",
             orig_N, orig_D, orig_M);
         REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
             out.data(), out.size(),
             _run_matmul(X, W, out));
     }
     {
-        std::string msg = string_with_format("our  matmul N, D, M: %6d, %3d, %3d \t",
+        std::string msg = string_with_format(
+            "our  matmul               N, D, M:    %6d, %3d, %3d \t\t\t",
             orig_N, orig_D, orig_M);
         REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
             out.data(), out.size(),
@@ -1514,7 +1600,7 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
 }
 
 template<class MatrixT>
-void _run_sketchX_matmul(const MatrixT& X,
+void _run_matmul_fixedW(const MatrixT& X,
                         const MatrixT& W0, MatrixT& sketch_out,
                         const MatrixT& W1, MatrixT& out)
 {
@@ -1523,7 +1609,7 @@ void _run_sketchX_matmul(const MatrixT& X,
 }
 
 template<class MatrixT>
-void _run_our_sketchX_matmul(const MatrixT& X,
+void _run_our_matmul_fixedW(const MatrixT& X,
                             const MatrixT& W0, MatrixT& sketch_out,
                             const MatrixT& W1, MatrixT& out)
 {
@@ -1535,17 +1621,8 @@ void _run_our_sketchX_matmul(const MatrixT& X,
     sgemm_colmajor(sketch_out.data(), W1.data(), N, d, M, out.data());
 }
 
-void _profile_sketchX_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
-    // using MatrixT = ColMatrix<float>;
-    using MatrixT = ColMatrix<float>; // faster for small batches, else slower
-
-    // N = 1024; // TODO rm
-    // N = 2048; // TODO rm
-    // N = 4096; // TODO rm
-
-    // auto orig_N = N;
-    // auto orig_D = D;
-    // auto orig_M = M;
+void _profile_sketch_matmul_fixedW(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
+    using MatrixT = ColMatrix<float>;
 
     // create random matrices of the appropriate sizes
     MatrixT X(N, D); X.setRandom();
@@ -1560,16 +1637,16 @@ void _profile_sketchX_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
 
     // time it
     std::string msg;
-    msg = string_with_format("blas sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+    msg = string_with_format("blas sketch fixedW matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
         N, D, M, d);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
-        _run_sketchX_matmul(X, W0, sketch_out, W1, out));
-    msg = string_with_format("our  sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+        _run_matmul_fixedW(X, W0, sketch_out, W1, out));
+    msg = string_with_format("our  sketch fixedW matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
         N, D, M, d);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
-        _run_our_sketchX_matmul(X, W0, sketch_out, W1, out));
+        _run_our_matmul_fixedW(X, W0, sketch_out, W1, out));
 }
 
 template<class MatrixT>
@@ -1614,59 +1691,92 @@ void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
 
     // time it
     std::string msg;
-    msg = string_with_format("blas sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+    msg = string_with_format("blas sketch matmul        N, D, M, d: %6d, %3d, %3d, %3d \t",
         N, D, M, d);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         _run_sketch_matmul(X, W, S, sketch_X, sketch_W, out));
-    msg = string_with_format("our  sketch matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+    msg = string_with_format("our  sketch matmul        N, D, M, d: %6d, %3d, %3d, %3d \t",
         N, D, M, d);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         _run_our_sketch_matmul(X, W, S, St, sketch_X, sketch_W, out));
 }
 
-TEST_CASE("amm exact matmul", "[amm][matmul][exact][profile]") {
+// void _profile_matmul_methods(std::vector<int> dvals, int N, int D, int M) {
+void _profile_matmul_methods(std::vector<int> dvals, MatmulTaskShape shape) {
+    auto N = shape.N;
+    auto D = shape.D;
+    auto M = shape.M;
+    // printf("------------------------ %s\n", shape.name.c_str());
+    printf("------------------------ %s\n", shape.name);
+    for (auto d : dvals) {
+        _profile_sketch_matmul(N, D, M, d);
+        _profile_sketch_matmul_fixedW(N, D, M, d);
+    }
+    _profile_matmul(N, D, M);
+}
+
+TEST_CASE("amm linear approx matmul", "[amm][matmul][linear][profile]") {
     int N, D, M;
     // std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 32, 48, 64};
     std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128}; // TODO uncomment above
 
-    N = 10000; D = 512; M = 10;          // cifar10
-    for (auto d : dvals) {
-        _profile_sketch_matmul(N, D, M, d);
-    }
-    _profile_matmul(N, 512, M);
+    _profile_matmul_methods(dvals, kCaltechTaskShape);
+    _profile_matmul_methods(dvals, kCifar10TaskShape);
+    _profile_matmul_methods(dvals, kCifar100TaskShape);
+    _profile_matmul_methods(dvals, kUcrTaskShape);
+
+    // _profile_matmul_methods(dvals, CIFAR10_N, CIFAR10_D, CIFAR10_M);
+    // _profile_matmul_methods(dvals, CIFAR100_N, CIFAR100_D, CIFAR100_M);
+    // _profile_matmul_methods(dvals, CALTECH_N, CALTECH_D, CALTECH_M);
+    // _profile_matmul_methods(dvals, UCR_N, UCR_D, UCR_M);
 
 
-    // TODO uncomment below
+    // N = CIFAR10_N; D = CIFAR10_D; M = CIFAR10_M;
+    // for (auto d : dvals) {
+    //     _profile_sketch_matmul(N, D, M, d);
+    //     _profile_sketch_matmul_fixedW(N, D, M, d);
+    // }
+    // _profile_matmul(N, D, M);
 
 
-    N = 10000; D = 512; M = 100;        // cifar100
-    for (auto d : dvals) {
-        if (d > D || d > M) { continue; }
-        _profile_sketch_matmul(N, D, M, d);
-        // _profile_matmul(N, d, M);
-    }
-    _profile_matmul(N, 512, M);
+//     N = CIFAR100_N; D = CIFAR100_D; M = CIFAR100_M;
+//     for (auto d : dvals) {
+//         if (d > D || d > M) { continue; }
+//         _profile_sketch_matmul(N, D, M, d);
+//         _profile_sketch_matmul_fixedW(N, D, M, d);
+//     }
+//     _profile_matmul(N, D, M);
 
-//    D = 24; M = 3;                      // ecg
-    D = 96; M = 12;                      // ecg
-    // std::vector<int> ecg_nvals {57593, 115193, 230393};
-    std::vector<int> ecg_nvals {223590};
-    for (auto n : ecg_nvals) {
-        for (auto d : dvals) {
-            if (d > D || d > M) { continue; }
-            _profile_sketch_matmul(n, D, M, d);
-        }
-        _profile_matmul(n, D, M);
-    }
+// //    D = 24; M = 3;                      // ecg
+//     // D = 96; M = 12;                      // ecg
+//     // // std::vector<int> ecg_nvals {57593, 115193, 230393};
+//     // std::vector<int> ecg_nvals {223590};
+//     // for (auto n : ecg_nvals) {
+//     //     for (auto d : dvals) {
+//     //         if (d > D || d > M) { continue; }
+//     //         _profile_sketch_matmul(n, D, M, d);
+//     //         _profile_sketch_matmul_fixedW(n, D, M, d);
+//     //     }
+//     //     _profile_matmul(n, D, M);
+//     // }
+//     // N = 1896; D = 320; M = 128;
+//     N = UCR_N; D = UCR_D; M = UCR_M;
+//     for (auto d : dvals) {
+//         if (d > D || d > M) { continue; }
+//         _profile_sketch_matmul(N, D, M, d);
+//         _profile_sketch_matmul_fixedW(N, D, M, d);
+//     }
+//     _profile_matmul(N, D, M);
 
-    N = 49284; D = 27; M = 2;          // caltech
-    for (auto d : dvals) {
-        if (d > D || d > M) { continue; }
-        _profile_sketch_matmul(N, D, M, d);
-    }
-    _profile_matmul(N, D, M);
+//     N = CALTECH_N; D = CALTECH_D; M = CALTECH_M;
+//     for (auto d : dvals) {
+//         if (d > D || d > M) { continue; }
+//         _profile_sketch_matmul(N, D, M, d);
+//         _profile_sketch_matmul_fixedW(N, D, M, d);
+//     }
+//     _profile_matmul(N, D, M);
 }
 
 // TEST_CASE("amm profile bolt scan colmajor tile4", "[amm][bolt][profile]") {
