@@ -37,7 +37,7 @@
 	#define PRINTLN_VAR(VAR) \
 		std::cout << #VAR ":\n" << VAR << "\n";
 
-	template<int MAX_LEN=512>
+	template<int MAX_LEN=1024>
 	static inline std::string string_with_format(const char* fmt, ...) {
 		va_list args;
 		va_start(args, fmt);

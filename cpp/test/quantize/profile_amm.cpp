@@ -710,9 +710,16 @@ struct mithral_amm {
     }
 
     void lut(const float* Q) {
-        mithral_lut_sparse(Q, M, D, ncodebooks, centroids,
-            idxs, nnz_per_centroid, out_offset_sum, out_scale,
-            tmp_luts_f32.data(), luts.data());
+        // printf("nnz_per_centroid=%d ", nnz_per_centroid);
+        if (nnz_per_centroid > 0) {
+            mithral_lut_sparse(Q, M, D, ncodebooks, centroids,
+                idxs, nnz_per_centroid, out_offset_sum, out_scale,
+                tmp_luts_f32.data(), luts.data());
+        } else {
+            // printf("dense lut! ");
+            mithral_lut_dense(Q, M, D, ncodebooks, centroids,
+                out_offset_sum, out_scale, tmp_luts_f32.data(), luts.data());
+        }
     }
 
     void scan() {
@@ -758,7 +765,7 @@ struct mithral_amm_task {
     static constexpr int max_splitvals = 1 << 4;
 
     mithral_amm_task(int N, int D, int M, int ncodebooks,
-                     float lut_work_multiplier):
+                     float lut_work_const):
         N_padded(N % scan_block_nrows == 0 ? N :
             N + (scan_block_nrows - (N % scan_block_nrows))),
         centroids(ncentroids * ncodebooks, D),
@@ -767,7 +774,7 @@ struct mithral_amm_task {
         splitvals(max_splitvals, nsplits),
         encode_scales(nsplits),
         encode_offsets(nsplits),
-        nnz_per_centroid(lut_work_multiplier * D / ncodebooks),
+        nnz_per_centroid(lut_work_const * D / ncodebooks),
         idxs(ncodebooks, nnz_per_centroid),
         amm(N_padded, D, M, ncodebooks, centroids.data(),
             splitdims.data(), splitvals.data(),
@@ -1429,55 +1436,99 @@ void _profile_multisplit(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 }
 
 template<class InputT=float>
-void _profile_mithral(uint32_t N, uint32_t D, uint32_t M, int ncodebooks,
-                      float lut_work_multiplier=2) {
-    mithral_amm_task<InputT> task(N, D, M, ncodebooks, lut_work_multiplier);
+void _profile_mithral(const char* dset_name, uint32_t N, uint32_t D, uint32_t M,
+                      int ncodebooks, float lut_work_const=2) {
+    mithral_amm_task<InputT> task(N, D, M, ncodebooks, lut_work_const);
+    // mithral_amm_task<InputT> task_dense(N, D, M, ncodebooks, -1);
 
     printf("---- ncodebooks=%d\n", ncodebooks);
 
     std::string msg;
     auto dtype_str = input_type_traits<InputT>{}.name;
-    // std::string dtype_str("f32");
-    // if (sizeof(InputT) == 1) {
-    //     dtype_str = "i8 ";
-    // } else if (sizeof(InputT) == 2) {
-    //     dtype_str = "i16";
-    // }
 
-    msg = string_with_format(
-        "%3s amm mithral       N, D, M, C, lut_work_coef:\t"
-            "%6d, %3d, %3d, %2d, %.1f\t",
-        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        task.output().data(), task.output().size(),
-        task.run_matmul(true));
+    // auto fmt = "%7s, %3s, %22s, N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t";
+    auto fmt_as_cppstring = string_with_format(
+        "%s, %-3s, %%-22s, N D M C lut_work_coef:,"
+        "%6d, %3d, %3d, %2d, %%4.1f,\t", dset_name, dtype_str,
+        N, D, M, ncodebooks);
+    auto fmt = fmt_as_cppstring.c_str();
+    // printf("fmt string: %s\n", fmt.c_str());
+    // fmt = string_with_format()
 
-    msg = string_with_format(
-        "%3s amm mithral nolut N, D, M, C:\t\t\t\t\t"
-            "%6d, %3d, %3d, %2d\t\t",
-        dtype_str, N, D, M, ncodebooks);
+    // overall AMM time
+    msg = string_with_format(fmt, "amm mithral nolut", -1.f);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         task.output().data(), task.output().size(),
         task.run_matmul(false));
 
-    msg = string_with_format(
-        "%3s amm mithral enc   N, D, M, C, lut_work_coef:\t"
-            "%6d, %3d, %3d, %2d, %.1f\t",
-        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
+    msg = string_with_format(fmt, "amm mithral sparselut", lut_work_const);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         task.output().data(), task.output().size(),
-        task.encode());
-    msg = string_with_format(
-        "%3s amm mithral lut   N, D, M, C, lut_work_coef:\t"
-            "%6d, %3d, %3d, %2d, %.1f\t",
-        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
+        task.run_matmul(true));
+    // msg = string_with_format( // time if lut already created
+    //     "%3s amm mithral nolut      N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t",
+    //     dtype_str, N, D, M, ncodebooks, -1.f);
+        // "%3s amm mithral nolut      N, D, M, C:\t\t\t\t\t"
+        //     "%6d, %3d, %3d, %2d\t\t",
+        // dtype_str, N, D, M, ncodebooks);
+    // msg = string_with_format(fmt, dset_name, "amm mithral nolut",
+    //     dtype_str, N, D, M, ncodebooks, -1.f);
+
+    // using dense centroids, which slows down LUT creation
+    auto orig_nnz_per_centroid = task.amm.nnz_per_centroid;
+    task.amm.nnz_per_centroid = -1;
+    // msg = string_with_format(  // still overall AMM time
+    //     "%3s amm mithral denselut   N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t",
+    //     dtype_str, N, D, M, ncodebooks, -1.f);
+    // msg = string_with_format(fmt, dset_name, "amm mithral denselut",
+    //     dtype_str, N, D, M, ncodebooks, -1.f);
+    msg = string_with_format(fmt, "amm mithral denselut", -1.f);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.run_matmul(true));
+    // msg = string_with_format(  // just time to create lut with dense centroids
+    //     "%3s amm mithral lut dense  N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t",
+    //     dtype_str, N, D, M, ncodebooks, -1.f);
+    // msg = string_with_format(fmt, dset_name, "amm mithral lut dense",
+    //     dtype_str, N, D, M, ncodebooks, -1.f);
+    msg = string_with_format(fmt, "amm mithral lut dense", -1.f);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         task.output().data(), task.output().size(),
         task.lut());
-    msg = string_with_format(
-        "%3s amm mithral scan  N, D, M, C, lut_work_coef:\t"
-            "%6d, %3d, %3d, %2d, %.1f\t",
-        dtype_str, N, D, M, ncodebooks, lut_work_multiplier);
+    task.amm.nnz_per_centroid = orig_nnz_per_centroid;
+
+    // back to sparse centroids
+    // msg = string_with_format(
+    //     "%3s amm mithral lut sparse N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t",
+    //     dtype_str, N, D, M, ncodebooks, lut_work_const);
+    // msg = string_with_format(fmt, dset_name, "amm mithral lut sparse",
+    //     dtype_str, N, D, M, ncodebooks, lut_work_const);
+    msg = string_with_format(fmt, "amm mithral lut sparse", lut_work_const);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.lut());
+    // msg = string_with_format(
+    //     "%3s amm mithral enc        N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t",
+    //     dtype_str, N, D, M, ncodebooks, lut_work_const);
+    // msg = string_with_format(fmt, dset_name, "amm mithral enc",
+    //     dtype_str, N, D, M, ncodebooks, lut_work_const);
+    msg = string_with_format(fmt, "amm mithral enc", -1.f);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        task.output().data(), task.output().size(),
+        task.encode());
+    // msg = string_with_format(
+    //     "%3s amm mithral scan       N, D, M, C, lut_work_coef:\t"
+    //         "%6d, %3d, %3d, %2d, %.1f\t",
+    //     dtype_str, N, D, M, ncodebooks, lut_work_const);
+    // msg = string_with_format(fmt, dset_name, "amm mithral scan",
+    //     dtype_str, N, D, M, ncodebooks, lut_work_const);
+    msg = string_with_format(fmt, "amm mithral scan", -1.f);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         task.output().data(), task.output().size(),
         task.scan());
@@ -1485,13 +1536,13 @@ void _profile_mithral(uint32_t N, uint32_t D, uint32_t M, int ncodebooks,
 
 template<class InputT=float>
 void _profile_mithral(const MatmulTaskShape& shape, std::vector<int> ncodebooks,
-                      float lut_work_multiplier=2)
+                      float lut_work_const=2)
 {
     auto dtype_name = input_type_traits<InputT>{}.name;
     printf("------------------------ %s %s\n", shape.name, dtype_name);
     for (auto c : ncodebooks) {
         _profile_mithral<InputT>(
-            shape.N, shape.D, shape.M, c, lut_work_multiplier);
+            shape.name, shape.N, shape.D, shape.M, c, lut_work_const);
     }
 }
 
@@ -1558,17 +1609,9 @@ void _run_our_matmul(const MatrixT1& X, const MatrixT2& Q, MatrixT3& out) {
         X.data(), Q.data(), (int)X.rows(), (int)X.cols(), (int)Q.cols(), out.data());
 }
 
-void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
-    // using MatrixT = ColMatrix<float>;
-    using MatrixT = ColMatrix<float>; // faster for small batches, else slower
-
-    // N = 1024; // TODO rm
-    // N = 2048; // TODO rm
-    // N = 4096; // TODO rm
-
-    auto orig_N = N;
-    auto orig_D = D;
-    auto orig_M = M;
+void _profile_matmul(const char* dset_name, uint32_t N, uint32_t D, uint32_t M)
+{
+    using MatrixT = ColMatrix<float>;
 
     // create random data
     MatrixT X(N, D);
@@ -1580,19 +1623,26 @@ void _profile_matmul(uint32_t N, uint32_t D, uint32_t M) {
     MatrixT out(N, M);
     out.setRandom();
 
+    std::string msg;
+    auto fmt_as_cppstring = string_with_format(
+        "%s, %%-25s, N D M:,   %6d, %3d, %3d,\t\t\t", dset_name, N, D, M);
+    auto fmt = fmt_as_cppstring.c_str();
+
     // time it
     {
-        std::string msg = string_with_format(
-            "blas matmul               N, D, M:    %6d, %3d, %3d \t\t\t",
-            orig_N, orig_D, orig_M);
+        // std::string msg = string_with_format(
+        //     "blas matmul               N, D, M:    %6d, %3d, %3d \t\t\t",
+        //     orig_N, orig_D, orig_M);
+        msg = string_with_format(fmt, "blas matmul");
         REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
             out.data(), out.size(),
             _run_matmul(X, W, out));
     }
     {
-        std::string msg = string_with_format(
-            "our  matmul               N, D, M:    %6d, %3d, %3d \t\t\t",
-            orig_N, orig_D, orig_M);
+        // std::string msg = string_with_format(
+        //     "our  matmul               N, D, M:    %6d, %3d, %3d \t\t\t",
+        //     orig_N, orig_D, orig_M);
+        msg = string_with_format(fmt, "our matmul");
         REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
             out.data(), out.size(),
             _run_our_matmul(X, W, out));
@@ -1621,7 +1671,9 @@ void _run_our_matmul_fixedW(const MatrixT& X,
     sgemm_colmajor(sketch_out.data(), W1.data(), N, d, M, out.data());
 }
 
-void _profile_sketch_matmul_fixedW(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
+void _profile_sketch_matmul_fixedW(const char* dset_name, uint32_t N,
+    uint32_t D, uint32_t M, uint32_t d)
+{
     using MatrixT = ColMatrix<float>;
 
     // create random matrices of the appropriate sizes
@@ -1635,15 +1687,21 @@ void _profile_sketch_matmul_fixedW(uint32_t N, uint32_t D, uint32_t M, uint32_t 
     MatrixT out(N, M);
     out.setRandom();
 
-    // time it
     std::string msg;
-    msg = string_with_format("blas sketch fixedW matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
-        N, D, M, d);
+    auto fmt_as_cppstring = string_with_format(
+        "%s, %%-25s, N D M d:, %6d, %3d, %3d, %3d,\t", dset_name, N, D, M, d);
+    auto fmt = fmt_as_cppstring.c_str();
+
+    // time it
+    // msg = string_with_format("blas sketch fixedW matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+    //     N, D, M, d);
+    msg = string_with_format(fmt, "blas sketch fixedW matmul");
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         _run_matmul_fixedW(X, W0, sketch_out, W1, out));
-    msg = string_with_format("our  sketch fixedW matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
-        N, D, M, d);
+    // msg = string_with_format("our  sketch fixedW matmul N, D, M, d: %6d, %3d, %3d, %3d \t",
+    //     N, D, M, d);
+    msg = string_with_format(fmt, "our sketch fixedW matmul");
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         _run_our_matmul_fixedW(X, W0, sketch_out, W1, out));
@@ -1672,7 +1730,9 @@ void _run_our_sketch_matmul(
     sgemm_colmajor(X_sketched.data(), W_sketched.data(), N, d, M, out.data());
 }
 
-void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
+void _profile_sketch_matmul(const char* dset_name, uint32_t N, uint32_t D,
+    uint32_t M, uint32_t d)
+{
     using MatrixT = ColMatrix<float>;
 
     // create random matrices of the appropriate sizes
@@ -1689,15 +1749,21 @@ void _profile_sketch_matmul(uint32_t N, uint32_t D, uint32_t M, uint32_t d) {
     MatrixT out(N, M);
     out.setRandom();
 
-    // time it
     std::string msg;
-    msg = string_with_format("blas sketch matmul        N, D, M, d: %6d, %3d, %3d, %3d \t",
-        N, D, M, d);
+    auto fmt_as_cppstring = string_with_format(
+        "%s, %%-25s, N D M d:, %6d, %3d, %3d, %3d,\t", dset_name, N, D, M, d);
+    auto fmt = fmt_as_cppstring.c_str();
+
+    // time it
+    // msg = string_with_format("blas sketch matmul        N, D, M, d: %6d, %3d, %3d, %3d \t",
+    //     N, D, M, d);
+    msg = string_with_format(fmt, "blas sketch matmul");
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         _run_sketch_matmul(X, W, S, sketch_X, sketch_W, out));
-    msg = string_with_format("our  sketch matmul        N, D, M, d: %6d, %3d, %3d, %3d \t",
-        N, D, M, d);
+    // msg = string_with_format("our  sketch matmul        N, D, M, d: %6d, %3d, %3d, %3d \t",
+    //     N, D, M, d);
+    msg = string_with_format(fmt, "our sketch matmul");
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         _run_our_sketch_matmul(X, W, S, St, sketch_X, sketch_W, out));
@@ -1711,10 +1777,10 @@ void _profile_matmul_methods(std::vector<int> dvals, MatmulTaskShape shape) {
     // printf("------------------------ %s\n", shape.name.c_str());
     printf("------------------------ %s\n", shape.name);
     for (auto d : dvals) {
-        _profile_sketch_matmul(N, D, M, d);
-        _profile_sketch_matmul_fixedW(N, D, M, d);
+        _profile_sketch_matmul(shape.name, N, D, M, d);
+        _profile_sketch_matmul_fixedW(shape.name, N, D, M, d);
     }
-    _profile_matmul(N, D, M);
+    _profile_matmul(shape.name, N, D, M);
 }
 
 TEST_CASE("amm linear approx matmul", "[amm][matmul][linear][profile]") {

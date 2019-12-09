@@ -85,7 +85,7 @@ static inline void print_dist_stats(const std::string& name, int64_t N,
 #define REPEATED_PROFILE_DIST_COMPUTATION(                              \
     NREPS, NAME, NTRIALS, DISTS_PTR, NUM_DISTS, EXPR)                   \
     do {                                                                \
-        std::cout << NAME << " (" << NREPS << "x" << NTRIALS << "): ";  \
+        std::cout << NAME << "(" << NREPS << "x" << NTRIALS << "):";  \
         for (int __rep = 0; __rep < NREPS; __rep++) {                   \
             double __t_min = std::numeric_limits<double>::max();        \
             for (int __i = 0; __i < NTRIALS; __i++) {                   \
@@ -97,7 +97,7 @@ static inline void print_dist_stats(const std::string& name, int64_t N,
                 prevent_optimizing_away_dists(DISTS_PTR, NUM_DISTS);    \
                 __t_min = __t < __t_min ? __t : __t_min;                \
             }                                                           \
-            printf("%.3f (%.3e/s), ", __t_min,                          \
+            printf(", %7.3f, (%.3e/s)", __t_min,                        \
                 static_cast<double>(NUM_DISTS * 1e3 / __t_min));        \
         }                                                               \
         printf("\n");                                                   \
@@ -139,17 +139,16 @@ static inline void print_dist_stats(const std::string& name, int64_t N,
                 prevent_optimizing_away_dists(DISTS_PTR, NUM_DISTS);    \
                 __t_min = __t < __t_min ? __t : __t_min;                \
             }                                                           \
-            printf("%.5g (%lld/s), ", __t_min / 1e3,                    \
+            printf("%.5g, (%lld/s), ", __t_min / 1e3,                   \
                 static_cast<int64_t>(NUM_LOOP_ITERS * 1e6 / __t_min));  \
         }                                                               \
         printf("\n");                                                   \
     } while (0);
 
-// TODO put this func in array_utils
 template <class data_t, class len_t>
 static inline void randint_inplace(data_t* data, len_t len,
-                                   data_t min=std::numeric_limits<data_t>::min(),
-                                   data_t max=std::numeric_limits<data_t>::max())
+    data_t min=std::numeric_limits<data_t>::min(),
+    data_t max=std::numeric_limits<data_t>::max())
 {
     assert(data != nullptr);
     assert(len > 0);
