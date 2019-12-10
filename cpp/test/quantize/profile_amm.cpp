@@ -1746,7 +1746,7 @@ void _profile_sketch_matmul(const char* dset_name, uint32_t N, uint32_t D,
     // create output matrices to avoid malloc
     MatrixT sketch_X(N, d);
     sketch_X.setRandom();
-    MatrixT sketch_W(N, d);
+    MatrixT sketch_W(d, M);
     sketch_W.setRandom();
     MatrixT out(N, M);
     out.setRandom();
@@ -1771,24 +1771,30 @@ void _profile_sketch_matmul(const char* dset_name, uint32_t N, uint32_t D,
         _run_our_sketch_matmul(X, W, S, St, sketch_X, sketch_W, out));
 }
 
-template<bool UseOurGemm, bool SketchW, class SketchT, class MatrixT>
+// template<bool UseOurGemm, bool SketchW, class SketchT, class ColMatrixT>
+template<bool SketchW, class SketchT, class ColMatrixT>
 void _run_fancy_sketch_matmul(
-    const SketchT& sketch, const MatrixT& X, const MatrixT& W,
-    MatrixT& X_sketched, MatrixT& W_sketched, MatrixT& out)
+    const SketchT& sketch, const ColMatrixT& X, const ColMatrixT& Wt,
+    ColMatrixT& X_sketched, ColMatrixT& Wt_sketched, ColMatrixT& out)
 {
-    sketch(X, X_sketched, false);
+    // printf("\nsketching X\n");
+    sketch(X, X_sketched);
     if (SketchW) {
-        sketch(W, W_sketched, true /*transpose*/);
+        // printf("sketching W\n");
+        // sketch(W, W_sketched, true /*transpose*/);
+        sketch(Wt, Wt_sketched);
     }
-    if (UseOurGemm) {
-        auto N = (int)X_sketched.rows();
-        auto d = (int)X_sketched.cols();
-        auto M = (int)W_sketched.cols();
-        sgemm_colmajor(X_sketched.data(), W_sketched.data(),
-                       N, d, M, out.data());
-    } else {
-        out.noalias() = X_sketched * W_sketched;
-    }
+    // no option to use our gemm here since it would require transposing W
+    out.noalias() = X_sketched * Wt_sketched.transpose();
+    // if (UseOurGemm) {
+    //     auto N = (int)X_sketched.rows();
+    //     auto d = (int)X_sketched.cols();
+    //     auto M = (int)W_sketched.cols();
+    //     sgemm_colmajor(X_sketched.data(), W_sketched.data(),
+    //                    N, d, M, out.data());
+    // } else {
+    //     out.noalias() = X_sketched * W_sketched;
+    // }
 }
 
 void _profile_osnap(const char* dset_name, uint32_t N, uint32_t D,
@@ -1796,13 +1802,14 @@ void _profile_osnap(const char* dset_name, uint32_t N, uint32_t D,
 {
     using MatrixT = ColMatrix<float>;
     MatrixT X(N, D); X.setRandom();
-    MatrixT W(D, M); W.setRandom();
+    MatrixT Wt(M, D); Wt.setRandom();
 
     // create output matrices to avoid malloc
     MatrixT sketch_X(N, d);
     sketch_X.setRandom();
-    MatrixT sketch_W(N, d);
-    sketch_W.setRandom();
+    // MatrixT sketch_Wt(d, M);
+    MatrixT sketch_Wt(M, d);
+    sketch_Wt.setRandom();
     MatrixT out(N, M);
     out.setRandom();
 
@@ -1814,42 +1821,37 @@ void _profile_osnap(const char* dset_name, uint32_t N, uint32_t D,
 
     auto sketch = OsnapSketch(D, d, nsketches);
 
-    msg = string_with_format(fmt, "blas osnap");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out.data(), out.size(),
-        (_run_fancy_sketch_matmul<false, true>(
-            sketch, X, W, sketch_X, sketch_W, out)));
+    //
+    // sketching W takes almost no time, even for cifar100, so just
+    // report fixedW resuls to err on side of optimism and halve the
+    // execution time
+    //
+    // msg = string_with_format(fmt, "osnap");
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    //     out.data(), out.size(),
+    //     (_run_fancy_sketch_matmul<true>(
+    //         sketch, X, Wt, sketch_X, sketch_Wt, out)));
 
-    msg = string_with_format(fmt, "our osnap");
+    msg = string_with_format(fmt, "osnap fixedW");
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
-        (_run_fancy_sketch_matmul<true, true>(
-            sketch, X, W, sketch_X, sketch_W, out)));
-
-    msg = string_with_format(fmt, "blas osnap fixedW");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out.data(), out.size(),
-        (_run_fancy_sketch_matmul<false, false>(
-            sketch, X, W, sketch_X, sketch_W, out)));
-
-    msg = string_with_format(fmt, "our osnap fixedW");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        out.data(), out.size(),
-        (_run_fancy_sketch_matmul<true, false>(
-            sketch, X, W, sketch_X, sketch_W, out)));
+        (_run_fancy_sketch_matmul<false>(
+            sketch, X, Wt, sketch_X, sketch_Wt, out)));
 }
 
 void _profile_osnap(std::vector<int> dvals, std::vector<int> nsketches,
                     MatmulTaskShape shape)
 {
+    // assert(false); // are we in release mode?
     auto N = shape.N;
     auto D = shape.D;
     auto M = shape.M;
     printf("------------------------ %s\n", shape.name);
     for (auto d : dvals) {
         for (auto s : nsketches) {
+            if (s > d) { continue; }
             _profile_osnap(shape.name, N, D, M, d, s);
-}
+        }
     }
 }
 
@@ -1881,18 +1883,12 @@ TEST_CASE("amm osnap", "[amm][matmul][osnap][linear][profile]") {
     int N, D, M;
     // std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 32, 48, 64};
     std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128}; // TODO uncomment above
+    // std::vector<int> dvals {2}; // TODO uncomment above
     std::vector<int> nsketches {1, 2, 4};
+    // std::vector<int> nsketches {1};
 
-
-
-
-    // TODO pick up here by getting this working
-
-
-
-
-    // _profile_osnap(dvals, nsketches, kCaltechTaskShape);
-    // _profile_osnap(dvals, nsketches, kCifar10TaskShape);
-    // _profile_osnap(dvals, nsketches, kCifar100TaskShape);
-    // _profile_osnap(dvals, nsketches, kUcrTaskShape);
+    _profile_osnap(dvals, nsketches, kCaltechTaskShape);
+    _profile_osnap(dvals, nsketches, kCifar10TaskShape);
+    _profile_osnap(dvals, nsketches, kCifar100TaskShape);
+    _profile_osnap(dvals, nsketches, kUcrTaskShape);
 }
