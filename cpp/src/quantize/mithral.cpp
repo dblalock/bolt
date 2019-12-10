@@ -9,6 +9,251 @@
 #include "mithral.hpp"
 
 
+// ================================================================ encode
+
+void mithral_encode(
+    const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets, int ncodebooks, uint8_t* out)
+    // const float* scales, int ncodebooks, uint8_t* out)
+{
+    static constexpr bool DeferPerm = true;
+    static constexpr int block_nrows = 32;
+    static constexpr int nsplits_per_codebook = 4;
+    static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
+
+    size_t x_col_stride = nrows;
+    size_t out_col_stride = nrows;
+    size_t splitval_luts_stride = vals_per_split;
+    const float* x_ptrs[nsplits_per_codebook];
+    __m256i current_vsplitval_luts[nsplits_per_codebook];
+    __m256 current_vscales[nsplits_per_codebook];
+    __m256 current_voffsets[nsplits_per_codebook];
+
+    int split_idx = 0;
+    for (int c = 0; c < ncodebooks; c++) {
+        // compute input and output column starts
+        auto out_ptr = out + (out_col_stride * c);
+        for (int s = 0; s < nsplits_per_codebook; s++) {
+            auto splitdim = splitdims[split_idx + s];
+            x_ptrs[s] = X + (x_col_stride * splitdim);
+            auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
+            current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)splitvals_ptr));
+            current_vscales[s] = _mm256_set1_ps(scales[split_idx + s]);
+            current_voffsets[s] = _mm256_set1_ps(offsets[split_idx + s]);
+        }
+        split_idx += nsplits_per_codebook;
+
+        for (int b = 0; b < nblocks; b++) { // for each block
+            __m256i codes = _mm256_setzero_si256();
+            #pragma unroll
+            for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto vscales = current_vscales[s];
+                auto voffsets = current_voffsets[s];
+                // auto voffsets = _mm256_setzero_si256();
+                auto vsplitvals_lut = current_vsplitval_luts[s];
+                auto vsplitvals = _mm256_shuffle_epi8(
+                        vsplitvals_lut, codes); // codes = group_ids
+
+                auto x_ptr = x_ptrs[s];
+                x_ptrs[s] += block_nrows;
+
+                // true = signed saturation; better because cmp instructions
+                // exist for epi8 but not epu8
+                auto x_i8 = load_4xf32_as_32xepi8_or_epu8<true, !DeferPerm>(
+                    // x_ptr, vscales);
+                    x_ptr, vscales, voffsets);
+
+                auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
+                // map -1 -> 1; 0 stays the same
+                auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
+
+                if (s > 0) {
+                    // shift left by multiplying by 2, by adding to itself
+                    codes = _mm256_add_epi8(codes, codes);
+                }
+
+                // OR in new low bit
+                codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            if (DeferPerm) {
+                codes = _mm256_permutevar8x32_epi32(
+                    codes, _mm256_setr_epi32(0,4, 1,5, 2,6, 3,7));
+            }
+            _mm256_storeu_si256((__m256i*)out_ptr, codes);
+            out_ptr += block_nrows;
+        }
+    }
+}
+
+// version with int16 data
+void mithral_encode(const int16_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const uint8_t* shifts, const int16_t* offsets,
+    int ncodebooks, uint8_t* out)
+    // const float* scales, int ncodebooks, uint8_t* out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int simd_vec_sz = 32;
+    static constexpr int nsplits_per_codebook = 4;
+    static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
+
+    size_t x_col_stride = nrows;
+    size_t out_col_stride = nrows;
+    size_t splitval_luts_stride = vals_per_split;
+    const int16_t* x_ptrs[nsplits_per_codebook];
+    __m256i current_vsplitval_luts[nsplits_per_codebook];
+    uint8_t current_shifts[nsplits_per_codebook];
+    __m256i current_voffsets[nsplits_per_codebook];
+
+    int split_idx = 0;
+    for (int c = 0; c < ncodebooks; c++) {
+        // compute input and output column starts
+        uint8_t* out_ptr;
+        size_t out_block_stride;
+        out_ptr = out + (simd_vec_sz * c);
+        /// XXX this will be off by a factor of 2 with a packed layout
+        out_block_stride = block_nrows * ncodebooks;
+        for (int s = 0; s < nsplits_per_codebook; s++) {
+            auto splitdim = splitdims[split_idx + s];
+            x_ptrs[s] = X + (x_col_stride * splitdim);
+            auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
+            current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)splitvals_ptr));
+            current_shifts[s] = shifts[split_idx + s];
+            current_voffsets[s] = _mm256_set1_epi16(offsets[split_idx + s]);
+        }
+        split_idx += nsplits_per_codebook;
+
+        for (int b = 0; b < nblocks; b++) { // for each block
+            __m256i codes = _mm256_setzero_si256();
+            #pragma unroll
+            for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto shift = current_shifts[s];
+                auto voffsets = current_voffsets[s];
+
+                auto vsplitvals_lut = current_vsplitval_luts[s];
+                auto vsplitvals = _mm256_shuffle_epi8(
+                        vsplitvals_lut, codes); // codes = group_ids
+
+                auto x_i16_0_15 = load_si256i(x_ptrs[s]);
+                auto x_i16_16_31 = load_si256i(x_ptrs[s] + 16);
+                x_ptrs[s] += 32;
+
+                // offset and shift to get to i8 range
+                x_i16_0_15 = _mm256_adds_epi16(x_i16_0_15, voffsets);
+                x_i16_16_31 = _mm256_adds_epi16(x_i16_16_31, voffsets);
+                x_i16_0_15 = _mm256_srai_epi16(x_i16_0_15, shift);
+                x_i16_16_31 = _mm256_srai_epi16(x_i16_16_31, shift);
+
+                // convert i16 to i8; note that this puts it in a weird
+                // order
+                auto x_i8 = _mm256_packs_epi16(x_i16_0_15, x_i16_16_31);
+
+                auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
+                // map -1 -> 1; 0 stays the same
+                auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
+
+                if (s > 0) {
+                    // shift left by multiplying by 2, by adding to itself
+                    codes = _mm256_add_epi8(codes, codes);
+                }
+
+                // OR in new low bit
+                codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            // undo weird permutation from packing i16 -> i8
+            codes = _mm256_permute4x64_epi64(codes, _MM_SHUFFLE(3,1,2,0));
+            _mm256_storeu_si256((__m256i*)out_ptr, codes);
+            out_ptr += out_block_stride;
+        }
+    }
+}
+
+// version with int8 data
+void mithral_encode(const int8_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    int ncodebooks, uint8_t* out)
+    // const float* scales, int ncodebooks, uint8_t* out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int simd_vec_sz = 32;
+    static constexpr int nsplits_per_codebook = 4;
+    // static constexpr int ncodebooks_per_group = 2;
+    static constexpr int vals_per_split = 1 << nsplits_per_codebook; // 16
+    const int64_t nblocks = ceil(nrows / (double)block_nrows);
+    assert(nrows % block_nrows == 0); // TODO remove this constraint
+
+    size_t x_col_stride = nrows;
+    size_t out_col_stride = nrows;
+    size_t splitval_luts_stride = vals_per_split;
+    const int8_t* x_ptrs[nsplits_per_codebook];
+    __m256i current_vsplitval_luts[nsplits_per_codebook];
+
+    int split_idx = 0;
+    for (int c = 0; c < ncodebooks; c++) {
+        // compute input and output column starts
+        uint8_t* out_ptr;
+        size_t out_block_stride;
+        out_ptr = out + (simd_vec_sz * c);
+        out_block_stride = block_nrows * ncodebooks;
+        for (int s = 0; s < nsplits_per_codebook; s++) {
+            auto splitdim = splitdims[split_idx + s];
+            x_ptrs[s] = X + (x_col_stride * splitdim);
+            auto splitvals_ptr = all_splitvals + (vals_per_split * split_idx);
+            current_vsplitval_luts[s] = _mm256_broadcastsi128_si256(
+                load_si128i((const __m128i*)splitvals_ptr));
+        }
+        split_idx += nsplits_per_codebook;
+
+        for (int b = 0; b < nblocks; b++) { // for each block
+            __m256i codes = _mm256_setzero_si256();
+            #pragma unroll
+            for (int s = 0; s < nsplits_per_codebook; s++) {
+                auto vsplitvals_lut = current_vsplitval_luts[s];
+                auto vsplitvals = _mm256_shuffle_epi8(
+                        vsplitvals_lut, codes); // codes = group_ids
+
+                auto x_i8 = load_si256i(x_ptrs[s]);
+                x_ptrs[s] += block_nrows;
+
+                auto masks = _mm256_cmpgt_epi8(x_i8, vsplitvals);
+                // map -1 -> 1; 0 stays the same
+                auto masks_0_or_1 = _mm256_sign_epi8(masks, masks);
+
+                if (s > 0) {
+                    // shift left by multiplying by 2, by adding to itself
+                    codes = _mm256_add_epi8(codes, codes);
+                }
+
+                // OR in new low bit
+                codes = _mm256_or_si256(codes, masks_0_or_1);
+            }
+            _mm256_storeu_si256((__m256i*)out_ptr, codes);
+            out_ptr += out_block_stride;
+            // if (Layout == Layouts::BoltNoPack) { // doesn't help
+            //     __builtin_prefetch(out_ptr + 16 * out_block_stride);
+            // }
+        }
+    }
+    // }
+}
+
+// wrapper for int8 version that can deal with scales and offsets provided
+void mithral_encode(const int8_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const void* shifts_unused, const void* offsets_unused,
+    int ncodebooks, uint8_t* out)
+{
+    mithral_encode(
+        X, nrows, ncols, splitdims, all_splitvals, ncodebooks, out);
+}
+
 void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
                        uint32_t ncodebooks, uint8_t* codes_out)
 {
@@ -27,6 +272,7 @@ void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
     zip_bolt_colmajor<2>(codes_in, nrows, ncodebooks, codes_out);
 }
 
+// ================================================================ lut
 
 void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
     // const float* centroids, float* out)
@@ -48,7 +294,6 @@ void dense_lut_f32_fused(const float* Q, int nrows, int ncols, int ncodebooks,
 }
 
 
-//
 void dense_lut_f32(const float* Q, int nrows, int ncols, int ncodebooks,
                  const float* centroids, float* out)
 {
@@ -170,6 +415,7 @@ void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
     quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
 }
 
+// ================================================================ scan
 
 void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   int noutputs, const uint8_t* luts, uint8_t* dists_out)

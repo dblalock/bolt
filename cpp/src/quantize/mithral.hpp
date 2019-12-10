@@ -31,6 +31,28 @@
 
 // ------------------------ encoding
 
+void mithral_encode(
+    const float* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const float* scales, const float* offsets, int ncodebooks, uint8_t* out);
+
+// version with int16 data
+void mithral_encode(const int16_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const uint8_t* shifts, const int16_t* offsets,
+    int ncodebooks, uint8_t* out);
+
+// version with int8 data
+void mithral_encode(const int8_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    int ncodebooks, uint8_t* out);
+
+// wrapper for int8 version that can deal with scales and offsets provided
+void mithral_encode(const int8_t* X, int64_t nrows, int ncols,
+    const uint32_t* splitdims, const int8_t* all_splitvals,
+    const void* shifts_unused, const void* offsets_unused,
+    int ncodebooks, uint8_t* out);
+
 void zip_bolt_colmajor(const uint8_t* codes_in, int64_t nrows,
                        uint32_t ncodebooks, uint8_t* codes_out);
 
@@ -100,7 +122,7 @@ struct mithral_amm {
     void encode(const InputT* X) {
         // TODO add strides to these funcs so that we can pad number
         // of rows, so scan can rely on nrows being a multiple of 32
-        multisplit_encode_4b_colmajor(
+        mithral_encode(
             X, N, D, splitdims, splitvals, encode_scales,
             encode_offsets, ncodebooks, tmp_codes.data());
         zip_bolt_colmajor(tmp_codes.data(), N, ncodebooks, codes.data());

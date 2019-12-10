@@ -8,9 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		723501D223A038E600855387 /* mithral.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 723501D123A038E600855387 /* mithral.cpp */; };
+		723501D523A03B7700855387 /* profile_lut_creation.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 723501D423A03B7700855387 /* profile_lut_creation.cpp */; };
+		723501D723A03BE800855387 /* profile_encode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 723501D623A03BE800855387 /* profile_encode.cpp */; };
+		723501D923A03CF100855387 /* profile_scan.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 723501D823A03CF100855387 /* profile_scan.cpp */; };
+		723501DD23A0609B00855387 /* profile_amm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 723501DC23A0609B00855387 /* profile_amm.cpp */; };
 		725BA8572351557D00CACF41 /* test_avx_utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725BA8562351557D00CACF41 /* test_avx_utils.cpp */; };
 		725BA85923528EF800CACF41 /* avx_utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 725BA85823528EF700CACF41 /* avx_utils.cpp */; };
-		72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72A5A650234BC43100E4E256 /* profile_amm.cpp */; };
+		72A5A651234BC43100E4E256 /* profile_amm_old.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72A5A650234BC43100E4E256 /* profile_amm_old.cpp */; };
 		72B4CB0E23676106005D3A3D /* test_mithral.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72B4CB0D23676106005D3A3D /* test_mithral.cpp */; };
 		72B4DA4023677825005D3A3D /* single.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72B4D40E23677821005D3A3D /* single.cpp */; };
 		72B4DA4123677825005D3A3D /* complex_single.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 72B4D41423677821005D3A3D /* complex_single.cpp */; };
@@ -41,11 +45,17 @@
 
 /* Begin PBXFileReference section */
 		723501D123A038E600855387 /* mithral.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = mithral.cpp; sourceTree = "<group>"; };
+		723501D323A03A4100855387 /* amm_common.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = amm_common.hpp; sourceTree = "<group>"; };
+		723501D423A03B7700855387 /* profile_lut_creation.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_lut_creation.cpp; sourceTree = "<group>"; };
+		723501D623A03BE800855387 /* profile_encode.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_encode.cpp; sourceTree = "<group>"; };
+		723501D823A03CF100855387 /* profile_scan.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_scan.cpp; sourceTree = "<group>"; };
+		723501DC23A0609B00855387 /* profile_amm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = profile_amm.cpp; path = ../../test/quantize/profile_amm.cpp; sourceTree = "<group>"; };
+		723501DE23A0637800855387 /* profile_amm.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = profile_amm.hpp; sourceTree = "<group>"; };
 		725BA8562351557D00CACF41 /* test_avx_utils.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = test_avx_utils.cpp; path = ../test_avx_utils.cpp; sourceTree = "<group>"; };
 		725BA85823528EF700CACF41 /* avx_utils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = avx_utils.cpp; sourceTree = "<group>"; };
 		725ED6E8239F04FB00F1283F /* sketch.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = sketch.hpp; sourceTree = "<group>"; };
 		72A5A64F234A8E4A00E4E256 /* multisplit.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multisplit.hpp; sourceTree = "<group>"; };
-		72A5A650234BC43100E4E256 /* profile_amm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_amm.cpp; sourceTree = "<group>"; };
+		72A5A650234BC43100E4E256 /* profile_amm_old.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_amm_old.cpp; sourceTree = "<group>"; };
 		72B4CB0C23675F98005D3A3D /* mithral.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = mithral.hpp; sourceTree = "<group>"; };
 		72B4CB0D23676106005D3A3D /* test_mithral.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = test_mithral.cpp; sourceTree = "<group>"; };
 		72B4D33623677821005D3A3D /* .hgeol */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = .hgeol; sourceTree = "<group>"; };
@@ -1709,6 +1719,7 @@
 		72DE62D21E5F7467009B5E61 = {
 			isa = PBXGroup;
 			children = (
+				723501DC23A0609B00855387 /* profile_amm.cpp */,
 				72DE62DD1E5F7467009B5E61 /* Bolt */,
 				72DE62DC1E5F7467009B5E61 /* Products */,
 			);
@@ -1812,8 +1823,13 @@
 		72DE64631E5F74BB009B5E61 /* quantize */ = {
 			isa = PBXGroup;
 			children = (
+				723501D323A03A4100855387 /* amm_common.hpp */,
+				723501DE23A0637800855387 /* profile_amm.hpp */,
+				723501D823A03CF100855387 /* profile_scan.cpp */,
+				723501D623A03BE800855387 /* profile_encode.cpp */,
 				72DE64641E5F74BB009B5E61 /* profile_bolt.cpp */,
-				72A5A650234BC43100E4E256 /* profile_amm.cpp */,
+				72A5A650234BC43100E4E256 /* profile_amm_old.cpp */,
+				723501D423A03B7700855387 /* profile_lut_creation.cpp */,
 				72B4CB0D23676106005D3A3D /* test_mithral.cpp */,
 				72DE64651E5F74BB009B5E61 /* profile_multicodebook.cpp */,
 				72DE64661E5F74BB009B5E61 /* profile_pq.cpp */,
@@ -1892,17 +1908,21 @@
 			buildActionMask = 2147483647;
 			files = (
 				72DE64711E5F74F3009B5E61 /* test_bolt.cpp in Sources */,
+				723501DD23A0609B00855387 /* profile_amm.cpp in Sources */,
 				72DE64701E5F74F3009B5E61 /* profile_pq.cpp in Sources */,
+				723501D923A03CF100855387 /* profile_scan.cpp in Sources */,
 				72DE64721E5F74F8009B5E61 /* bolt.cpp in Sources */,
 				72B4DA4023677825005D3A3D /* single.cpp in Sources */,
-				72A5A651234BC43100E4E256 /* profile_amm.cpp in Sources */,
+				72A5A651234BC43100E4E256 /* profile_amm_old.cpp in Sources */,
 				72B4DA6323677825005D3A3D /* complexdots.f in Sources */,
 				725BA8572351557D00CACF41 /* test_avx_utils.cpp in Sources */,
 				723501D223A038E600855387 /* mithral.cpp in Sources */,
 				725BA85923528EF800CACF41 /* avx_utils.cpp in Sources */,
+				723501D523A03B7700855387 /* profile_lut_creation.cpp in Sources */,
 				72B4CB0E23676106005D3A3D /* test_mithral.cpp in Sources */,
 				72DE646E1E5F74F3009B5E61 /* profile_bolt.cpp in Sources */,
 				72B4DA6523677825005D3A3D /* double.cpp in Sources */,
+				723501D723A03BE800855387 /* profile_encode.cpp in Sources */,
 				72DE646F1E5F74F3009B5E61 /* profile_multicodebook.cpp in Sources */,
 				72B4DA6423677825005D3A3D /* xerbla.cpp in Sources */,
 				72B4DA4123677825005D3A3D /* complex_single.cpp in Sources */,
