@@ -85,7 +85,7 @@ static inline void print_dist_stats(const std::string& name, int64_t N,
 #define REPEATED_PROFILE_DIST_COMPUTATION(                              \
     NREPS, NAME, NTRIALS, DISTS_PTR, NUM_DISTS, EXPR)                   \
     do {                                                                \
-        std::cout << NAME << "(" << NREPS << "x" << NTRIALS << "):";  \
+        std::cout << NAME << "(" << NREPS << "x" << NTRIALS << "):";    \
         for (int __rep = 0; __rep < NREPS; __rep++) {                   \
             double __t_min = std::numeric_limits<double>::max();        \
             for (int __i = 0; __i < NTRIALS; __i++) {                   \

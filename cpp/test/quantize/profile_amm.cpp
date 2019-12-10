@@ -12,6 +12,7 @@
 
 #ifdef BLAZE
     #include "test/external/catch.hpp"
+    #include "src/sketch.hpp"
     #include "src/quantize/bolt.hpp"
     #include "src/quantize/mithral.hpp"
     #include "src/quantize/multisplit.hpp"
@@ -28,6 +29,7 @@
     #include "multisplit.hpp"
     #include "debug_utils.hpp"
     #include "eigen_utils.hpp"
+    #include "sketch.hpp"
     #include "timing_utils.hpp"
     #include "testing_utils.hpp"
     // #include "array_utils.hpp"  // just for rand_idxs
@@ -1769,12 +1771,93 @@ void _profile_sketch_matmul(const char* dset_name, uint32_t N, uint32_t D,
         _run_our_sketch_matmul(X, W, S, St, sketch_X, sketch_W, out));
 }
 
+template<bool UseOurGemm, bool SketchW, class SketchT, class MatrixT>
+void _run_fancy_sketch_matmul(
+    const SketchT& sketch, const MatrixT& X, const MatrixT& W,
+    MatrixT& X_sketched, MatrixT& W_sketched, MatrixT& out)
+{
+    sketch(X, X_sketched, false);
+    if (SketchW) {
+        sketch(W, W_sketched, true /*transpose*/);
+    }
+    if (UseOurGemm) {
+        auto N = (int)X_sketched.rows();
+        auto d = (int)X_sketched.cols();
+        auto M = (int)W_sketched.cols();
+        sgemm_colmajor(X_sketched.data(), W_sketched.data(),
+                       N, d, M, out.data());
+    } else {
+        out.noalias() = X_sketched * W_sketched;
+    }
+}
+
+void _profile_osnap(const char* dset_name, uint32_t N, uint32_t D,
+                    uint32_t M, uint32_t d, int nsketches)
+{
+    using MatrixT = ColMatrix<float>;
+    MatrixT X(N, D); X.setRandom();
+    MatrixT W(D, M); W.setRandom();
+
+    // create output matrices to avoid malloc
+    MatrixT sketch_X(N, d);
+    sketch_X.setRandom();
+    MatrixT sketch_W(N, d);
+    sketch_W.setRandom();
+    MatrixT out(N, M);
+    out.setRandom();
+
+    std::string msg;
+    auto fmt_as_cppstring = string_with_format(
+        "%s, %%-25s, N D M d, s:, %6d, %3d, %3d, %3d, %2d\t",
+        dset_name, N, D, M, d, nsketches);
+    auto fmt = fmt_as_cppstring.c_str();
+
+    auto sketch = OsnapSketch(D, d, nsketches);
+
+    msg = string_with_format(fmt, "blas osnap");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        (_run_fancy_sketch_matmul<false, true>(
+            sketch, X, W, sketch_X, sketch_W, out)));
+
+    msg = string_with_format(fmt, "our osnap");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        (_run_fancy_sketch_matmul<true, true>(
+            sketch, X, W, sketch_X, sketch_W, out)));
+
+    msg = string_with_format(fmt, "blas osnap fixedW");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        (_run_fancy_sketch_matmul<false, false>(
+            sketch, X, W, sketch_X, sketch_W, out)));
+
+    msg = string_with_format(fmt, "our osnap fixedW");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        (_run_fancy_sketch_matmul<true, false>(
+            sketch, X, W, sketch_X, sketch_W, out)));
+}
+
+void _profile_osnap(std::vector<int> dvals, std::vector<int> nsketches,
+                    MatmulTaskShape shape)
+{
+    auto N = shape.N;
+    auto D = shape.D;
+    auto M = shape.M;
+    printf("------------------------ %s\n", shape.name);
+    for (auto d : dvals) {
+        for (auto s : nsketches) {
+            _profile_osnap(shape.name, N, D, M, d, s);
+}
+    }
+}
+
 // void _profile_matmul_methods(std::vector<int> dvals, int N, int D, int M) {
 void _profile_matmul_methods(std::vector<int> dvals, MatmulTaskShape shape) {
     auto N = shape.N;
     auto D = shape.D;
     auto M = shape.M;
-    // printf("------------------------ %s\n", shape.name.c_str());
     printf("------------------------ %s\n", shape.name);
     for (auto d : dvals) {
         _profile_sketch_matmul(shape.name, N, D, M, d);
@@ -1792,72 +1875,24 @@ TEST_CASE("amm linear approx matmul", "[amm][matmul][linear][profile]") {
     _profile_matmul_methods(dvals, kCifar10TaskShape);
     _profile_matmul_methods(dvals, kCifar100TaskShape);
     _profile_matmul_methods(dvals, kUcrTaskShape);
-
-    // _profile_matmul_methods(dvals, CIFAR10_N, CIFAR10_D, CIFAR10_M);
-    // _profile_matmul_methods(dvals, CIFAR100_N, CIFAR100_D, CIFAR100_M);
-    // _profile_matmul_methods(dvals, CALTECH_N, CALTECH_D, CALTECH_M);
-    // _profile_matmul_methods(dvals, UCR_N, UCR_D, UCR_M);
-
-
-    // N = CIFAR10_N; D = CIFAR10_D; M = CIFAR10_M;
-    // for (auto d : dvals) {
-    //     _profile_sketch_matmul(N, D, M, d);
-    //     _profile_sketch_matmul_fixedW(N, D, M, d);
-    // }
-    // _profile_matmul(N, D, M);
-
-
-//     N = CIFAR100_N; D = CIFAR100_D; M = CIFAR100_M;
-//     for (auto d : dvals) {
-//         if (d > D || d > M) { continue; }
-//         _profile_sketch_matmul(N, D, M, d);
-//         _profile_sketch_matmul_fixedW(N, D, M, d);
-//     }
-//     _profile_matmul(N, D, M);
-
-// //    D = 24; M = 3;                      // ecg
-//     // D = 96; M = 12;                      // ecg
-//     // // std::vector<int> ecg_nvals {57593, 115193, 230393};
-//     // std::vector<int> ecg_nvals {223590};
-//     // for (auto n : ecg_nvals) {
-//     //     for (auto d : dvals) {
-//     //         if (d > D || d > M) { continue; }
-//     //         _profile_sketch_matmul(n, D, M, d);
-//     //         _profile_sketch_matmul_fixedW(n, D, M, d);
-//     //     }
-//     //     _profile_matmul(n, D, M);
-//     // }
-//     // N = 1896; D = 320; M = 128;
-//     N = UCR_N; D = UCR_D; M = UCR_M;
-//     for (auto d : dvals) {
-//         if (d > D || d > M) { continue; }
-//         _profile_sketch_matmul(N, D, M, d);
-//         _profile_sketch_matmul_fixedW(N, D, M, d);
-//     }
-//     _profile_matmul(N, D, M);
-
-//     N = CALTECH_N; D = CALTECH_D; M = CALTECH_M;
-//     for (auto d : dvals) {
-//         if (d > D || d > M) { continue; }
-//         _profile_sketch_matmul(N, D, M, d);
-//         _profile_sketch_matmul_fixedW(N, D, M, d);
-//     }
-//     _profile_matmul(N, D, M);
 }
 
-// TEST_CASE("amm profile bolt scan colmajor tile4", "[amm][bolt][profile]") {
-//     static constexpr int nblocks = nblocks_scan;
-//     static constexpr int nrows = nblocks_scan * 32;
-//     // create random codes from in [0, 15]
-//     ColMatrix<uint8_t> codes(nrows, ncodebooks);
-//     codes.setRandom();
-//     codes = codes.array() / 16;
+TEST_CASE("amm osnap", "[amm][matmul][osnap][linear][profile]") {
+    int N, D, M;
+    // std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 32, 48, 64};
+    std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128}; // TODO uncomment above
+    std::vector<int> nsketches {1, 2, 4};
 
-//     // create random luts
-//     ColMatrix<uint8_t> luts(ncentroids, ncodebooks);
-//     luts.setRandom();
-//     luts = luts.array() / (2 * M); // make max lut value small
 
-//     RowVector<uint16_t> dists_u16(nrows);
 
-// }
+
+    // TODO pick up here by getting this working
+
+
+
+
+    // _profile_osnap(dvals, nsketches, kCaltechTaskShape);
+    // _profile_osnap(dvals, nsketches, kCifar10TaskShape);
+    // _profile_osnap(dvals, nsketches, kCifar100TaskShape);
+    // _profile_osnap(dvals, nsketches, kUcrTaskShape);
+}

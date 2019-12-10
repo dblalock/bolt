@@ -42,7 +42,8 @@
 /* Begin PBXFileReference section */
 		725BA8562351557D00CACF41 /* test_avx_utils.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = test_avx_utils.cpp; path = ../test_avx_utils.cpp; sourceTree = "<group>"; };
 		725BA85823528EF700CACF41 /* avx_utils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = avx_utils.cpp; sourceTree = "<group>"; };
-		725ED6E1239737EC00F1283F /* mithral.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = mithral.cpp; path = ../../src/quantize/mithral.cpp; sourceTree = "<group>"; };
+		725ED6E1239737EC00F1283F /* mithral.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = mithral.cpp; sourceTree = "<group>"; };
+		725ED6E8239F04FB00F1283F /* sketch.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = sketch.hpp; sourceTree = "<group>"; };
 		72A5A64F234A8E4A00E4E256 /* multisplit.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multisplit.hpp; sourceTree = "<group>"; };
 		72A5A650234BC43100E4E256 /* profile_amm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = profile_amm.cpp; sourceTree = "<group>"; };
 		72B4CB0C23675F98005D3A3D /* mithral.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = mithral.hpp; sourceTree = "<group>"; };
@@ -1708,7 +1709,6 @@
 		72DE62D21E5F7467009B5E61 = {
 			isa = PBXGroup;
 			children = (
-				725ED6E1239737EC00F1283F /* mithral.cpp */,
 				72DE62DD1E5F7467009B5E61 /* Bolt */,
 				72DE62DC1E5F7467009B5E61 /* Products */,
 			);
@@ -1734,6 +1734,7 @@
 		72DE62E51E5F74BB009B5E61 /* src */ = {
 			isa = PBXGroup;
 			children = (
+				725ED6E8239F04FB00F1283F /* sketch.hpp */,
 				72DE62E61E5F74BB009B5E61 /* external */,
 				72DE64501E5F74BB009B5E61 /* include */,
 				72DE64521E5F74BB009B5E61 /* quantize */,
@@ -1810,6 +1811,7 @@
 		72DE64631E5F74BB009B5E61 /* quantize */ = {
 			isa = PBXGroup;
 			children = (
+				725ED6E1239737EC00F1283F /* mithral.cpp */,
 				72DE64641E5F74BB009B5E61 /* profile_bolt.cpp */,
 				72A5A650234BC43100E4E256 /* profile_amm.cpp */,
 				72B4CB0D23676106005D3A3D /* test_mithral.cpp */,
