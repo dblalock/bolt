@@ -14,7 +14,7 @@
     #include "test/external/catch.hpp"
     #include "src/sketch.hpp"
     #include "src/quantize/bolt.hpp"
-    #include "src/quantize/mithral.hpp"
+    #include "src/quantize/mithral_v1.hpp"
     #include "src/quantize/multisplit.hpp"
     #include "src/utils/debug_utils.hpp"
     #include "src/utils/eigen_utils.hpp"
@@ -25,7 +25,7 @@
 #else
     #include "catch.hpp"
     #include "bolt.hpp"
-    #include "mithral.hpp"
+    #include "mithral_v1.hpp"
     #include "multisplit.hpp"
     #include "debug_utils.hpp"
     #include "eigen_utils.hpp"
@@ -635,7 +635,7 @@ template<> struct mithral_input_type_traits<int8_t> {
     using output_type = int16_t;
 };
 
-// template<class InputT, class ScaleT, class OffsetT>
+// these 3 structs are unused, but are a useful reference
 template<class InputT>
 struct mithral_encode_params {
     using traits = mithral_input_type_traits<InputT>;
@@ -651,7 +651,6 @@ struct mithral_encode_params {
     const scale_t* scales;
     const offset_t* offsets;
 };
-
 struct mithral_lut_params {
     const float* Q;
     int nrows; /// nrows in Q matrix
@@ -665,7 +664,6 @@ struct mithral_lut_params {
     float out_scale;
     uint8_t* out;
 };
-
 struct mithral_scan_params {
     const uint8_t* codes;
     int nblocks;

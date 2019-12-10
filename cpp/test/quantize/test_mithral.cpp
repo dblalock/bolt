@@ -12,13 +12,13 @@
     #include "test/external/catch.hpp"
     #include "src/utils/debug_utils.hpp"
     #include "src/utils/memory.hpp"
-    #include "src/quantize/mithral.hpp"
+    #include "src/quantize/mithral_v1.hpp"
     #include "test/testing_utils/testing_utils.hpp"
 #else
     #include "catch.hpp"
     #include "debug_utils.hpp"
     #include "memory.hpp"
-    #include "mithral.hpp"
+    #include "mithral_v1.hpp"
     #include "testing_utils.hpp"
 #endif
 

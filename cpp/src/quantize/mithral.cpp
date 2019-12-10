@@ -169,3 +169,21 @@ void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
         tmp_offsets, out_offset_sum, out_scale);
     quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
 }
+
+
+void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+                  int noutputs, const uint8_t* luts, uint8_t* dists_out)
+{
+    static constexpr int block_nrows = 32;
+    static constexpr int lut_sz = 16;
+    auto out_ptr = dists_out;
+    auto out_stride = nblocks * block_nrows;
+    auto lut_ptr = luts;
+    auto lut_stride = ncodebooks * lut_sz;
+
+    for (int i = 0; i < noutputs; i++) {
+        mithral_scan(codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+        out_ptr += out_stride;
+        lut_ptr += lut_stride;
+    }
+}
