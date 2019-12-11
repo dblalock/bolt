@@ -24,9 +24,19 @@ void mithral_encode(
     const int64_t nblocks = ceil(nrows / (double)block_nrows);
     assert(nrows % block_nrows == 0); // TODO remove this constraint
 
+    // sanity check splits
+    auto total_nsplits = ncodebooks * nsplits_per_codebook;
+    auto maxdim = splitdims[0];
+    auto mindim = splitdims[0];
+    for (int i = 1; i < total_nsplits; i++) {
+        maxdim = MAX(maxdim, splitdims[i]);
+        mindim = MIN(maxdim, splitdims[i]);
+    }
+    assert(mindim >= 0);
+    assert(maxdim < ncols);
+
     size_t x_col_stride = nrows;
     size_t out_col_stride = nrows;
-    size_t splitval_luts_stride = vals_per_split;
     const float* x_ptrs[nsplits_per_codebook];
     __m256i current_vsplitval_luts[nsplits_per_codebook];
     __m256 current_vscales[nsplits_per_codebook];
@@ -104,8 +114,6 @@ void mithral_encode(const int16_t* X, int64_t nrows, int ncols,
     assert(nrows % block_nrows == 0); // TODO remove this constraint
 
     size_t x_col_stride = nrows;
-    size_t out_col_stride = nrows;
-    size_t splitval_luts_stride = vals_per_split;
     const int16_t* x_ptrs[nsplits_per_codebook];
     __m256i current_vsplitval_luts[nsplits_per_codebook];
     uint8_t current_shifts[nsplits_per_codebook];

@@ -12,6 +12,35 @@
 #endif
 
 
+// ------------------------------------------------ standalone funcs
+
+
+
+void bolt_encode(const float* X, int64_t nrows, int ncols, int ncodebooks,
+    const float* centroids, uint8_t* out)
+{
+    if (ncodebooks == 4) {
+        bolt_encode<2>(X, nrows, ncols, centroids, out);
+    } else if (ncodebooks == 8) {
+        bolt_encode<4>(X, nrows, ncols, centroids, out);
+    } else if (ncodebooks == 16) {
+        bolt_encode<8>(X, nrows, ncols, centroids, out);
+    } else if (ncodebooks == 32) {
+        bolt_encode<16>(X, nrows, ncols, centroids, out);
+    } else if (ncodebooks == 64) {
+        bolt_encode<32>(X, nrows, ncols, centroids, out);
+    }
+
+    // switch(ncodebooks) {
+    //     case 4: bolt_encode<2>(X, nrows, ncols, centroids, out); break;
+    //     case 8: bolt_encode<4>(X, nrows, ncols, centroids, out); break;
+    //     case 16: bolt_encode<8>(X, nrows, ncols, centroids, out); break;
+    //     case 32: bolt_encode<16>(X, nrows, ncols, centroids, out); break;
+    //     case 64: bolt_encode<32>(X, nrows, ncols, centroids, out); break;
+    //     case 128: bolt_encode<64>(X, nrows, ncols, centroids, out); break;
+    // }
+}
+
 // ------------------------------------------------ BoltEncoder impl
 
 BoltEncoder::BoltEncoder(int nbytes, float scaleby):

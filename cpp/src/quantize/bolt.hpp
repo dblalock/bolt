@@ -23,6 +23,13 @@
     #include "avx_utils.hpp"
 #endif
 
+// =============================================================== in cpp file
+
+void bolt_encode(const float* X, int64_t nrows, int ncols, int ncodebooks,
+    const float* centroids, uint8_t* out); // defined in cpp file
+
+// =============================================================== defined here
+
 namespace {
 
 /**
@@ -119,6 +126,17 @@ void bolt_encode(const float* X, int64_t nrows, int ncols,
         if (!RowMajor) { out += NBytes * block_rows; }
     } // block
 }
+// // force template instantiations
+// template void bolt_encode<2>(const float* X, int64_t nrows, int ncols,
+//     const float* centroids, uint8_t* out);
+// template void bolt_encode<4>(const float* X, int64_t nrows, int ncols,
+//     const float* centroids, uint8_t* out);
+// template void bolt_encode<8>(const float* X, int64_t nrows, int ncols,
+//     const float* centroids, uint8_t* out);
+// template void bolt_encode<16>(const float* X, int64_t nrows, int ncols,
+//     const float* centroids, uint8_t* out);
+// template void bolt_encode<32>(const float* X, int64_t nrows, int ncols,
+//     const float* centroids, uint8_t* out);
 
 
 /**
