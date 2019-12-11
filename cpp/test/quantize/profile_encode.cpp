@@ -76,7 +76,6 @@ void _profile_encode(int N, int D, int ncodebooks) {
     if (D < ncodebooks) { return; } // subsequent methods can't handle this
 
     // ------------------------ bolt
-
     ColMatrix<float> centroids(16, D); centroids.setRandom();
 
     msg = string_with_format(fmt, "bolt encode");
@@ -85,30 +84,24 @@ void _profile_encode(int N, int D, int ncodebooks) {
         bolt_encode(X.data(), N, D, ncodebooks, centroids.data(), out.data()));
 
     // ------------------------ pq
+    ColMatrix<float> centroids256(256, D); centroids256.setRandom();
+    // ColMatrix<float> out_f32(N, ncodebooks); out_f32.setRandom();
+
+    msg = string_with_format(fmt, "pq encode");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        pq_encode_8b(X.data(), N, D, ncodebooks,
+                     centroids256.data(), out.data()) );
 
     // ------------------------ opq
+    ColMatrix<float> R(D, D); R.setRandom();
+    RowMatrix<float> X_tmp(N, D);
+    msg = string_with_format(fmt, "opq encode");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        out.data(), out.size(),
+        opq_encode_8b(X, ncodebooks, centroids.data(),
+                      R, X_tmp, out.data()) );
 }
-
-// TEST_CASE("bolt enc timing", "[amm][encode][bolt]") {
-//     static constexpr int64_t nrows_enc = 128*100;   // number of rows to encode
-//     static constexpr int ncols = 64;               // length of vectors
-//     static constexpr int bits_per_codebook = 4;
-//     static constexpr int ncentroids = (1 << bits_per_codebook);
-//     static constexpr int nbytes = 8;
-
-//     static constexpr int nrows = nrows_enc;
-
-//     ColMatrix<float> centroids(ncentroids, ncols);
-//     centroids.setRandom();
-//     RowMatrix<float> X(nrows, ncols);
-//     X.setRandom();
-//     RowMatrix<uint8_t> encoding_out(nrows, nbytes);
-
-//     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, "bolt encode", kNtrials,
-//     encoding_out.data(), encoding_out.size(),
-//         bolt_encode<nbytes>(X.data(), nrows, ncols, centroids.data(),
-//                             encoding_out.data()));
-// }
 
 TEST_CASE("vq encode timing", "[amm][encode][profile]") {
     static constexpr int N = 100 * 1024;

@@ -25,6 +25,7 @@
     #include "eigen_utils.hpp" // for opq rotations
 #endif
 
+namespace {
 
 template<int NBytes>
 void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
@@ -72,8 +73,7 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
             int32_t min_val = std::numeric_limits<int32_t>::max();
             // uint8_t best_s = -1;
             uint32_t indicators = 0;
-            
-//            uint8_t best_s = 0;  // TODO rm
+
             for (int s = 0; s < nstripes; s += 2) {
                 // convert the floats to ints
                 // XXX distances *must* be >> 0 for this to preserve correctness
@@ -95,22 +95,13 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
                 indicators = indicators | (static_cast<uint32_t>(less) << s);
                 // the 3 lines above this, along with the msb extraction below,
                 // are equivalent to the following:
-//                 if (val < min_val) { // TODO rm
-//                     min_val = val;
-//                     best_s = s;
-//                 }
+                // if (val < min_val) { // TODO rm
+                //     min_val = val;
+                //     best_s = s;
+                // }
             }
             int8_t best_s = msb_idx_u32(indicators);
-//            assert(best_s >= 0);
-//            if (best_s < 0 || best_s > 31) {
-//                volatile int best_s_int = best_s;
-//                printf("best s: %d\n", best_s_int);
-//                printf("indicators: %u\n", indicators);
-//                printf("sizeof(indicators): %lu\n", sizeof(indicators));
-//                printf("clzl(indicators): %d\n", __builtin_clz((uint32_t)indicators));
-//                printf("\n");
-//            }
-            
+
             // ------------------------ now find min idx within best group
             auto dists_int32_low = _mm256_cvtps_epi32(accumulators[best_s]);
             auto dists_int32_high = _mm256_cvtps_epi32(accumulators[best_s+1]);
@@ -133,13 +124,25 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols,
     } // n
 }
 
+void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols, int ncodebooks,
+                  const float* centroids, uint8_t* out)
+{
+    switch(ncodebooks) {
+        case 4: pq_encode_8b<4>(X, nrows, ncols, centroids, out); break;
+        case 8: pq_encode_8b<8>(X, nrows, ncols, centroids, out); break;
+        case 16: pq_encode_8b<16>(X, nrows, ncols, centroids, out); break;
+        case 32: pq_encode_8b<32>(X, nrows, ncols, centroids, out); break;
+        case 64: pq_encode_8b<64>(X, nrows, ncols, centroids, out); break;
+    }
+}
+
 // static constexpr kReductionL2 = 0;
 // static constexpr kReductionL2 = 0;
 
 // enum class Reductions { DistL2, DotProd };
 
 template<int NBytes, int Reduction=Reductions::DistL2, class dist_t>
-void pq_lut_8b(const float* q, int64_t len, const float* centroids, dist_t* out)
+void pq_lut_8b(const float* q, int len, const float* centroids, dist_t* out)
 {
     static constexpr int lut_sz = 256;
     static constexpr int packet_width = 8; // objs per simd register
@@ -211,6 +214,41 @@ void pq_lut_8b(const float* q, int64_t len, const float* centroids, dist_t* out)
     }
 }
 
+template<int NBytes, int Reduction=Reductions::DistL2, class dist_t>
+void pq_lut_8b(const float* Q, int nrows, int ncols,
+               const float* centroids, dist_t* out)
+{
+    static constexpr int ncodebooks = NBytes;
+    int in_stride = ncols;
+    int out_stride = 256 * ncodebooks;
+    for (int i = 0; i < nrows; i++) {
+        pq_lut_8b<NBytes, Reduction>(Q, ncols, centroids, out);
+        Q += in_stride;
+        out += out_stride;
+    }
+}
+
+template<class dist_t>
+void pq_lut_8b(const float* Q, int nrows, int ncols, int ncodebooks,
+               const float* centroids, dist_t* out)
+{
+    switch(ncodebooks) {
+        case 4: pq_lut_8b<4>(Q, nrows, ncols, centroids, out); break;
+        case 8: pq_lut_8b<8>(Q, nrows, ncols, centroids, out); break;
+        case 16: pq_lut_8b<16>(Q, nrows, ncols, centroids, out); break;
+        case 32: pq_lut_8b<32>(Q, nrows, ncols, centroids, out); break;
+        case 64: pq_lut_8b<64>(Q, nrows, ncols, centroids, out); break;
+    }
+}
+
+// template<int Reduction=Reduction::DistL2, class dist_t>
+// void pq_lut_8b(const float* q, int64_t len, int ncodebooks,
+//                const float* centroids, dist_t* out) {
+//     switch(ncodebooks) {
+//         case 4: pq_lut_8b(q, len, centroids, out);
+//     }
+// }
+
 // XXX: confusingly, ncols refers to ncols in the original data, not
 // in the row-major centroids mat; latter needs to have subvect_len cols
 // and ncodebooks * lut_sz rows
@@ -271,6 +309,19 @@ void opq_encode_8b(const MatrixT1& X, const float* centroids, const MatrixT2& R,
                                 centroids, out);
 }
 
+template<class MatrixT1, class MatrixT2>
+void opq_encode_8b(const MatrixT1& X, int ncodebooks, const float* centroids,
+    const MatrixT2& R, RowMatrix<float>& X_out, uint8_t* out)
+{
+    // apply rotation and forward to pq func
+    assert(X.rows() == X_out.rows());
+    assert(X.cols() == X_out.cols());
+    assert(X.cols() == R.rows());
+    X_out = X * R;
+    return pq_encode_8b(X_out.data(), X_out.rows(), X_out.cols(), ncodebooks,
+                        centroids, out);
+}
+
 template<int NBytes, int Reduction=Reductions::DistL2,
     class MatrixT, class dist_t>
 void opq_lut_8b(const RowVector<float>& q, const float* centroids,
@@ -283,4 +334,5 @@ void opq_lut_8b(const RowVector<float>& q, const float* centroids,
     return pq_lut_8b<NBytes, Reduction>(q_out.data(), q_out.cols(), centroids, out);
 }
 
+} // anonymous namespace
 #endif // include guard
