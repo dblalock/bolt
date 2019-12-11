@@ -620,5 +620,46 @@ inline void bolt_scan(const uint8_t* codes,
     }
 }
 
+// wrapper that doesn't need ncodebooks at compile time
+template<bool NoOverflow=true, bool SignedLUTs=false>
+void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+               const uint8_t* luts, uint16_t* dists_out)
+{
+    switch(ncodebooks) {
+        case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 8: bolt_scan<4, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 16: bolt_scan<8, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 32: bolt_scan<16, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 64: bolt_scan<32, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 128: bolt_scan<64, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+    }
+}
+// same as above but uint8 dists_out
+template<bool NoOverflow=true, bool SignedLUTs=false>
+void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+               const uint8_t* luts, uint8_t* dists_out)
+{
+    switch(ncodebooks) {
+        case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 8: bolt_scan<4, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 16: bolt_scan<8, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 32: bolt_scan<16, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 64: bolt_scan<32, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+        case 128: bolt_scan<64, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
+    }
+}
+
 } // anon namespace
 #endif // __BOLT_HPP

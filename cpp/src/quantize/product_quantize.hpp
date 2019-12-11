@@ -228,7 +228,7 @@ void pq_lut_8b(const float* Q, int nrows, int ncols,
     }
 }
 
-template<class dist_t>
+template<int Reduction=Reductions::DistL2, class dist_t>
 void pq_lut_8b(const float* Q, int nrows, int ncols, int ncodebooks,
                const float* centroids, dist_t* out)
 {
@@ -240,14 +240,6 @@ void pq_lut_8b(const float* Q, int nrows, int ncols, int ncodebooks,
         case 64: pq_lut_8b<64>(Q, nrows, ncols, centroids, out); break;
     }
 }
-
-// template<int Reduction=Reduction::DistL2, class dist_t>
-// void pq_lut_8b(const float* q, int64_t len, int ncodebooks,
-//                const float* centroids, dist_t* out) {
-//     switch(ncodebooks) {
-//         case 4: pq_lut_8b(q, len, centroids, out);
-//     }
-// }
 
 // XXX: confusingly, ncols refers to ncols in the original data, not
 // in the row-major centroids mat; latter needs to have subvect_len cols
@@ -294,6 +286,21 @@ inline void pq_scan_8b(const uint8_t* codes, const dist_t* luts,
     }
 }
 
+template<class dist_t>
+void pq_scan_8b(const uint8_t* codes, int nrows, int ncodebooks,
+                const dist_t* luts, dist_t* dists_out)
+{
+    switch(ncodebooks) {
+        case 2: pq_scan_8b<2>(codes, luts, dists_out, nrows); break;
+        case 4: pq_scan_8b<4>(codes, luts, dists_out, nrows); break;
+        case 8: pq_scan_8b<8>(codes, luts, dists_out, nrows); break;
+        case 16: pq_scan_8b<16>(codes, luts, dists_out, nrows); break;
+        case 32: pq_scan_8b<32>(codes, luts, dists_out, nrows); break;
+        case 64: pq_scan_8b<64>(codes, luts, dists_out, nrows); break;
+    }
+}
+
+
 // ================================================================ OPQ
 
 template<int NBytes, class MatrixT1, class MatrixT2> // R is a rotation mat
@@ -330,8 +337,23 @@ void opq_lut_8b(const RowVector<float>& q, const float* centroids,
     // apply rotation and forward to pq func
     assert(q.cols() == q_out.cols());
     assert(q.cols() == R.rows());
-    q_out = q * R;
+    q_out.noalias() = q * R;
     return pq_lut_8b<NBytes, Reduction>(q_out.data(), q_out.cols(), centroids, out);
+}
+
+template<int Reduction=Reductions::DistL2,
+    class MatrixT, class dist_t>
+// void opq_lut_8b(const RowVector<float>& q, int ncodebooks,
+void opq_lut_8b(const RowMatrix<float>& Q, int ncodebooks,
+                const float* centroids, const MatrixT& R,
+                RowMatrix<float>& Q_out, dist_t* out)
+{
+    // apply rotation and forward to pq func
+    assert(Q.cols() == Q_out.cols());
+    assert(Q.cols() == R.rows());
+    Q_out.noalias() = Q * R;
+    return pq_lut_8b<Reduction>(
+        Q_out.data(), Q_out.rows(), Q_out.cols(), ncodebooks, centroids, out);
 }
 
 } // anonymous namespace
