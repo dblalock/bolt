@@ -492,5 +492,121 @@ void _profile_osnap(std::vector<int> dvals, std::vector<int> nsketches,
     }
 }
 
+// ================================================================ bolt
+
+template<int M, bool Safe=false, class dist_t=void>
+void _bolt_query(const uint8_t* codes, int nblocks,
+    const float* q, int ncols,
+    const float* centroids,
+    uint8_t* lut_out, dist_t* dists_out)
+{
+    // TODO use version of lut that requires offsets and scales
+    bolt_lut<M, Reductions::DotProd>(q, ncols, centroids, lut_out);
+    bolt_scan<M, Safe>(codes, lut_out, dists_out, nblocks);
+}
+
+// template<int ncodebooks, bool encode=false>
+template<int ncodebooks, bool encode=true>
+void _amm_bolt(const float* X, int nrowsX, const float* Q, int nrows, int ncols,
+                     const float* centroids,
+                     uint8_t* lut_out, uint16_t* dists_out,
+                     uint8_t* codes, int nblocks)
+{
+    static constexpr int nbytes = ncodebooks / 2;
+    // in contrast to multisplit, this precomputes encodings and computes
+    // new LUTs when a query comes in, instead of the reverse
+
+    if (encode) {
+        bolt_encode<nbytes>(X, nrowsX, ncols, centroids, codes);
+    }
+
+    auto q_ptr = Q;
+    auto dists_ptr = dists_out;
+    for (int i = 0; i < nrows; i++) {  // rows in query matrix, not codes
+        _bolt_query<nbytes, true>(
+            codes, nblocks, q_ptr, ncols, centroids, lut_out, dists_ptr);
+        q_ptr += ncols;
+        dists_ptr += nblocks * 32;
+    }
+}
+
+template<int ncodebooks>
+void _template_profile_bolt_amm(const char* dset_name, uint32_t N, uint32_t D,
+                                uint32_t M)
+{
+    static constexpr uint8_t ncentroids = 16;
+    auto orig_M = M;
+    auto orig_D = D;
+
+    auto nblocks = (M + 31) / 32;
+    M = 32 * nblocks;
+    if (D % ncodebooks) {  // ensure that ncodebooks evenly divides D
+        D += (ncodebooks - (D % ncodebooks));
+    }
+
+    // stuff just for encoding; for bolt, we encode the smaller matrix since
+    // encoding is slower than lut creation
+    RowMatrix<float> X(M, D); X.setRandom();
+
+    // stuff for LUT creation
+    ColMatrix<float> centroids(ncentroids, D);          centroids.setRandom();
+    RowMatrix<float> Q(N, D);                           Q.setRandom();
+    ColMatrix<uint8_t> lut_out(ncentroids, ncodebooks); lut_out.setRandom();
+    RowVector<float> offsets(D);                        offsets.setRandom();
+    float scaleby = 3; // arbitrary number
+
+    // additional stuff for distance computation
+    ColMatrix<uint8_t> codes_(M, ncodebooks / 2); codes_.setRandom();
+    ColMatrix<uint8_t> codes = codes_.unaryExpr([=](const uint8_t x) {
+        return static_cast<uint8_t>(x % ncentroids); });
+    ColMatrix<uint16_t> dists_u16(N, M);
+
+    std::string msg;
+    auto fmt_as_cppstring = string_with_format(
+        "%s, f32, %%-22s, N D M C:,"
+        "%6d, %3d, %3d, %2d,\t", dset_name, N, orig_D, orig_M, ncodebooks);
+    auto fmt = fmt_as_cppstring.c_str();
+
+    msg = string_with_format(fmt, "amm bolt");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        dists_u16.data(), dists_u16.size(),
+        (_amm_bolt<ncodebooks>(X.data(), M, Q.data(), N, D, centroids.data(),
+            lut_out.data(), dists_u16.data(), codes.data(), nblocks)));
+
+    msg = string_with_format(fmt, "amm bolt noenc");
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+        dists_u16.data(), dists_u16.size(),
+        (_amm_bolt<ncodebooks, false>(
+            X.data(), M, Q.data(), N, D, centroids.data(),
+            lut_out.data(), dists_u16.data(), codes.data(), nblocks)));
+}
+
+void _profile_bolt_amm(const char* dset_name, uint32_t N, uint32_t D,
+                       uint32_t M, int ncodebooks)
+{
+    if (ncodebooks > D) { return; }
+    switch(ncodebooks) {
+        case 2: _template_profile_bolt_amm<2>(dset_name, N, D, M); break;
+        case 4: _template_profile_bolt_amm<4>(dset_name, N, D, M); break;
+        case 8: _template_profile_bolt_amm<8>(dset_name, N, D, M); break;
+        case 16: _template_profile_bolt_amm<16>(dset_name, N, D, M); break;
+        case 32: _template_profile_bolt_amm<32>(dset_name, N, D, M); break;
+        case 64: _template_profile_bolt_amm<64>(dset_name, N, D, M); break;
+        default: break;
+    }
+}
+
+void _profile_bolt_amm(const MatmulTaskShape& shape,
+                       std::vector<int> ncodebooks)
+{
+    printf("------------------------ %s f32\n", shape.name);
+    for (auto c : ncodebooks) {
+        _profile_bolt_amm(
+            shape.name, shape.N, shape.D, shape.M, c);
+    }
+}
+
+
+
 } // anonymous namespace
 #endif /* profile_amm_h */

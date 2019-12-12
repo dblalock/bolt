@@ -497,7 +497,7 @@ void _profile_bolt_amm(uint32_t N, uint32_t D, uint32_t M, int ncodebooks) {
 //     }
 // }
 
-TEST_CASE("amm lut+scan bolt", "[amm][matmul][bolt][profile]") {
+TEST_CASE("amm lut+scan bolt", "[amm][matmul][bolt][profile][old]") {
     std::vector<int> ncodebooks {4, 8, 16, 32, 64};
     for (auto c  : ncodebooks) {
         printf("ncodebooks = %d\n", c);
@@ -511,7 +511,7 @@ TEST_CASE("amm lut+scan bolt", "[amm][matmul][bolt][profile]") {
         // _profile_bolt_amm(115193, 24, 3, c);      // ecg
         // _profile_bolt_amm(230393, 24, 3, c);      // ecg
         _profile_bolt_amm(49284, 27, 2, c);       // caltech
-    }
+     }
 }
 
 

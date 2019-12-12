@@ -137,7 +137,8 @@ void _profile_lut_others(int nrows, int ncols, int ncodebooks) {
 }
 
 TEST_CASE("vq lut timing", "[amm][lut][profile]") {
-    static constexpr int nrows = 10 * 1024;
+//    static constexpr int nrows = 10 * 1024;
+    static constexpr int nrows = 1 << 14;
 
     printf("algo, _0, N, D, C, lut_work_const, "
            "_1, latency0, _2, latency1, _3, latency2, _4\n");

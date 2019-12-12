@@ -99,18 +99,23 @@ void _profile_encode(int N, int D, int ncodebooks) {
     msg = string_with_format(fmt, "opq encode");
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
-        opq_encode_8b(X, ncodebooks, centroids.data(),
+        opq_encode_8b(X, ncodebooks, centroids256.data(),
                       R, X_tmp, out.data()) );
 }
 
 TEST_CASE("vq encode timing", "[amm][encode][profile]") {
-    static constexpr int N = 100 * 1024;
+    static constexpr int nrows = 1 << 14;
 
+    printf("algo, _0, N, D, C, "
+           "_1, latency0, _2, latency1, _3, latency2, _4\n");
+    
     std::vector<int> all_ncols = {32, 64, 128, 256, 512, 1024};
+//    std::vector<int> all_ncols = {512, 1024};
     std::vector<int> all_ncodebooks = {16, 32, 64};
     for (auto ncols : all_ncols) {
         for (auto c : all_ncodebooks) {
-            _profile_encode(N, ncols, c);
+            // fails at OPQ 102400, 512, 16; pq works...
+            _profile_encode(nrows, ncols, c);
         }
     }
 }

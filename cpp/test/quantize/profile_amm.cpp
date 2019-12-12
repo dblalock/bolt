@@ -21,8 +21,14 @@ TEST_CASE("amm mithral", "[amm][mithral][matmul][profile]") {
      _profile_mithral(kCifar10TaskShape, ncodebooks, lut_work_const);
      _profile_mithral(kCifar100TaskShape, ncodebooks, lut_work_const);
      _profile_mithral(kUcrTaskShape, ncodebooks, lut_work_const);
+}
 
-     // std::vector<int> ncodebooks {4};
+TEST_CASE("amm bolt", "[amm][bolt][matmul][profile]") {
+     std::vector<int> ncodebooks {4, 8, 16, 32, 64};
+     _profile_bolt_amm(kCaltechTaskShape, ncodebooks);
+     _profile_bolt_amm(kCifar10TaskShape, ncodebooks);
+     _profile_bolt_amm(kCifar100TaskShape, ncodebooks);
+     _profile_bolt_amm(kUcrTaskShape, ncodebooks);
 }
 
 TEST_CASE("amm linear approx matmul", "[amm][matmul][linear][profile]") {
