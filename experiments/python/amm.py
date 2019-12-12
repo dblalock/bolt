@@ -555,7 +555,7 @@ def _nmultiplies_fastjl_sketches(N, D, M, d):  # avg, not exact, since P sparse
 
 
 @numba.jit(nopython=True)
-def hash_sketches(A, B, d, share_projections=True):
+def hash_sketches(A, B, d, scale=1., share_projections=True):
     N, D = A.shape
     D, M = B.shape
     A_hat = np.zeros((N, d), dtype=A.dtype)
@@ -564,7 +564,8 @@ def hash_sketches(A, B, d, share_projections=True):
     for j in range(D):
         idx = np.random.randint(d)
         sign = (np.random.randint(0, 2) * 2) - 1
-        coeff = sign  # worse than chance, especially for small d
+        # coeff = sign  # worse than chance, especially for small d
+        coeff = sign * scale
         # coeff = sign * np.sqrt(d / D)  # best for small d / D
         # coeff = sign * d / D  # best for larger d / D
         A_hat[:, idx] += A[:, j] * coeff
@@ -601,7 +602,9 @@ def osnap_sketches(A, B, d, s=4):
         start_idx = ss * subspace_len
         end_idx = min(D, start_idx + subspace_len)
         A_hat[:, start_idx:end_idx], B_hat[start_idx:end_idx] = \
-            hash_sketches(A, B, subspace_len)
+            hash_sketches(A, B, subspace_len, scale=np.sqrt(s))
+
+    # A_hat /= np.linalg.norm(A_hat, axis=)
 
     return A_hat, B_hat
 
