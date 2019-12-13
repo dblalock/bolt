@@ -21,6 +21,7 @@ _memory = Memory('.', verbose=0)
 NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
 
 
+# @_memory.cache
 def _estimator_for_method_id(method_id, **method_hparams):
     return methods.METHOD_TO_ESTIMATOR[method_id](**method_hparams)
 
@@ -28,9 +29,21 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        dvals = [2, 4, 8, 16, 32, 64, 128]
+        # dvals = [2, 4, 8, 16, 32, 64, 128]
+        dvals = [8] # TODO rm after debug
         # dvals = [32] # TODO rm after debug
+        if method_id == methods.METHOD_SPARSE_PCA:
+            alpha_vals = (.25, .5, 1, 2, 4, 8)
+            # alpha_vals = (2, 4, 5)
+            # alpha_vals = [.1]
+            # alpha_vals = [1.]
+            # alpha_vals = [10.]
+            # alpha_vals = [20.]
+            # alpha_vals = [50.]
+            return [{'d': d, 'alpha': alpha}
+                    for d in dvals for alpha in alpha_vals]
         return [{'d': dval} for dval in dvals]
+
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
         # mvals = [4, 8, 16, 32, 64]
@@ -39,10 +52,19 @@ def _hparams_for_method(method_id):
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [64] # TODO rm after debug
-        # mvals = [16] # TODO rm after debug
+        mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        mvals = [4] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
+
+        if method_id == methods.METHOD_MITHRAL:
+            lut_work_consts = [-1, 2, 4]
+            params = []
+            for m in mvals:
+                for const in lut_work_consts:
+                    params.append({'ncodebooks': m, 'lut_work_const': const})
+            return params
+
         return [{'ncodebooks': m} for m in mvals]
     return [{}]
 
@@ -217,7 +239,7 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks, methods=None, saveas=None, ntasks=None,
-          verbose=2, limit_ntasks=2, compression_metrics=False):
+          verbose=3, limit_ntasks=2, compression_metrics=False):
     methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
         methods = [methods]
@@ -286,7 +308,7 @@ def main_caltech(methods=None, saveas='caltech'):
 
 
 def main_ucr(methods=None, saveas='ucr'):
-    limit_ntasks = 10
+    limit_ntasks = 1
     tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
     return _main(tasks=tasks, methods=methods, saveas=saveas,
                  ntasks=23, limit_ntasks=limit_ntasks)
@@ -321,10 +343,13 @@ def main():
     # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Exact'])
     # main_cifar10(methods='Mithral')
+    # main_cifar10(methods='Bolt')
+    main_cifar10(methods=['SparsePCA', 'PCA'])
+    # main_cifar100(methods=['SparsePCA', 'PCA'])
     # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='Mithral')
     # main_cifar100(methods='MithralPQ')
-    # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt'])
+    # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt'])
     # main_cifar10(methods=['PCA', 'Exact'])
     # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
     # main_cifar100(methods=['PCA', 'Exact'])
@@ -371,8 +396,9 @@ def main():
     # main_ecg(methods=['Bolt', 'Bolt+Perm'])
     # main_caltech(methods=['Bolt+Perm', 'Bolt'])
     # main_caltech(methods=['Exact', 'Bolt'])
-    main_ucr(methods=['Exact', 'Bolt'])
+    # main_ucr(methods=['Exact', 'Bolt'])
     # main_ucr(methods=['Exact'])
+    # main_ucr(methods=['SparsePCA', 'PCA'])
 
     # imgs = md._load_caltech_train_imgs()
     # imgs = md._load_caltech_test_imgs()

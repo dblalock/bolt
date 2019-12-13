@@ -2,7 +2,9 @@
 
 import abc
 import numpy as np
-from sklearn.decomposition import PCA
+# from sklearn.decomposition import PCA, SparsePCA
+from sklearn import decomposition
+from sklearn.decomposition import PCA, SparsePCA, MiniBatchSparsePCA
 from sklearn.utils.extmath import randomized_svd
 import numba  # conda install numba
 
@@ -294,6 +296,126 @@ class TrainedPcaSketch(ApproxMatmul):
             nmuls += N * D * d
         if not fixedB:
             nmuls += D * M * d
+        return {KEY_NMULTIPLIES: nmuls}
+
+
+class TrainedSparsePcaSketch(ApproxMatmul):
+    __slots__ = 'pca d alpha nnz A B'.split()
+
+    def __init__(self, d, alpha):
+        self.d = d
+        self.alpha = alpha
+        self.A = None
+        self.B = None
+
+    def fit(self, A, B, Y=None):  # Y = A @ B if not specified
+        # print("initializing U and V...")
+        # # U, _, V = np.linalg.svd(A)
+        # # X = A - A.mean(axis=0)
+        # # X /= np.std(X)
+        # # cov = X.T @ X
+        # # U, _, Vt = randomized_svd(cov, n_components=self.d, random_state=123)
+        # # U = None
+        # # V = Vt.T[:self.d]
+
+        # def hard_threshold(X, keep_frac=.5):
+        # def hard_threshold(X, keep_frac=.75):
+        #     x_flat = X.ravel()
+        #     n = len(x_flat)
+        #     keep_n = int(n * keep_frac)
+        #     keep_idxs = np.argsort(np.abs(x_flat))[-keep_n:]
+        #     new_x_flat = np.zeros_like(x_flat)
+        #     new_x_flat[keep_idxs] = x_flat[keep_idxs]
+        #     return new_x_flat.reshape(X.shape)
+
+        # U = hard_threshold(U)
+        # V = hard_threshold(V)
+
+        # U, V = None, None
+
+        # pca = MiniBatchSparsePCA(
+        # print("creating sparse pca...")
+        #     n_components=self.d, alpha=self.alpha, normalize_components=True,
+        #     verbose=99, random_state=123, n_iter=50)
+        # print("fitting minibatch sparse pca...")
+        # pca.fit(A)
+        # V = pca.components_
+        # U = decomposition.sparse_encode(A - np.mean(A), V)
+
+        # # this seems to work better than initializing with MiniBatchSparsePCA,
+        # # svd of cov mat, or basically anything else I tried
+        U, _, Vt = randomized_svd(A, n_components=self.d, random_state=123)
+        U = U[:, :self.d]
+        V = Vt.T[:self.d]
+
+        # U, V = None, None
+
+        verbose = 1
+        # verbose = 99
+        # self.alpha *= len(A)
+        # SparsePCA (and all the sklearn dictionary learning stuff)
+        # internally uses sum of squared errs for each sample, and L1 norm
+        # of parameter matrix; to make alpha meaningful across datasets,
+        # want to scale by number of examples (so it's effectively using MSE)
+        # and divide by L1 norm (which grows linearly with size of parameter
+        # matrix / vector); also scale by variance of data for similar reasons
+        N, D = A.shape
+        alpha = self.alpha * np.var(A - A.mean(axis=0)) * N / D
+        solver = 'lars' if self.alpha >= .1 else 'cd'
+        self.pca = SparsePCA(n_components=self.d, alpha=alpha,
+                             normalize_components=True, method=solver,
+                             U_init=U, V_init=V, max_iter=10, verbose=verbose,
+                             random_state=123)
+        if verbose > 0:
+            print("fitting sparse pca...")
+        self.pca.fit(A)
+        self.nnz = np.sum(self.pca.components_ != 0)
+
+    def set_A(self, A):
+        self.A = self.pca.transform(A)
+
+    def set_B(self, B):
+        self.B = self.pca.transform(B.T).T
+
+    def __call__(self, A, B):
+        assert A.shape[1] == B.shape[0]  # dims need to match
+        D = A.shape[1]
+        if D < self.d:
+            raise InvalidParametersException(
+                'D < d: {} < {}'.format(D, self.d))
+        # set thresh of self.d // 2, instead of self.d, since sparsity
+        # could theoretically make such a projection worthwhile
+        if B.shape[1] < self.d // 2:
+            raise InvalidParametersException(
+                'M < d // 2: {} < {}'.format(B.shape[1], self.d // 2))
+
+        if (self.A is None):
+            self.set_A(A)
+        if (self.B is None):
+            self.set_B(B)
+        return self.A @ self.B
+
+    def get_params(self):
+        try:
+            nnz = self.nnz
+            sparsity = (self.pca.components_ == 0).mean()
+        except AttributeError:  # model not fitted yet
+            nnz = -1
+            sparsity = -1
+        # nnz and sparsity aren't params per se, but we do want them returned
+        # with the performance metrics
+        return {'d': self.d, 'alpha': self.alpha,
+                'nnz': nnz, 'sparsity': sparsity}
+
+    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+        N, D = A.shape
+        D, M = B.shape
+        d = self.d
+        nmuls = N * d * M  # assuming matrices already sketched
+        if not fixedA:
+            nmuls += N * self.nnz
+        if not fixedB:
+            nmuls += M * self.nnz
         return {KEY_NMULTIPLIES: nmuls}
 
 
