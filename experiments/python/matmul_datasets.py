@@ -525,7 +525,8 @@ def load_cifar100_tasks():
     # print(lbls_train[:100].ravel())
     # print("acc: ", acc)
 
-    info = {'biases': b, 'lbls_train': lbls_train, 'lbls_test': lbls_test}
+    info = {'problem': 'classify_linear', 'biases': b,
+            'lbls_train': lbls_train, 'lbls_test': lbls_test}
 
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
                        name='CIFAR-100 Softmax', info=info)]
