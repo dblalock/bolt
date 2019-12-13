@@ -11,8 +11,10 @@
 
 #ifdef BLAZE
     #include "test/quantize/amm_common.hpp"
+    #include "src/external/eigen/SparseCore"
 #else
     #include "amm_common.hpp"
+    #include "SparseCore"
 #endif
 
 namespace {
@@ -606,7 +608,103 @@ void _profile_bolt_amm(const MatmulTaskShape& shape,
     }
 }
 
+// ================================================================ sparse gemm
+// this is basically just to profile sparse pca
 
+template<bool FixedW=true>
+void _profile_sparse_amm(const char* dset_name, int N, int D, int M,
+                         int d, float nnz_frac, int nsparsemats=5,
+                         int nreps=kNreps, int ntrials=kNtrials)
+{
+    using MatrixT = ColMatrix<float>;
+    using SparseMatrixT = Eigen::SparseMatrix<float>;
+
+    MatrixT X(N, D); X.setRandom();
+    SparseMatrixT S(d, D); S.setZero();
+    MatrixT X_sketched(N, d); X_sketched.setRandom();
+    MatrixT Wt(M, D); Wt.setRandom();
+    MatrixT Wt_sketched(M, d); Wt_sketched.setRandom();
+    MatrixT out(N, M); out.setRandom();
+
+    nnz_frac = MIN(1.f, nnz_frac);
+    int nnz = MAX(1, nnz_frac * D * d);
+
+    // randomly initialize idxs, ensuring all are unique and < D
+    // RowVector<int> flat_idxs(nnz); idxs.setRandom();
+    RowVector<int> flat_values(nnz); flat_values.setRandom();
+
+    // crap for generating random nonzero indices
+    int all_idxs[D];
+    for (int i = 0; i < D; i++) {
+        all_idxs[i] = i;
+    }
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    std::vector<double> best_times(nreps);
+    for (int r = 0; r < nreps; r++) {
+        best_times[r] = std::numeric_limits<double>::max();
+    }
+
+    for (int m = 0; m < nsparsemats; m++) { // create different sparse mats
+        // choose nnz idxs, sampled uniformly without replacement
+        std::shuffle(all_idxs, all_idxs + D, g);
+        std::sort(all_idxs, all_idxs + nnz);
+        using Triplet = Eigen::Triplet<float>;
+        std::vector<Triplet> triplets;
+        triplets.reserve(nnz);
+        for (int j = 0; j < nnz; j++) {
+            auto row = j % N;
+            auto col = j / N;
+            triplets.push_back(Triplet(row, col, flat_values(j)));
+        }
+        S.setZero();
+        S.setFromTriplets(triplets.begin(), triplets.end());
+        for (int r = 0; r < nreps; r++) {
+            for (int t = 0; t < ntrials; t++) {
+                double time = 0;
+                {
+                    EasyTimer _(time);
+                    X_sketched.noalias() = X * S;
+                    if (!FixedW) {
+                        // TODO try both fixed and not fixed in this loop,
+                        // and have separate times for both; or just always
+                        // let it report with fixedW
+                        Wt_sketched.noalias() = Wt * S;
+                    }
+                    out.noalias() = X_sketched * Wt_sketched.transpose();
+                }
+                // prevent_optimizing_away_dists(
+                //     X_sketched.data(), X_sketched.size());
+                // prevent_optimizing_away_dists(
+                //     Wt_sketched.data(), Wt_sketched.size());
+                prevent_optimizing_away_dists(out.data(), out.size());
+
+                best_times[r] = time < best_times[r] ? time : best_times[r];
+            }
+        }
+    }
+
+    std::string method_name;
+    method_name = FixedW ? "sparse sketch fixedW" : "sparse sketch";
+    auto fmt_as_cppstring = string_with_format(
+        "%s, %22s, N D M d f:, %6d, %3d, %3d, %2d, %4.1f,\t",
+        dset_name, method_name.c_str(), N, D, M, d, nnz_frac);
+    std::cout << fmt_as_cppstring;
+
+
+}
+
+void _profile_sparse_amm(const MatmulTaskShape& shape, std::vector<int> dvals,
+    std::vector<float> nnz_fracs)
+{
+    for (auto d : dvals) {
+        for (auto f : nnz_fracs) {
+            _profile_sparse_amm(shape.name, shape.N, shape.D, shape.M, d, f);
+        }
+    }
+
+}
 
 } // anonymous namespace
 #endif /* profile_amm_h */
