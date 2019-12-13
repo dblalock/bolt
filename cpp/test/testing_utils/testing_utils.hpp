@@ -45,6 +45,9 @@ double prevent_optimizing_away_dists(DistT* dists, int64_t N,
     if (verbose) {
         printf("(%d%%) ", static_cast<int>(frac * 100));
     }
+    if (frac == d(gen)) {
+        printf("wow, frac was exactly equal to a random real number...\n");
+    }
     return frac;
 }
 

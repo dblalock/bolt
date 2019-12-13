@@ -37,8 +37,8 @@
     #include "memory.hpp"
 #endif
 
-static constexpr int kNreps = 3;
-static constexpr int kNtrials = 20;
+static constexpr int kNreps = 5;
+static constexpr int kNtrials = 10;
 
 struct MatmulTaskShape { int N, D, M; const char* name; };
 static constexpr MatmulTaskShape kCaltechTaskShape {49284, 27, 2, "Caltech"};

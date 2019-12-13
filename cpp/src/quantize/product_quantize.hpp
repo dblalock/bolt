@@ -353,7 +353,8 @@ void opq_lut_8b(const RowMatrix<float>& Q, int ncodebooks,
     assert(Q.cols() == R.rows());
     Q_out.noalias() = Q * R;
     return pq_lut_8b<Reduction>(
-        Q_out.data(), Q_out.rows(), Q_out.cols(), ncodebooks, centroids, out);
+        Q_out.data(), (int)Q_out.rows(), (int)Q_out.cols(),
+                                ncodebooks, centroids, out);
 }
 
 } // anonymous namespace

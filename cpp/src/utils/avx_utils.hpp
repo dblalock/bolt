@@ -9,6 +9,12 @@
 #ifndef __AVX_UTILS_HPP
 #define __AVX_UTILS_HPP
 
+// #ifdef BLAZE
+//     #include "src/utils/bit_ops.hpp"  // just for popcnt
+// #else
+//     #include "bit_ops.hpp"
+// #endif
+
 // #include <stdio.h> // TODO rm
 #include "debug_utils.hpp"
 
@@ -72,6 +78,12 @@ inline __m256 fma(__m256 a, __m256 b, __m256 c) {
 inline __m256i avg_epu8(__m256i a, __m256i b) {
     __m256 res;
     __asm__("vpavgb %[a], %[b], %[c]" : [c] "=x" (res) : [a] "x" (a), [b] "x" (b));
+    return res;
+}
+
+inline uint64_t popcount_u64(uint64_t a) {
+    uint64_t res;
+    __asm__("popcnt %[in], %[out]" : [out] "=r" (res) : [in] "r" (a));
     return res;
 }
 
@@ -445,6 +457,221 @@ static inline void sgemm_colmajor_narrow_padded(
 
 void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
                     float* out);
+
+
+// matmul with xor + popcount; inputs are matrices of bits, but pointers
+// are uint64s to make loading them up for popcnt easier; note that A is
+// assumed to be rowmajor while B is assumed to be colmajor; out is also
+// colmajor
+// template<int NReadCols=2, int NWriteCols=2, class OutT>
+template<int InRowTileSz=1, int OutColTileSz=1, int StaticD=-1, class OutT>
+void _bgemm(const uint64_t* A, const uint64_t* B,
+    int N, int D, int M, OutT* out,
+    bool add_to_output=false, int A_row_stride=-1,
+    // int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=512)
+    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=600)
+    // int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=600 * 100)
+    // int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=1000*1000)
+{
+    using dtype = uint64_t;
+    using packet_t = uint64_t;
+    static const int packet_sz = 1; // 1 uint8 is what popcnt operates on
+    D = StaticD > 0 ? StaticD : D; // allow specifying D at compile time
+    if (MIN(N, MIN(D, M)) < 1) { return; } // nothing to do
+    assert(MIN(nrows_per_chunk, N) % InRowTileSz == 0);
+    assert(M % OutColTileSz == 0);
+
+    // stuff for tiling nrows
+    int nchunks_N = (N + nrows_per_chunk - 1) / nrows_per_chunk;
+    auto N_orig = N;
+    N = N < nrows_per_chunk ? N : nrows_per_chunk; // *after* setting strides
+    auto A_orig = A;
+    auto out_orig = out;
+    // A_col_stride = A_col_stride     >= 1 ? A_col_stride   : N_orig;
+    A_row_stride = A_row_stride     >= 1 ? A_row_stride   : D;
+    B_col_stride = B_col_stride     >= 1 ? B_col_stride   : D;
+    out_col_stride = out_col_stride >= 1 ? out_col_stride : N_orig;
+
+    // costants derived from matrix / tiling sizes
+    // int nstripes_D = D / NReadCols;
+    int nstripes_M = M / OutColTileSz;
+
+    // arrays that will all get unrolled and not really exist
+    const dtype* a_row_ptrs[InRowTileSz];
+    const dtype* b_col_starts[OutColTileSz];
+    const dtype* b_col_ptrs[OutColTileSz];
+    OutT* out_col_starts[OutColTileSz];
+    OutT* out_col_ptrs[OutColTileSz];
+    dtype a_vals[InRowTileSz];
+    dtype b_vals[OutColTileSz];
+    OutT accumulators[InRowTileSz][OutColTileSz];
+
+    // printf("nchunks_N, nstripes_M = %d, %d\n", nchunks_N, nstripes_M);
+
+    for (int chunk = 0; chunk < nchunks_N; chunk++) { // for each chunk of input rows
+        A = A_orig + (chunk * nrows_per_chunk * A_row_stride);
+        out = out_orig + (chunk * nrows_per_chunk);
+        if (chunk == (nchunks_N - 1)) { // handle last chunk
+            auto N_done_so_far = chunk * nrows_per_chunk;
+            N = N_orig - N_done_so_far;
+        }
+        int nstripes_N = N / InRowTileSz;
+        // printf("got to chunk %d / %d\n", chunk, nchunks_N - 1);
+
+        for (int m = 0; m < nstripes_M; m++) { // for each group of output cols
+            // set output col start ptrs and current ptrs for simplicity
+            for (int mm = 0; mm < OutColTileSz; mm++) {
+                auto out_col = (m * OutColTileSz) + mm;
+                b_col_starts[mm] = B + (B_col_stride * out_col);
+                // out_col_starts[mm] = out + (out_col_stride * out_col);
+                out_col_ptrs[mm] = out + (out_col_stride * out_col);
+
+                if (!add_to_output) {  // zero this block of output buffer
+                    for (int i = 0; i < N; i++) {
+                        // out_col_starts[mm][i] = 0;
+                        out_col_ptrs[mm][i] = 0;
+                    }
+                }
+            }
+            // for each group of input cols
+            for (int n = 0; n < nstripes_N; n++) {
+                // reset ptrs to start of rows of A
+                for (int nn = 0; nn < InRowTileSz; nn++) {
+                    auto row_idx = (n * InRowTileSz) + nn;
+                    a_row_ptrs[nn] = A + (row_idx * A_row_stride);
+                }
+                // reset ptrs to start of cols of B
+                for (int mm = 0; mm < OutColTileSz; mm++) {
+                    b_col_ptrs[mm] = b_col_starts[mm];
+                }
+                // reset accumulators
+                for (int nn = 0; nn < InRowTileSz; nn++) {
+                    for (int mm = 0; mm < OutColTileSz; mm++) {
+                        accumulators[nn][mm] = 0;
+                    }
+                }
+
+                // TODO uncomment
+                // main loop; dot prods of rows of A with cols of B
+                for (int j = 0; j < D; j++) {
+                    // load up b vals to use
+                    for (int mm = 0; mm < OutColTileSz; mm++) {
+                        b_vals[mm] = *(b_col_ptrs[mm]);
+                        b_col_ptrs[mm] += packet_sz;
+                    }
+                    // for each a row, for each b col
+                    for (int nn = 0; nn < InRowTileSz; nn++) {
+                        // if ((chunk == 0 || chunk == 1 || chunk == (nchunks_N - 1)) && (n == 510 || n == 0)) {
+                        //     // printf("D = %d\n", D);
+                        //     printf("row idx: = %d\n", (n * InRowTileSz) + nn);
+                        //     printf("got to chunk %d / %d\n", chunk, nchunks_N - 1);
+                        //     printf("N for chunk = %d\n", N);
+                        //     auto a_orig_ptr = (uint8_t*)A_orig;
+                        //     auto a_ptr = (uint8_t*)A;
+                        //     auto row_ptr = (uint8_t*)a_row_ptrs[nn];
+                        //     auto ptr_diff = ((long)(row_ptr - a_ptr)) / 8;
+                        //     auto ptr_diff_orig = ((long)(row_ptr - a_orig_ptr)) / 8;
+                        //     printf("n, nn = %d, %d; a_row_ptrs[nn] - A: %ld\n", n, nn, ptr_diff);
+                        //     printf("n, nn = %d, %d; a_row_ptrs[nn] - A_orig: %ld\n", n, nn, ptr_diff_orig);
+                        //     printf("n, nn = %d, %d; A - A_orig: %ld\n", n, nn, (long)(A - A_orig));
+                        // }
+                        // dtype aval = *(a_row_ptrs[nn]);
+                        a_vals[nn] = *(a_row_ptrs[nn]);
+                        a_row_ptrs[nn] += packet_sz;
+                        for (int mm = 0; mm < OutColTileSz; mm++) {
+                            auto diffs = a_vals[nn] ^ b_vals[mm];
+                            // we use inline asm so that it doesn't get
+                            // compiled to a bunch of shuffle instructions,
+                            // which defeats the point of the profiling; can
+                            // switch to popcount() func from bit_ops.hpp to
+                            // maybe get a speedup
+                            accumulators[nn][mm] += popcount_u64(diffs);
+
+                            // slower than inline asm for unclear reasons
+                            // accumulators[nn][mm] += __builtin_popcountll(
+                            //     a_vals[nn] ^ b_vals[mm]);
+                        }
+                    }
+                }
+                // write out accumulator values
+                OutT nbits_per_row = D * 8;
+                for (int mm = 0; mm < OutColTileSz; mm++) {
+                    for (int nn = 0; nn < InRowTileSz; nn++) {
+                        auto nbits_same = nbits_per_row - accumulators[nn][mm];
+                        *(out_col_ptrs[mm] + nn) = nbits_same;
+                    }
+                    // printf("incrementing out_col_ptr!\n");
+                    out_col_ptrs[mm] += InRowTileSz;
+                    // out_col_ptrs[mm]++;
+                    // printf("InRowTileSz: %d ", InRowTileSz);
+                    // printf("n = %d; out_col_ptrs[mm] - out = %d\n", n, (int)(out_col_ptrs[mm] - out));
+                    // printf("n = %d; out_col_ptrs[mm] - out_orig = %d\n", n, (int)(out_col_ptrs[mm] - out_orig));
+                }
+
+                // TODO rm
+                // if (chunk == (nchunks_N - 1)) {
+                //     if (n == nstripes_N - 1 && m == nstripes_M - 1) {
+                //         // printf("got to m = %d/%d, stripe %d/%d\n", m, nstripes_M - 1, n, nstripes_N - 1);
+                //         for (int mm = 0; mm < OutColTileSz; mm++) {
+                //             for (int nn = 0; nn < InRowTileSz; nn++) {
+                //                 // printf("foo\n");
+                //                 printf(" ");
+                //                 // printf("sum for %d,%d: %d\n", nn, mm, accumulators[nn][mm]);
+                //             }
+                //         }
+                //     }
+                // }
+            }
+        }
+    }
+
+    // printf("N, D, M = %d, %d, %d\n", N, D, M);
+
+    // // OutT min = D * 64;
+    // OutT max = 0;
+    // for (int i = 0; i < N_orig * M; i++) {
+    //     // min = MIN(min, out_orig[i]);
+    //     max = MAX(max, out_orig[i]);
+    // }
+    // auto last_idx = N_orig * M - 1;
+    // for (int i = 0; i < 10; i++) {
+    //     printf("out[last_idx - %d] = %d\n", i, out_orig[last_idx - i]);
+    // }
+    // auto print_nrows = 5;
+    // printf("first %d row of out:\n", print_nrows);
+    // for (int r = 0; r < print_nrows; r++) {
+    //     for (int i = 0; i < M; i++) {
+    //         printf("%d ", out_orig[i * out_col_stride + r]);
+    //     }
+    //     printf("\n");
+    // }
+    // printf("last row of out:\n");
+    // for (int i = 0; i < M; i++) {
+    //     printf("%d ", out_orig[last_idx - (M - i - 1) * out_col_stride]);
+    // }
+    // printf("\n");
+    // // printf("min max output vals: %d, %d\n", min, max);
+}
+
+template<class OutT>
+void bgemm(const uint64_t* A, const uint64_t* B,
+           int N, int D, int M, OutT* out)
+{
+    switch(D) {
+        case 1: _bgemm<1, 1, 1>(A, B, N, D, M, out); break;
+        case 2: _bgemm<1, 1, 2>(A, B, N, D, M, out); break;
+        case 3: _bgemm<1, 1, 3>(A, B, N, D, M, out); break;
+        case 4: _bgemm<1, 1, 4>(A, B, N, D, M, out); break;
+        case 8: _bgemm<1, 1, 8>(A, B, N, D, M, out); break;
+    }
+}
+
+// template<int StaticD=-1, class OutT>
+// void _bgemm(const uint64_t* A, const uint64_t* B,
+//             int N, int D, int M, OutT* out)
+// {
+//     _bgemm<2, 1, StaticD>(A, B, N, D, M, out);
+// }
 
 #endif // __AVX_UTILS_HPP
 

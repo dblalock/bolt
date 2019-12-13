@@ -43,12 +43,8 @@ TEST_CASE("amm linear approx matmul", "[amm][matmul][linear][profile]") {
 }
 
 TEST_CASE("amm osnap", "[amm][matmul][osnap][linear][profile]") {
-    int N, D, M;
-    // std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 32, 48, 64};
-    std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128}; // TODO uncomment above
-    // std::vector<int> dvals {2}; // TODO uncomment above
+    std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128};
     std::vector<int> nsketches {1, 2, 4};
-    // std::vector<int> nsketches {1};
 
     _profile_osnap(dvals, nsketches, kCaltechTaskShape);
     _profile_osnap(dvals, nsketches, kCifar10TaskShape);
