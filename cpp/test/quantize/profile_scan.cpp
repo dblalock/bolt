@@ -15,6 +15,8 @@
     #include "product_quantize.hpp"
 #endif
 
+static constexpr int kNtrialsScan = 20;
+
 // void _profile_amm_popcount(const char* dset_name, int N, int D, int M) {
 void _profile_scan_popcount(int nrows, int nbytes) {
     static constexpr int M = 1;
@@ -27,7 +29,7 @@ void _profile_scan_popcount(int nrows, int nbytes) {
     std::string msg(string_with_format(
         "%-22s, N C B:, %7d,  -1, %2d,\t", "popcount scan", nrows, nbytes));
 
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         out.data(), out.size(),
         (bgemm(A.data(), B.data(), nrows, ncols, M, out.data()) ));
 }
@@ -193,17 +195,17 @@ void _profile_scan(int nrows, int nbytes) {
     // ------------------------ mithral
     RowVector<uint8_t> dists_u8_x2(nrows * 2); // to handle upcast
     msg = string_with_format(fmt, "mithral scan upcast4", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), nrows,
         (mithral_scan<4>(codes16.data(), nblocks, ncodebooks,
                       luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral scan upcast8", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), nrows,
         (mithral_scan(codes16.data(), nblocks, ncodebooks,
                       luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral scan upcast16", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), nrows,
         (mithral_scan<16>(codes16.data(), nblocks, ncodebooks,
                       luts16.data(), dists_u8_x2.data())));
@@ -211,24 +213,24 @@ void _profile_scan(int nrows, int nbytes) {
     // ------------------------ bolt
     static constexpr bool signed_luts = true; // bolt uses signed for dotprod
     msg = string_with_format(fmt, "bolt scan uint8", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8.data(), nrows,
         (bolt_scan<false, signed_luts>(codes16.data(), nblocks, ncodebooks,
                                        luts16.data(), dists_u8.data())));
     msg = string_with_format(fmt, "bolt scan uint16", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u16.data(), nrows,
         (bolt_scan<false, signed_luts>(codes16.data(), nblocks, ncodebooks,
                                        luts16.data(), dists_u16.data())));
     msg = string_with_format(fmt, "bolt scan safe uint16", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u16.data(), nrows,
         (bolt_scan<true, signed_luts>(codes16.data(), nblocks, ncodebooks,
                                       luts16.data(), dists_u16.data())));
 
     // ------------------------ pq (same as opq)
     msg = string_with_format(fmt, "pq scan", ncodebooks_pq);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_f32.data(), nrows,
         pq_scan_8b(codes256.data(), nrows, ncodebooks_pq, luts_f32.data(),
                    dists_f32.data()));

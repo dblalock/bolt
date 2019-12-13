@@ -17,12 +17,20 @@
 
 #include "debug_utils.hpp" // TODO rm
 
+#define MITHRAL_USE_BOLT_SAFE_SCAN // 10-20% slower, but exact sum of uint8s
+
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
     #include "src/utils/eigen_utils.hpp"
+    #ifdef MITHRAL_USE_BOLT_SAFE_SCAN
+        #include "src/quantize/bolt.hpp"
+    #endif
 #else
     #include "avx_utils.hpp"
     #include "eigen_utils.hpp"
+    #ifdef MITHRAL_USE_BOLT_SAFE_SCAN
+        #include "bolt.hpp"
+    #endif
 #endif
 
 
@@ -79,17 +87,17 @@ template<class InputT> struct mithral_input_type_traits {};
 template<> struct mithral_input_type_traits<float> {
     using encoding_scales_type = float;
     using encoding_offsets_type = float;
-    using output_type = int16_t;
+    using output_type = uint16_t;
 };
 template<> struct mithral_input_type_traits<int16_t> {
     using encoding_scales_type = uint8_t;
     using encoding_offsets_type = int16_t;
-    using output_type = int16_t;
+    using output_type = uint16_t;
 };
 template<> struct mithral_input_type_traits<int8_t> {
     using encoding_scales_type = uint8_t;    // doesn't matter; unused
     using encoding_offsets_type = uint8_t;  // doesn't matter; unused
-    using output_type = int16_t;
+    using output_type = uint16_t;
 };
 
 template<class InputT>
@@ -143,8 +151,13 @@ struct mithral_amm {
 
     void scan() {
         auto nblocks = N / scan_block_nrows;
-        mithral_scan(codes.data(), nblocks, ncodebooks, M,
-                     luts.data(), (uint8_t*)out_mat.data());
+        #ifdef MITHRAL_USE_BOLT_SAFE_SCAN
+            bolt_scan(codes.data(), nblocks, ncodebooks, M,
+                      luts.data(), out_mat.data());
+        #else
+            mithral_scan(codes.data(), nblocks, ncodebooks, M,
+                         luts.data(), (uint8_t*)out_mat.data());
+        #endif
     }
 
     // ctor params
@@ -974,7 +987,7 @@ static constexpr bool is_power_of_2(int64_t x) {
 }
 
 // https://godbolt.org/z/cP80FF
-template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=true>
+template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=false>
 void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
                    uint8_t* dists_out)
 {
@@ -1117,4 +1130,9 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
 }
 
 } // anon namespace
+
+#ifdef MITHRAL_USE_BOLT_SAFE_SCAN
+    #undef MITHRAL_USE_BOLT_SAFE_SCAN
+#endif
+
 #endif // __MITHRAL_HPP

@@ -661,5 +661,37 @@ void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
     }
 }
 
+template<bool NoOverflow=true, bool SignedLUTs=false>
+void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+               int noutputs, const uint8_t* luts, uint16_t* dists_out)
+{
+    auto lut_ptr = luts;
+    auto lut_stride = ncodebooks * 16;
+    auto out_ptr = dists_out;
+    auto out_stride = nblocks * 32;
+    for (int m = 0; m < noutputs; m++) {
+        bolt_scan<NoOverflow, SignedLUTs>(
+            codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+        lut_ptr += lut_stride;
+        out_ptr += out_stride;
+    }
+}
+// same as above but uint8 outputs
+template<bool NoOverflow=true, bool SignedLUTs=false>
+void bolt_scan(const uint8_t* codes, int64_t nblocks,  int ncodebooks,
+               int noutputs, const uint8_t* luts, uint8_t* dists_out)
+{
+    auto lut_ptr = luts;
+    auto lut_stride = ncodebooks * 16;
+    auto out_ptr = dists_out;
+    auto out_stride = nblocks * 32;
+    for (int m = 0; m < noutputs; m++) {
+        bolt_scan<NoOverflow, SignedLUTs>(
+            codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+        lut_ptr += lut_stride;
+        out_ptr += out_stride;
+    }
+}
+
 } // anon namespace
 #endif // __BOLT_HPP
