@@ -408,21 +408,23 @@ class PQEncoder(MultiCodebookEncoder):
 
 class MithralEncoder(MultiCodebookEncoder):
 
-    def __init__(self, ncodebooks):
+    def __init__(self, ncodebooks, lut_work_const=-1):
         super().__init__(
             ncodebooks=ncodebooks, ncentroids=16,
-            quantize_lut=True, upcast_every=8,  # 8 is fastest in cpp
+            quantize_lut=True, upcast_every=8,  # 8 and 16 are fastest in cpp
             accumulate_how='mean')
+        self.lut_work_const = lut_work_const
 
     def name(self):
         return "{}_{}".format('mithral', super().name())
 
     def params(self):
-        return {'ncodebooks': self.ncodebooks}
+        return {'ncodebooks': self.ncodebooks,
+                'lut_work_const': self.lut_work_const}
 
     def fit(self, X, Q=None):
         self.splits_lists, self.centroids = clusterize.learn_mithral(
-            X, self.ncodebooks)
+            X, self.ncodebooks, lut_work_const=self.lut_work_const)
         self._learn_lut_quantization(X, Q)
 
     def encode_X(self, X):

@@ -1085,7 +1085,7 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
         W_sparse[:, m] = w
 
     nnzs = [len(idxs) for idxs in ret_idxs]
-    print("nnzs: ", nnzs)
+    # print("nnzs: ", nnzs)
 
     # print(f"returning {ret_idxs.shape[1]} nonzeros per centroid...")
     return W_sparse, ret_idxs
@@ -1165,13 +1165,17 @@ def _sparse_encoded_lstsq_backward_elim(X_enc, Y, nnz_blocks, K=16):
 def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
     ncodebooks = X_enc.shape[1]
     if nnz_blocks < 1:
-        nnz_blocks = int(np.sqrt(ncodebooks) + .5)
+        nnz_per_centroid = Y.shape[1]
+    else:
+        nnz_per_centroid = int(nnz_blocks * Y.shape[1] / ncodebooks)
+
+        # nnz_blocks = int(np.sqrt(ncodebooks) + .5)
 
     # return _sparse_encoded_lstsq_backward_elim(
     #     X_enc, Y, nnz_blocks=nnz_blocks, K=K)
     # return _sparse_encoded_lstsq_gomp(X_enc, Y, nnz_blocks=nnz_blocks, K=K)
 
-    nnz_per_centroid = int(nnz_blocks * Y.shape[1] / ncodebooks)
+    # print("nnz_per_centroid: ", nnz_per_centroid)
     return _sparse_encoded_lstsq_elim_v2(
         X_enc, Y, nnz_per_centroid=nnz_per_centroid, K=K)
 
@@ -1198,7 +1202,8 @@ def _pq_codebook_start_end_idxs(D, ncodebooks):
     return idxs
 
 
-def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
+def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
+                  lut_work_const=-1, **kwargs):
     N, D = X.shape
     ncentroids_per_codebook = 16
 
@@ -1277,7 +1282,7 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False, **kwargs):
     # W = encoded_lstsq(X_enc, X)  # 16C x D
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
-    W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=2)
+    W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=lut_work_const)
     # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
     all_centroids = W.reshape(ncodebooks, 16, D)
 
