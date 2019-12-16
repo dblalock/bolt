@@ -613,14 +613,16 @@ void _profile_bolt_amm(const MatmulTaskShape& shape,
 
 template<bool FixedW=true>
 void _profile_sparse_amm(const char* dset_name, int N, int D, int M,
-                         int d, float nnz_frac, int nsparsemats=5,
-                         int nreps=kNreps, int ntrials=kNtrials)
+                         int d, float nnz_frac, int nsparsemats=10,
+                         int nreps=kNreps, int ntrials=5)
 {
     using MatrixT = ColMatrix<float>;
     using SparseMatrixT = Eigen::SparseMatrix<float>;
 
+    if (d > D * nnz_frac) { return; }
+
     MatrixT X(N, D); X.setRandom();
-    SparseMatrixT S(d, D); S.setZero();
+    SparseMatrixT S(D, d); S.setZero();
     MatrixT X_sketched(N, d); X_sketched.setRandom();
     MatrixT Wt(M, D); Wt.setRandom();
     MatrixT Wt_sketched(M, d); Wt_sketched.setRandom();
@@ -634,8 +636,9 @@ void _profile_sparse_amm(const char* dset_name, int N, int D, int M,
     RowVector<int> flat_values(nnz); flat_values.setRandom();
 
     // crap for generating random nonzero indices
-    int all_idxs[D];
-    for (int i = 0; i < D; i++) {
+    auto nidxs_flat = d * D;
+    int all_idxs[nidxs_flat];
+    for (int i = 0; i < nidxs_flat; i++) {
         all_idxs[i] = i;
     }
     std::random_device rd;
@@ -648,14 +651,14 @@ void _profile_sparse_amm(const char* dset_name, int N, int D, int M,
 
     for (int m = 0; m < nsparsemats; m++) { // create different sparse mats
         // choose nnz idxs, sampled uniformly without replacement
-        std::shuffle(all_idxs, all_idxs + D, g);
+        std::shuffle(all_idxs, all_idxs + nidxs_flat, g);
         std::sort(all_idxs, all_idxs + nnz);
         using Triplet = Eigen::Triplet<float>;
         std::vector<Triplet> triplets;
         triplets.reserve(nnz);
         for (int j = 0; j < nnz; j++) {
-            auto row = j % N;
-            auto col = j / N;
+            auto row = j % D;
+            auto col = j / D;
             triplets.push_back(Triplet(row, col, flat_values(j)));
         }
         S.setZero();
@@ -687,16 +690,20 @@ void _profile_sparse_amm(const char* dset_name, int N, int D, int M,
 
     std::string method_name;
     method_name = FixedW ? "sparse sketch fixedW" : "sparse sketch";
-    auto fmt_as_cppstring = string_with_format(
-        "%s, %22s, N D M d f:, %6d, %3d, %3d, %2d, %4.1f,\t",
-        dset_name, method_name.c_str(), N, D, M, d, nnz_frac);
-    std::cout << fmt_as_cppstring;
-
-
+    auto settings_str = string_with_format(
+        "%s, %20s, N D M d f:, %6d, %3d, %3d, %3d, %6.3f,\t(%dx%d)",
+        dset_name, method_name.c_str(), N, D, M, d, nnz_frac, nreps, ntrials);
+    std::cout << settings_str;
+    for (int r = 0; r < nreps; r++) {
+        auto tmin = best_times[r];
+        printf(", %7.3f, (%.3e/s)", tmin,
+               static_cast<double>(out.size() * 1e3 / tmin));
+    }
+    printf("\n");
 }
 
-void _profile_sparse_amm(const MatmulTaskShape& shape, std::vector<int> dvals,
-    std::vector<float> nnz_fracs)
+void _profile_sparse_amm(std::vector<int> dvals, std::vector<float> nnz_fracs,
+                         const MatmulTaskShape& shape)
 {
     for (auto d : dvals) {
         for (auto f : nnz_fracs) {

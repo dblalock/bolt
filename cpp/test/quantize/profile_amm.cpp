@@ -51,3 +51,20 @@ TEST_CASE("amm osnap", "[amm][matmul][osnap][linear][profile]") {
     _profile_osnap(dvals, nsketches, kCifar100TaskShape);
     _profile_osnap(dvals, nsketches, kUcrTaskShape);
 }
+
+TEST_CASE("amm sparse", "[amm][matmul][sparse][linear][profile]") {
+    std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128};
+    // std::vector<float> nnz_fracs(19);  // .05 thru .95
+    // for (int i = 0; i < nnz_fracs.size(); i++) {
+    //     nnz_fracs[i] = (i + 1) * .05;
+    // }
+    std::vector<float> nnz_fracs {
+        .01, .025, .05, .1, .15, .2, .25, .3,
+        .35, .4,   .35, .5, .6,  .7, .8,  .9,
+        1.};
+
+    _profile_sparse_amm(dvals, nnz_fracs, kCaltechTaskShape);
+    _profile_sparse_amm(dvals, nnz_fracs, kCifar10TaskShape);
+    _profile_sparse_amm(dvals, nnz_fracs, kCifar100TaskShape);
+    _profile_sparse_amm(dvals, nnz_fracs, kUcrTaskShape);
+}
