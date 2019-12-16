@@ -300,6 +300,20 @@ void pq_scan_8b(const uint8_t* codes, int nrows, int ncodebooks,
     }
 }
 
+template<class dist_t>
+void pq_scan_8b(const uint8_t* codes, int nrows, int ncodebooks,
+               int noutputs, const dist_t* luts, dist_t* dists_out)
+{
+    auto lut_ptr = luts;
+    auto lut_stride = ncodebooks * 256;
+    auto out_ptr = dists_out;
+    auto out_stride = nrows;
+    for (int m = 0; m < noutputs; m++) {
+        pq_scan_8b(codes, nrows, ncodebooks, lut_ptr, out_ptr);
+        lut_ptr += lut_stride;
+        out_ptr += out_stride;
+    }
+}
 
 // ================================================================ OPQ
 
@@ -338,7 +352,8 @@ void opq_lut_8b(const RowVector<float>& q, const float* centroids,
     assert(q.cols() == q_out.cols());
     assert(q.cols() == R.rows());
     q_out.noalias() = q * R;
-    return pq_lut_8b<NBytes, Reduction>(q_out.data(), q_out.cols(), centroids, out);
+    return pq_lut_8b<NBytes, Reduction>(
+        q_out.data(), (int)q_out.cols(), centroids, out);
 }
 
 template<int Reduction=Reductions::DistL2,

@@ -18,8 +18,7 @@
 static constexpr int kNtrialsScan = 20;
 
 // void _profile_amm_popcount(const char* dset_name, int N, int D, int M) {
-void _profile_scan_popcount(int nrows, int nbytes) {
-    static constexpr int M = 1;
+void _profile_scan_popcount(int nrows, int nbytes, int M=1) {
     int ncols = nbytes / 8;
 
     RowMatrix<uint64_t> A(nrows, ncols); A.setRandom();
@@ -161,7 +160,7 @@ TEST_CASE("popcnt scan timing", "[amm][scan][popcount][profile][old]") {
 }
 
 // note that this is the scan time for a single query; ie, matrix-vector prod
-void _profile_scan(int nrows, int nbytes) {
+void _profile_scan(int nrows, int nbytes, int nout=1) {
     int nblocks = nrows / 32;
 
     int ncodebooks = 2 * nbytes;
@@ -171,18 +170,21 @@ void _profile_scan(int nrows, int nbytes) {
     ColMatrix<uint8_t> codes16(nrows, ncodebooks); codes16.setRandom();
     codes16 = codes16.unaryExpr(
         [=](const uint8_t x) { return (uint8_t)(x % 16); });
-    ColMatrix<uint8_t> luts16(16, ncodebooks); luts16.setRandom();
+    ColMatrix<uint8_t> luts16(16, ncodebooks * nout); luts16.setRandom();
     luts16 = luts16.array() / ncodebooks; // make max lut value small
-    RowVector<uint8_t> dists_u8(nrows);
-    RowVector<uint16_t> dists_u16(nrows);
+    // RowVector<uint8_t> dists_u8(nrows);
+    // RowVector<uint16_t> dists_u16(nrows);
+    ColMatrix<uint8_t> dists_u8(nrows, nout);
+    ColMatrix<uint16_t> dists_u16(nrows, nout);
 
     // for pq / opq
     ColMatrix<uint8_t> codes256(nrows, ncodebooks_pq);
     codes256.setRandom();
     codes256 = codes256.unaryExpr(
         [=](const uint8_t x) { return (uint8_t)(x % 256); });
-    ColMatrix<float> luts_f32(256, ncodebooks_pq); luts_f32.setRandom();
-    RowVector<float> dists_f32(nrows); dists_f32.setRandom();
+    ColMatrix<float> luts_f32(256, ncodebooks_pq * nout); luts_f32.setRandom();
+    // RowVector<float> dists_f32(nrows); dists_f32.setRandom();
+    ColMatrix<float> dists_f32(nrows, nout); dists_f32.setRandom();
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
@@ -193,66 +195,94 @@ void _profile_scan(int nrows, int nbytes) {
     // int nbytes256 = ncodebooks;
 
     // ------------------------ mithral
-    RowVector<uint8_t> dists_u8_x2(nrows * 2); // to handle upcast
+    // RowVector<uint8_t> dists_u8_x2(nrows * 2); // to handle upcast
+    ColMatrix<uint8_t> dists_u8_x2(nrows * 2, nout); // to handle upcast
+    msg = string_with_format(fmt, "mithral scan upcast2", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), nrows,
+        (mithral_scan<2>(codes16.data(), nblocks, ncodebooks, nout,
+                         luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral scan upcast4", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), nrows,
-        (mithral_scan<4>(codes16.data(), nblocks, ncodebooks,
-                      luts16.data(), dists_u8_x2.data())));
+        (mithral_scan<4>(codes16.data(), nblocks, ncodebooks, nout,
+                         luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral scan upcast8", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), nrows,
-        (mithral_scan(codes16.data(), nblocks, ncodebooks,
-                      luts16.data(), dists_u8_x2.data())));
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<8>(codes16.data(), nblocks, ncodebooks, nout,
+                         luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral scan upcast16", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), nrows,
-        (mithral_scan<16>(codes16.data(), nblocks, ncodebooks,
-                      luts16.data(), dists_u8_x2.data())));
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<16>(codes16.data(), nblocks, ncodebooks, nout,
+                          luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral scan upcast32", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<32>(codes16.data(), nblocks, ncodebooks, nout,
+                          luts16.data(), dists_u8_x2.data())));
 
     // ------------------------ bolt
     static constexpr bool signed_luts = true; // bolt uses signed for dotprod
     msg = string_with_format(fmt, "bolt scan uint8", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8.data(), nrows,
-        (bolt_scan<false, signed_luts>(codes16.data(), nblocks, ncodebooks,
-                                       luts16.data(), dists_u8.data())));
+        dists_u8.data(), dists_u8.size(),
+        (bolt_scan<false, signed_luts>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u8.data())));
     msg = string_with_format(fmt, "bolt scan uint16", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u16.data(), nrows,
-        (bolt_scan<false, signed_luts>(codes16.data(), nblocks, ncodebooks,
-                                       luts16.data(), dists_u16.data())));
+        dists_u16.data(), dists_u16.size(),
+        (bolt_scan<false, signed_luts>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u16.data())));
     msg = string_with_format(fmt, "bolt scan safe uint16", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u16.data(), nrows,
-        (bolt_scan<true, signed_luts>(codes16.data(), nblocks, ncodebooks,
-                                      luts16.data(), dists_u16.data())));
+        dists_u16.data(), dists_u16.size(),
+        (bolt_scan<true, signed_luts>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u16.data())));
+    // bolt scan orig = bolt scan uint16 safe notile
+    msg = string_with_format(fmt, "bolt scan orig", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u16.data(), dists_u16.size(),
+        (bolt_scan<true, signed_luts, false>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u16.data())));
 
     // ------------------------ pq (same as opq)
     msg = string_with_format(fmt, "pq scan", ncodebooks_pq);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_f32.data(), nrows,
-        pq_scan_8b(codes256.data(), nrows, ncodebooks_pq, luts_f32.data(),
-                   dists_f32.data()));
+        dists_f32.data(), dists_f32.size(),
+        pq_scan_8b(codes256.data(), nrows, ncodebooks_pq, nout,
+                   luts_f32.data(), dists_f32.data()));
 }
 
 
+// TODO uncomment
+
 TEST_CASE("popcount scan timing", "[amm][scan][popcount][profile]") {
     // static constexpr int nrows = 100 * 1024;
-    static constexpr int nrows = 1000 * 1000;
+    // static constexpr int nrows = 1000 * 1000;
+    static constexpr int nrows = 100 * 1000;
+    static constexpr int nout = 10;
 
     // printf("algo, _0, N, B, _1, latency0, _2, latency1, _3, latency2, _4\n");
     printf("algo, _0, N, C, B, _1, latency0, _2, latency1, _3, latency2, _4,"
            " latency3, _5, latency4, _6\n");
     std::vector<int> all_nbytes {8, 16, 32, 64};
     for (auto b : all_nbytes) {
-        _profile_scan_popcount(nrows, b);
+        _profile_scan_popcount(nrows, b, nout);
     }
 }
 
 TEST_CASE("vq scan timing", "[amm][scan][profile]") {
     // static constexpr int nrows = 100 * 1024;
-    static constexpr int nrows = 1000 * 1000;
+    static constexpr int nrows = 100 * 1000;
+    static constexpr int nout = 10;
+    // static constexpr int nrows = 1000 * 1000;
+    // static constexpr int nout = 1;
 
     // printf("algo, _0, N, C, B, _1, latency0, _2, latency1, _3, latency2, _4\n");
 
@@ -260,6 +290,6 @@ TEST_CASE("vq scan timing", "[amm][scan][profile]") {
     // for (auto c : all_ncodebooks) {
     std::vector<int> all_nbytes {8, 16, 32, 64};
     for (auto b : all_nbytes) {
-        _profile_scan(nrows, b);
+        _profile_scan(nrows, b, nout);
     }
 }

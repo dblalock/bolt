@@ -423,21 +423,69 @@ void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
     quantize_luts(tmp_lut_f32, nrows, ncodebooks, tmp_offsets, out_scale, out);
 }
 
-// ================================================================ scan
+// // ================================================================ scan
 
-void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-                  int noutputs, const uint8_t* luts, uint8_t* dists_out)
-{
-    static constexpr int block_nrows = 32;
-    static constexpr int lut_sz = 16;
-    auto out_ptr = dists_out;
-    auto out_stride = nblocks * block_nrows;
-    auto lut_ptr = luts;
-    auto lut_stride = ncodebooks * lut_sz;
+// void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+// // void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+//                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
+// {
+//     static constexpr int block_nrows = 32;
+//     static constexpr int lut_sz = 16;
+//     auto out_ptr = dists_out;
+//     auto out_stride = nblocks * block_nrows;
+//     auto lut_ptr = luts;
+//     auto lut_stride = ncodebooks * lut_sz;
 
-    for (int i = 0; i < noutputs; i++) {
-        mithral_scan(codes, nblocks, ncodebooks, lut_ptr, out_ptr);
-        out_ptr += out_stride;
-        lut_ptr += lut_stride;
-    }
-}
+//     for (int i = 0; i < noutputs; i++) {
+//         mithral_scan(codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+//         out_ptr += out_stride;
+//         lut_ptr += lut_stride;
+//     }
+// }
+
+// // void mithral_scan_tiled(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+// void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+//                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
+// {
+//     printf("called tiled mithral scan!\n");
+//     static constexpr int block_nrows = 32;
+//     static constexpr int lut_sz = 16;
+//     // static constexpr int chunk_nrows = 999999;  // no chunking
+//     static constexpr int chunk_nrows = 512;
+//     static constexpr int chunk_nblocks = chunk_nrows / block_nrows;
+
+//     // having chunk size adapt to ncodebooks doesn't help either;
+//     // conclusion: scan is just not read-bound
+//     // static constexpr int target_chunk_nbytes = 1 << 14;  // 16kiB for L1 cache
+//     // static constexpr int target_chunk_nbytes = 24 * 1024;  // 24kiB for L1 cache
+//     // static constexpr int target_chunk_nbytes = 31 * 1024;  // 31kiB for L1 cache
+//     // int codes_row_nbytes = ncodebooks / 2;
+//     // int codes_block_nbytes = codes_row_nbytes * block_nrows;
+//     // int chunk_nblocks = target_chunk_nbytes / codes_block_nbytes;
+//     // int chunk_nrows = chunk_nblocks * block_nrows;
+
+//     auto codes_row_stride = ncodebooks / 2;
+//     auto codes_chunk_stride = codes_row_stride * chunk_nrows;
+//     auto out_chunk_stride = chunk_nrows;
+//     auto out_col_stride = nblocks * block_nrows;
+//     auto lut_chunk_stride = 0;
+//     auto lut_col_stride = ncodebooks * lut_sz;
+
+//     auto nchunks = (nblocks + chunk_nblocks - 1) / chunk_nblocks;
+//     for (int chunk = 0; chunk < nchunks; chunk++) { // for each chunk of input rows
+//         int64_t use_nblocks = chunk_nblocks;
+//         if (chunk == (nchunks - 1)) { // handle last chunk
+//             auto nblocks_done = chunk * chunk_nblocks;
+//             use_nblocks = nblocks - nblocks_done;
+//         }
+//         auto codes_ptr = codes + (chunk * codes_chunk_stride);
+//         auto out_ptr = dists_out + (chunk * out_chunk_stride);
+//         auto lut_ptr = luts + (chunk * lut_chunk_stride);
+
+//         for (int i = 0; i < noutputs; i++) {
+//             mithral_scan(codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
+//             out_ptr += out_col_stride;
+//             lut_ptr += lut_col_stride;
+//         }
+//     }
+// }

@@ -469,7 +469,7 @@ void _bgemm(const uint64_t* A, const uint64_t* B,
     int N, int D, int M, OutT* out,
     bool add_to_output=false, int A_row_stride=-1,
     // int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=512)
-    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=600)
+    int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=-1)
     // int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=600 * 100)
     // int B_col_stride=-1, int out_col_stride=-1, int nrows_per_chunk=1000*1000)
 {
@@ -480,6 +480,12 @@ void _bgemm(const uint64_t* A, const uint64_t* B,
     if (MIN(N, MIN(D, M)) < 1) { return; } // nothing to do
     assert(MIN(nrows_per_chunk, N) % InRowTileSz == 0);
     assert(M % OutColTileSz == 0);
+
+    static constexpr int target_chunk_nbytes = 24 * 1024; // most of L1
+    int A_row_nbytes = D * sizeof(A[0]);
+    int l1_cache_nrows = target_chunk_nbytes / A_row_nbytes;
+    nrows_per_chunk = nrows_per_chunk > InRowTileSz ?
+        nrows_per_chunk : l1_cache_nrows;
 
     // stuff for tiling nrows
     int nchunks_N = (N + nrows_per_chunk - 1) / nrows_per_chunk;
@@ -514,6 +520,7 @@ void _bgemm(const uint64_t* A, const uint64_t* B,
         if (chunk == (nchunks_N - 1)) { // handle last chunk
             auto N_done_so_far = chunk * nrows_per_chunk;
             N = N_orig - N_done_so_far;
+            assert(N % InRowTileSz == 0);
         }
         int nstripes_N = N / InRowTileSz;
         // printf("got to chunk %d / %d\n", chunk, nchunks_N - 1);

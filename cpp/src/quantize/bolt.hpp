@@ -621,9 +621,9 @@ inline void bolt_scan(const uint8_t* codes,
 }
 
 // wrapper that doesn't need ncodebooks at compile time
-template<bool NoOverflow=true, bool SignedLUTs=false>
+template<bool NoOverflow=true, bool SignedLUTs=false, class dist_t>
 void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-               const uint8_t* luts, uint16_t* dists_out)
+               const uint8_t* luts, dist_t* dists_out)
 {
     switch(ncodebooks) {
         case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
@@ -640,56 +640,101 @@ void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
             codes, luts, dists_out, nblocks); break;
     }
 }
-// same as above but uint8 dists_out
-template<bool NoOverflow=true, bool SignedLUTs=false>
-void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-               const uint8_t* luts, uint8_t* dists_out)
-{
-    switch(ncodebooks) {
-        case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
-            codes, luts, dists_out, nblocks); break;
-        case 8: bolt_scan<4, NoOverflow, SignedLUTs>(
-            codes, luts, dists_out, nblocks); break;
-        case 16: bolt_scan<8, NoOverflow, SignedLUTs>(
-            codes, luts, dists_out, nblocks); break;
-        case 32: bolt_scan<16, NoOverflow, SignedLUTs>(
-            codes, luts, dists_out, nblocks); break;
-        case 64: bolt_scan<32, NoOverflow, SignedLUTs>(
-            codes, luts, dists_out, nblocks); break;
-        case 128: bolt_scan<64, NoOverflow, SignedLUTs>(
-            codes, luts, dists_out, nblocks); break;
-    }
-}
+// // same as above but uint8 dists_out
+// template<bool NoOverflow=true, bool SignedLUTs=false>
+// void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+//                const uint8_t* luts, uint8_t* dists_out)
+// {
+//     switch(ncodebooks) {
+//         case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
+//             codes, luts, dists_out, nblocks); break;
+//         case 8: bolt_scan<4, NoOverflow, SignedLUTs>(
+//             codes, luts, dists_out, nblocks); break;
+//         case 16: bolt_scan<8, NoOverflow, SignedLUTs>(
+//             codes, luts, dists_out, nblocks); break;
+//         case 32: bolt_scan<16, NoOverflow, SignedLUTs>(
+//             codes, luts, dists_out, nblocks); break;
+//         case 64: bolt_scan<32, NoOverflow, SignedLUTs>(
+//             codes, luts, dists_out, nblocks); break;
+//         case 128: bolt_scan<64, NoOverflow, SignedLUTs>(
+//             codes, luts, dists_out, nblocks); break;
+//     }
+// }
 
-template<bool NoOverflow=true, bool SignedLUTs=false>
+// template<bool NoOverflow=true, bool SignedLUTs=false>
+// void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+//                int noutputs, const uint8_t* luts, uint16_t* dists_out)
+// {
+//     auto lut_ptr = luts;
+//     auto lut_stride = ncodebooks * 16;
+//     auto out_ptr = dists_out;
+//     auto out_stride = nblocks * 32;
+//     for (int m = 0; m < noutputs; m++) {
+//         bolt_scan<NoOverflow, SignedLUTs>(
+//             codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+//         lut_ptr += lut_stride;
+//         out_ptr += out_stride;
+//     }
+// }
+// // same as above but uint8 outputs
+// template<bool NoOverflow=true, bool SignedLUTs=false>
+// // void bolt_scan(const uint8_t* codes, int64_t nblocks,  int ncodebooks,
+// void bolt_scan_notile(const uint8_t* codes, int64_t nblocks,  int ncodebooks,
+//                int noutputs, const uint8_t* luts, uint8_t* dists_out)
+// {
+//     auto lut_ptr = luts;
+//     auto lut_stride = ncodebooks * 16;
+//     auto out_ptr = dists_out;
+//     auto out_stride = nblocks * 32;
+//     for (int m = 0; m < noutputs; m++) {
+//         bolt_scan<NoOverflow, SignedLUTs>(
+//             codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+//         lut_ptr += lut_stride;
+//         out_ptr += out_stride;
+//     }
+// }
+
+template<bool NoOverflow=true, bool SignedLUTs=false, bool tile=true, class dist_t>
 void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-               int noutputs, const uint8_t* luts, uint16_t* dists_out)
+                  int noutputs, const uint8_t* luts, dist_t* dists_out)
 {
-    auto lut_ptr = luts;
-    auto lut_stride = ncodebooks * 16;
-    auto out_ptr = dists_out;
-    auto out_stride = nblocks * 32;
-    for (int m = 0; m < noutputs; m++) {
-        bolt_scan<NoOverflow, SignedLUTs>(
-            codes, nblocks, ncodebooks, lut_ptr, out_ptr);
-        lut_ptr += lut_stride;
-        out_ptr += out_stride;
+    static constexpr int block_nrows = 32;
+    static constexpr int lut_sz = 16;
+
+    int chunk_nblocks = nblocks;
+    int chunk_nrows = chunk_nblocks * block_nrows; // no tiling
+    if (tile) {
+        static constexpr int target_chunk_nbytes = 24 * 1024;  // most of L1 cache
+        int codes_row_nbytes = ncodebooks / 2;
+        int codes_block_nbytes = codes_row_nbytes * block_nrows;
+        chunk_nblocks = target_chunk_nbytes / codes_block_nbytes;
+        chunk_nrows = chunk_nblocks * block_nrows;
     }
-}
-// same as above but uint8 outputs
-template<bool NoOverflow=true, bool SignedLUTs=false>
-void bolt_scan(const uint8_t* codes, int64_t nblocks,  int ncodebooks,
-               int noutputs, const uint8_t* luts, uint8_t* dists_out)
-{
-    auto lut_ptr = luts;
-    auto lut_stride = ncodebooks * 16;
-    auto out_ptr = dists_out;
-    auto out_stride = nblocks * 32;
-    for (int m = 0; m < noutputs; m++) {
-        bolt_scan<NoOverflow, SignedLUTs>(
-            codes, nblocks, ncodebooks, lut_ptr, out_ptr);
-        lut_ptr += lut_stride;
-        out_ptr += out_stride;
+
+    auto codes_row_stride = ncodebooks / 2;
+    auto codes_chunk_stride = codes_row_stride * chunk_nrows;
+    auto out_chunk_stride = chunk_nrows;
+    auto out_col_stride = nblocks * block_nrows;
+    auto lut_chunk_stride = 0;
+    auto lut_col_stride = ncodebooks * lut_sz;
+
+    auto nchunks = (nblocks + chunk_nblocks - 1) / chunk_nblocks;
+    for (int chunk = 0; chunk < nchunks; chunk++) { // for each chunk of input rows
+        int64_t use_nblocks = chunk_nblocks;
+        if (chunk == (nchunks - 1)) { // handle last chunk
+            auto nblocks_done = chunk * chunk_nblocks;
+            use_nblocks = nblocks - nblocks_done;
+        }
+        auto codes_ptr = codes + (chunk * codes_chunk_stride);
+        auto out_ptr = dists_out + (chunk * out_chunk_stride);
+        auto lut_ptr = luts + (chunk * lut_chunk_stride);
+
+        for (int i = 0; i < noutputs; i++) {
+            bolt_scan<NoOverflow, SignedLUTs>(
+                codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
+            out_ptr += out_col_stride;
+            lut_ptr += lut_col_stride;
+        }
     }
 }
 
