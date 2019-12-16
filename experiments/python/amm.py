@@ -379,19 +379,27 @@ class TrainedSparsePcaSketch(ApproxMatmul):
 
     def __call__(self, A, B):
         assert A.shape[1] == B.shape[0]  # dims need to match
-        D = A.shape[1]
-        if D < self.d:
+        N, D = A.shape
+        D, M = B.shape
+
+        if D <= self.d:
             raise InvalidParametersException(
                 'D < d: {} < {}'.format(D, self.d))
-        # set thresh of self.d // 2, instead of self.d, since sparsity
-        # could theoretically make such a projection worthwhile
-        if B.shape[1] < self.d // 2:
-            raise InvalidParametersException(
-                'M < d // 2: {} < {}'.format(B.shape[1], self.d // 2))
 
-        if (self.A is None):
+        fixedA = self.A is not None
+        fixedB = self.B is not None
+
+        nmuls_naive = N * D * M
+        nmuls_ours = self.get_speed_metrics(
+            A, B, fixedA=fixedA, fixedB=fixedB)[KEY_NMULTIPLIES]
+        if nmuls_naive <= nmuls_ours:
+            raise InvalidParametersException(
+                "naive # of multiplies < sparse sketch # of multiplies: "
+                "{} < {}".format(nmuls_naive, nmuls_ours))
+
+        if not fixedA:
             self.set_A(A)
-        if (self.B is None):
+        if not fixedB:
             self.set_B(B)
         return self.A @ self.B
 
@@ -410,13 +418,15 @@ class TrainedSparsePcaSketch(ApproxMatmul):
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         N, D = A.shape
         D, M = B.shape
-        d = self.d
-        nmuls = N * d * M  # assuming matrices already sketched
+        nmuls_sketch_X = N * self.nnz
+        nmuls_sketch_W = M * self.nnz
+        nmuls_make_output = N * self.d * M
+        total_nmuls = nmuls_make_output
         if not fixedA:
-            nmuls += N * self.nnz
+            total_nmuls += nmuls_sketch_X
         if not fixedB:
-            nmuls += M * self.nnz
-        return {KEY_NMULTIPLIES: nmuls}
+            total_nmuls += nmuls_sketch_W
+        return {KEY_NMULTIPLIES: total_nmuls}
 
 
 # ================================================================ drineas06

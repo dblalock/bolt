@@ -619,7 +619,11 @@ void _profile_sparse_amm(const char* dset_name, int N, int D, int M,
     using MatrixT = ColMatrix<float>;
     using SparseMatrixT = Eigen::SparseMatrix<float>;
 
-    if (d > D * nnz_frac) { return; }
+    auto nmuls_sketch_X = N * D * d * nnz_frac;
+    auto nmuls_make_output = N * d * M;
+    auto total_nmuls = nmuls_sketch_X + nmuls_make_output;
+    auto naive_nmuls = N * D * M;
+    if (total_nmuls > naive_nmuls) { return; }
 
     MatrixT X(N, D); X.setRandom();
     SparseMatrixT S(D, d); S.setZero();
@@ -710,7 +714,6 @@ void _profile_sparse_amm(std::vector<int> dvals, std::vector<float> nnz_fracs,
             _profile_sparse_amm(shape.name, shape.N, shape.D, shape.M, d, f);
         }
     }
-
 }
 
 } // anonymous namespace
