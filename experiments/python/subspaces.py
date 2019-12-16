@@ -376,7 +376,7 @@ def greedy_eigenvector_threshold(X, subspace_len, sample_how='deterministic',
 
 # def ksparse_pca(X, ncomponents, k, algo='anydims'):
 # def ksparse_pca(X, ncomponents, k, algo='noreuse'):
-def ksparse_pca(X, ncomponents, k, algo='1uniq'):
+def ksparse_pca_v1(X, ncomponents, k, algo='1uniq'):
     N, D = X.shape
     k = int(k)
     assert k < D  # TODO run dense randomized PCA to handle this case
@@ -549,10 +549,201 @@ def ksparse_pca(X, ncomponents, k, algo='1uniq'):
     return V
 
 
+# these are just for debugging
+def _to_sparse(x):
+    x = x.ravel()
+    idxs = np.where(x != 0)[0]
+    vals = x[idxs]
+    idxs = idxs.reshape(-1, 1)
+    vals = vals.reshape(-1, 1)
+    # print("idxs: ", idxs)
+    # print("vals: ", vals)
+    return np.hstack((idxs, vals))
+
+
+def _to_sparse_cols(A):
+    ars = [_to_sparse(A[:, j])[np.newaxis, ...]
+           for j in range(A.shape[1])]
+    return "\n".join([str(ar) for ar in ars])
+    # return np.concatenate(vecs, axis=0)
+
+
+def ksparse_pca(X, ncomponents, k):
+    N, D = X.shape
+    k = int(k)
+    assert k < D  # TODO run dense randomized PCA to handle this cases
+    X = np.asfarray(X)  # we'll be taking subsets of columns a lot
+    X_res = np.copy(X)
+
+    from sklearn.linear_model import OrthogonalMatchingPursuit
+    omp = OrthogonalMatchingPursuit(n_nonzero_coefs=k, fit_intercept=False)
+
+    idx_counts = np.zeros(D, dtype=np.int)
+
+    V = None
+    for i in range(ncomponents):
+        v = top_principal_component(X_res).reshape(D, 1)
+        if i > 0:
+            # gram-schmidt to orthogonalize; we don't get to use this exact
+            # vector anyway, so we don't care too much about numerical issues;
+            # also, principal component of residuals should be in a subspace
+            # that's orthogonal to V already, so might be able to prove this
+            # step isn't even necessary
+            prods = (V.T @ v).ravel()   # (D x i+1).T @ (D x 1) = i+1 x 1
+            v -= (V * prods).sum(axis=1, keepdims=True)
+        h = X_res @ v
+
+        # compute sparse version of this ideal projection
+        allowed_idxs = idx_counts < k
+        X_subs = X[:, allowed_idxs]
+        assert allowed_idxs.sum() >= k
+        soln = omp.fit(X_subs, h).coef_
+        v = np.zeros(D)
+        v[allowed_idxs] = soln
+
+        nnz_idxs = v != 0
+        v = v.reshape(-1, 1)
+        v /= np.linalg.norm(v)
+        assert np.sum(v != 0) == k
+
+
+
+        # TODO this is broken because having no dim used more than k times
+        # isn't actually a sufficient condition to ensure that cols of V
+        # can be made orthogonal; need to write our own OMP that can take
+        # in existing nnz pattern of V and not include dims that would result
+        # in too many linearly indep cols in that subspace
+
+
+
+        # update idx_counts
+        idx_counts[nnz_idxs] += 1
+
+        # make v orthogonal to existing cols in V
+        if V is None:
+            V = v
+            continue
+        V_subs = V[nnz_idxs].copy()
+        nonzero_cols = V_subs.sum(axis=0) != 0
+        if np.sum(nonzero_cols) < 1:  # already orthogonal to existing V
+            V = np.hstack((V, v))
+            continue
+        V_subs_orig = V_subs.copy()
+        V_subs = V_subs[:, nonzero_cols]
+        # V_subs, _ = np.linalg.qr(V_subs)
+
+
+        debug = i == 7
+
+
+        v_subs = v[nnz_idxs].copy()
+        niters_ortho = 100 if not debug else 1
+        v_orig = v.copy()
+        v_subs_orig = v_subs.copy()
+        for it in range(niters_ortho):
+            prods = (V_subs.T @ v_subs).ravel()
+            projections = (V_subs * prods).sum(axis=1, keepdims=True)
+            # v_subs -= .999 * projections
+            v_subs -= projections
+            V_subs = V_subs[:, prods != 0]
+
+            # if debug:
+            #     print("V_subs:\n", V_subs)
+            #     print("projections: ", projections)
+            #     # print("v_subs: ", projections)
+
+            # SELF: issue here is that cols of V_subs are not necessarily
+            # orthogonal, so projections can actually overcorrect and have
+            # exactly the wrong component come to dominate
+
+            v_subs /= np.linalg.norm(v_subs)
+            if np.max(np.abs(prods)) < 1e-5:  # TODO add tol param
+                # print("breaking at iter: ", it)
+                break  # pretty converged
+        if it == niters_ortho - 1:
+            print(f"k={k}, it={it}")
+            print(f"FAILED to get component {i} orthogonal")
+            print("prods:\n", prods)
+            # print("v before gram-schmidt:")
+            # print(_to_sparse(v_orig))
+            # print("V with nonzeros in subspace: ")
+            # V_subset = V[:, prods != 0]
+            # print("V_subset shape:", V_subset.shape)
+            # print(_to_sparse_cols(V_subset))
+            # # print(V[:, prods != 0])
+            # print("v:")
+            # print(_to_sparse(v))
+
+            print("projections:", projections)
+            print("V_subs_orig\n", V_subs_orig)
+            print("v_subs_orig\n", v_subs_orig)
+            print("V_subs:\n", V_subs[:, prods != 0])
+            print("v_subs:", v_subs)
+            import sys; sys.exit()
+
+            # print("got to ortho iteration: ", it)
+            # nonzero_count_idxs = np.where(idx_counts)[0]
+            # print("idx counts:\n", np.array(list(zip(nonzero_count_idxs, idx_counts[nonzero_count_idxs]))).T)
+            # print("picked idxs: ", np.where(nnz_idxs)[0])
+        v = v.ravel()
+        v[:] = 0
+        v[nnz_idxs] = v_subs.ravel()
+        v /= np.linalg.norm(v)
+        v = v.reshape(-1, 1)
+        V = np.hstack((V, v))
+
+        # now update X_res; residuals from best linear approx of input given H
+        H = X_res @ V
+        W, _, _, _ = np.linalg.lstsq(H, X, rcond=None)
+        X_res = X - (H @ W)
+
+    return V
+
+
+def debug_orthogonalize():
+    # V = np.array([[0.0, 0.0, 0.0],
+    #               [-0.72, -0.367, 0.55],
+    #               [-0.463, 0.482, 0.0],
+    #               [-0.391, -0.457, -0.797]])
+    # v = np.array([[-0.243],
+    #               [-0.705],
+    #               [-0.427],
+    #               [-0.511]])
+    V = np.array([[0.759, 0.506, 0.41],
+                  [-0.58, 0.811, 0.0733],
+                  [0.0, 0.0, 0.0],
+                  [-0.296, -0.294, 0.909]])
+    v = np.array([[0.729],
+                 [-0.547],
+                 [0.261],
+                 [-0.318]])
+    print("V:\n", V)
+    print("v:\n", v)
+    V /= np.linalg.norm(V, axis=0)
+    print("V norms: ", np.linalg.norm(V, axis=0))
+
+    for it in range(1):
+        prods = (V.T @ v).ravel()
+        print("prods: ", prods)
+        projections = (V * prods).sum(axis=1, keepdims=True)
+        print("projections:\n", projections)
+        v -= projections
+        v /= np.linalg.norm(v)
+
+        # print("V:\n", V)
+        print("new v:\n", v)
+
+        # print("new prods: ", prods)
+        # prods = (V.T @ v).ravel()
+
+
 # ================================================================ main
 
 def main():
-    # np.random.seed(1234)
+    # debug_orthogonalize(); return # TODO rm
+
+
+    np.random.seed(12)
     # np.random.seed(6)
     # N, D = 20, 10
     # N, D = 10000, 128
@@ -579,10 +770,10 @@ def main():
     # greedy_eigenvector_threshold(X, 3, use_corr=True)
 
     # k = 1  # k = 1 is really interesting; corresponds to just subsampling cols
-    k = 2
+    # k = 2
     # k = 4
     # k = 6
-    # k = 8
+    k = 8
     k = min(k, int(D / d))
     V = ksparse_pca(X, d, k)
     H = X @ V
@@ -612,21 +803,21 @@ def main():
     print(np.mean(our_abs_offdiags))
     print(np.mean(pca_abs_offdiags))
 
-    import matplotlib.pyplot as plt
-    import seaborn as sb
-    _, axes = plt.subplots(2)
-    # sb.heatmap(V.T @ V, ax=axes[0], cmap='RdBu')
-    # sb.heatmap(V2.T @ V2, ax=axes[1], cmap='RdBu')
-    sb.heatmap(V.T @ V, ax=axes[0])
-    sb.heatmap(V2.T @ V2, ax=axes[1])
-    # axes[0].imshow(V.T @ V, interpolation='nearest', cmap='RdBu')
-    # plt.colorbar(ax=axes[0])
-    # axes[0].imshow(V2.T @ V2, interpolation='nearest', cmap='RdBu')
-    # plt.colorbar(ax=axes[1])
-    axes[0].set_title("our V.T @ V")
-    axes[1].set_title("pca V.T @ V")
-    plt.tight_layout()
-    plt.show()
+    # import matplotlib.pyplot as plt
+    # import seaborn as sb
+    # _, axes = plt.subplots(2)
+    # # sb.heatmap(V.T @ V, ax=axes[0], cmap='RdBu')
+    # # sb.heatmap(V2.T @ V2, ax=axes[1], cmap='RdBu')
+    # sb.heatmap(V.T @ V, ax=axes[0])
+    # sb.heatmap(V2.T @ V2, ax=axes[1])
+    # # axes[0].imshow(V.T @ V, interpolation='nearest', cmap='RdBu')
+    # # plt.colorbar(ax=axes[0])
+    # # axes[0].imshow(V2.T @ V2, interpolation='nearest', cmap='RdBu')
+    # # plt.colorbar(ax=axes[1])
+    # axes[0].set_title("our V.T @ V")
+    # axes[1].set_title("pca V.T @ V")
+    # plt.tight_layout()
+    # plt.show()
 
     # print("our V.T @ V: ", V.T @ V)
     # print("pca V.T @ V: ", V2.T @ V2)
