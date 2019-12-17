@@ -665,11 +665,15 @@ void bgemm(const uint64_t* A, const uint64_t* B,
            int N, int D, int M, OutT* out)
 {
     switch(D) {
-        case 1: _bgemm<1, 1, 1>(A, B, N, D, M, out); break;
-        case 2: _bgemm<1, 1, 2>(A, B, N, D, M, out); break;
-        case 3: _bgemm<1, 1, 3>(A, B, N, D, M, out); break;
-        case 4: _bgemm<1, 1, 4>(A, B, N, D, M, out); break;
-        case 8: _bgemm<1, 1, 8>(A, B, N, D, M, out); break;
+        case 1: _bgemm<1, 1, 1>(A, B, N, -1, M, out); break;
+        case 2: _bgemm<1, 1, 2>(A, B, N, -1, M, out); break;
+        case 3: _bgemm<1, 1, 3>(A, B, N, -1, M, out); break;
+        case 4: _bgemm<1, 1, 4>(A, B, N, -1, M, out); break;
+        case 8: _bgemm<1, 1, 8>(A, B, N, -1, M, out); break;
+        default:
+            assert(false); // should only be passing in D in {1,2,4,8}
+            _bgemm<1, 1>(A, B, N, D, M, out);
+            break;
     }
 }
 

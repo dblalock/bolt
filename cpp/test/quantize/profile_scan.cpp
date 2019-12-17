@@ -26,7 +26,8 @@ void _profile_scan_popcount(int nrows, int nbytes, int M=1) {
     ColMatrix<uint16_t> out(nrows, M); out.setZero();
 
     std::string msg(string_with_format(
-        "%-22s, N C B:, %7d,  -1, %2d,\t", "popcount scan", nrows, nbytes));
+        "%-22s, N C B M:, %7d,  -1, %2d, %2d,\t", "popcount scan",
+        nrows, nbytes, M));
 
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         out.data(), out.size(),
@@ -188,7 +189,7 @@ void _profile_scan(int nrows, int nbytes, int nout=1) {
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%%-22s, N C B:, %7d, %%3d, %2d,\t", nrows, ncodebooks_pq);
+        "%%-22s, N C B M:, %7d, %%3d, %2d, %2d,\t", nrows, ncodebooks_pq, nout);
     auto fmt = fmt_as_cppstring.c_str();
 
     // int nbytes16 = ncodebooks / 2;
@@ -222,8 +223,18 @@ void _profile_scan(int nrows, int nbytes, int nout=1) {
         dists_u8_x2.data(), dists_u8_x2.size(),
         (mithral_scan<32>(codes16.data(), nblocks, ncodebooks, nout,
                           luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral scan upcast64", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<64>(codes16.data(), nblocks, ncodebooks, nout,
+                          luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral scan upcast128", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<128>(codes16.data(), nblocks, ncodebooks, nout,
+                           luts16.data(), dists_u8_x2.data())));
 
-    // ------------------------ bolt
+    // // ------------------------ bolt
     static constexpr bool signed_luts = true; // bolt uses signed for dotprod
     msg = string_with_format(fmt, "bolt scan uint8", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
@@ -259,9 +270,6 @@ void _profile_scan(int nrows, int nbytes, int nout=1) {
                    luts_f32.data(), dists_f32.data()));
 }
 
-
-// TODO uncomment
-
 TEST_CASE("popcount scan timing", "[amm][scan][popcount][profile]") {
     // static constexpr int nrows = 100 * 1024;
     // static constexpr int nrows = 1000 * 1000;
@@ -269,7 +277,7 @@ TEST_CASE("popcount scan timing", "[amm][scan][popcount][profile]") {
     static constexpr int nout = 10;
 
     // printf("algo, _0, N, B, _1, latency0, _2, latency1, _3, latency2, _4\n");
-    printf("algo, _0, N, C, B, _1, latency0, _2, latency1, _3, latency2, _4,"
+    printf("algo, _0, N, C, B, M, _1, latency0, _2, latency1, _3, latency2, _4,"
            " latency3, _5, latency4, _6\n");
     std::vector<int> all_nbytes {8, 16, 32, 64};
     for (auto b : all_nbytes) {
@@ -290,6 +298,7 @@ TEST_CASE("vq scan timing", "[amm][scan][profile]") {
     // for (auto c : all_ncodebooks) {
     std::vector<int> all_nbytes {8, 16, 32, 64};
     for (auto b : all_nbytes) {
+        printf("------------------------ B = %d\n", b);
         _profile_scan(nrows, b, nout);
     }
 }

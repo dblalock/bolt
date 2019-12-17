@@ -987,6 +987,7 @@ static constexpr bool is_power_of_2(int64_t x) {
 }
 
 // https://godbolt.org/z/cP80FF
+// template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=true>
 template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=false>
 void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
                    uint8_t* dists_out)
@@ -995,7 +996,9 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
     static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
     static_assert(UpcastEvery >= 2, "UpcastEvery must be >= 2");
     // static_assert(UpcastEvery <= 16, "UpcastEvery must be <= 16");
-    static_assert(UpcastEvery <= 32, "UpcastEvery must be <= 32");
+    // static_assert(UpcastEvery <= 32, "UpcastEvery must be <= 32");
+    // static_assert(UpcastEvery <= 64, "UpcastEvery must be <= 64");
+    static_assert(UpcastEvery <= 128, "UpcastEvery must be <= 128");
     // static_assert(UpcastEvery == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
     static constexpr int ncodebooks = 2 * NBytes;
     static constexpr int ncols = NBytes;
@@ -1036,13 +1039,16 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
             __m256i avg_prev8 = _mm256_undefined_si256();
             __m256i avg_prev16 = _mm256_undefined_si256();
             __m256i avg_prev32 = _mm256_undefined_si256();
+            __m256i avg_prev64 = _mm256_undefined_si256();
+            __m256i avg_prev128 = _mm256_undefined_si256();
+
+            // TODO tile this to compute OutColTileSz outputs at once
 
             #pragma unroll
             for (int gg = 0; gg < colgroup_sz; gg++) {
                 auto j = (g * colgroup_sz) + gg;
 
                 auto x_col = load_si256i(codes);
-                // auto x_col = stream_load_si256i(codes);
                 codes += 32;
 
                 auto lut_low = luts_ar[2 * j];
@@ -1063,6 +1069,23 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
                 // instead of a true average
                 // note that we need to use inline asm to get the right
                 // instruction here on my machine for unclear reasons
+                if (gg % 128 == 127) {
+                    auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
+                    auto new_avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
+                    auto new_avg_prev8 = avg_epu8(avg_prev4, new_avg_prev4);
+                    auto new_avg_prev16 = avg_epu8(avg_prev8, new_avg_prev8);
+                    auto new_avg_prev32 = avg_epu8(avg_prev16, new_avg_prev16);
+                    auto new_avg_prev64 = avg_epu8(avg_prev32, new_avg_prev32);
+                    avg_prev128 = avg_epu8(avg_prev64, new_avg_prev64);
+                }
+                if (gg % 64 == 63) {
+                    auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
+                    auto new_avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
+                    auto new_avg_prev8 = avg_epu8(avg_prev4, new_avg_prev4);
+                    auto new_avg_prev16 = avg_epu8(avg_prev8, new_avg_prev8);
+                    auto new_avg_prev32 = avg_epu8(avg_prev16, new_avg_prev16);
+                    avg_prev64 = avg_epu8(avg_prev32, new_avg_prev32);
+                }
                 if (gg % 32 == 31) {
                     auto new_avg_prev2 = avg_epu8(avg_prev1, avgs);
                     auto new_avg_prev4 = avg_epu8(avg_prev2, new_avg_prev2);
@@ -1099,10 +1122,13 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
                              colgroup_sz == 4  ? avg_prev4 :
                              colgroup_sz == 8  ? avg_prev8 :
                              colgroup_sz == 16 ? avg_prev16 :
-                             avg_prev32;
+                             colgroup_sz == 32 ? avg_prev32 :
+                             colgroup_sz == 64 ? avg_prev64 :
+                             avg_prev128;
 
             if (ncolgroups == 1 && !Force16BitOutput) { // write out 8b values
-                _mm256_store_si256((__m256i*)dists_out, group_avg);
+                // _mm256_store_si256((__m256i*)dists_out, group_avg);
+                _mm256_stream_si256((__m256i*)dists_out, group_avg);
                 dists_out += 32;
             } else {
                 auto avgs_0_15 = _mm256_cvtepi8_epi16(
@@ -1115,16 +1141,16 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
         }
         // if (true) {
         if (ncolgroups > 1 || Force16BitOutput) {
-            _mm256_store_si256((__m256i*)(dists_out + 0), totals_0_15);
-            _mm256_store_si256((__m256i*)(dists_out + 32), totals_16_31);
-            // _mm256_stream_si256((__m256i*)(dists_out + 0), totals_0_15);
-            // _mm256_stream_si256((__m256i*)(dists_out + 32), totals_16_31);
+            // _mm256_store_si256((__m256i*)(dists_out + 0), totals_0_15);
+            // _mm256_store_si256((__m256i*)(dists_out + 32), totals_16_31);
+            _mm256_stream_si256((__m256i*)(dists_out + 0), totals_0_15);
+            _mm256_stream_si256((__m256i*)(dists_out + 32), totals_16_31);
             dists_out += 64;
         }
     }
 }
 
-template<int UpcastEvery=8>
+template<int UpcastEvery=64>
 void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   const uint8_t* luts, uint8_t* dists_out)
 {
@@ -1139,7 +1165,7 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
     }
 }
 
-template<int UpcastEvery=8>
+template<int UpcastEvery=64>
 // void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
 void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
@@ -1158,7 +1184,7 @@ void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,
     }
 }
 
-template<int UpcastEvery=4>
+template<int UpcastEvery=64>
 // void mithral_scan_tiled(const uint8_t* codes, int64_t nblocks, int ncodebooks,
 void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
@@ -1193,7 +1219,8 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
         auto lut_ptr = luts + (chunk * lut_chunk_stride);
 
         for (int i = 0; i < noutputs; i++) {
-            mithral_scan(codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
+            mithral_scan<UpcastEvery>(
+                codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
             out_ptr += out_col_stride;
             lut_ptr += lut_col_stride;
         }

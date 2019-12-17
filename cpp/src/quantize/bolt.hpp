@@ -464,8 +464,10 @@ inline void bolt_scan(const uint8_t* codes,
 
     for (int64_t i = 0; i < nblocks; i++) {
         auto totals = _mm256_setzero_si256();
+        #pragma unroll
         for (uint8_t j = 0; j < NBytes; j++) {
-            auto x_col = stream_load_si256i(codes);
+            // auto x_col = stream_load_si256i(codes);
+            auto x_col = load_si256i(codes);
             codes += 32;
 
             auto lut_low = luts_ar[2 * j];
@@ -493,6 +495,7 @@ inline void bolt_scan(const uint8_t* codes,
             }
         }
         _mm256_stream_si256((__m256i*)dists_out, totals);
+        // _mm256_store_si256((__m256i*)dists_out, totals);
         dists_out += 32;
     }
 }
@@ -542,8 +545,10 @@ inline void bolt_scan(const uint8_t* codes,
         // auto totals = _mm256_setzero_si256();
         auto totals_evens = _mm256_setzero_si256();
         auto totals_odds = _mm256_setzero_si256();
+        #pragma unroll
         for (uint8_t j = 0; j < NBytes; j++) {
-            auto x_col = stream_load_si256i(codes);
+            // auto x_col = stream_load_si256i(codes);
+            auto x_col = load_si256i(codes);
             codes += 32;
 
             auto lut_low = luts_ar[2 * j];
