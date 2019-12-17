@@ -9,6 +9,9 @@ from sklearn.decomposition import PCA
 
 from . import subspaces as subs
 
+from joblib import Memory
+_memory = Memory('.', verbose=0)
+
 # def bucket_id_to_new_bucket_ids(old_id):
 #     i = 2 * old_id
 #     return i, i + 1
@@ -1202,6 +1205,7 @@ def _pq_codebook_start_end_idxs(D, ncodebooks):
     return idxs
 
 
+@_memory.cache
 def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
                   lut_work_const=-1, **kwargs):
     N, D = X.shape
@@ -1279,12 +1283,13 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
 
     # optimize centroids discriminatively conditioned on assignments
     X_enc = mithral_encode(X, all_splits)
-    # W = encoded_lstsq(X_enc, X)  # 16C x D
-    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
-    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
-    W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=lut_work_const)
-    # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
-    all_centroids = W.reshape(ncodebooks, 16, D)
+    if lut_work_const != 1:  # if it's 1, equivalent to just doing PQ
+        # W = encoded_lstsq(X_enc, X)  # 16C x D
+        # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
+        # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
+        W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=lut_work_const)
+        # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
+        all_centroids = W.reshape(ncodebooks, 16, D)
 
     # print("new centroid norms: ", np.linalg.norm(all_centroids.reshape(ncodebooks, -1), axis=-1))
     # print("new centroids shape: ", all_centroids.shape)

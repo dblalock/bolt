@@ -205,8 +205,13 @@ class MultiCodebookEncoder(abc.ABC):
             self.total_lut_offset = np.sum(self.lut_offsets)
             # print("lut offsets: ", self.lut_offsets)
 
-    def dists_enc(self, X_enc, Q_luts, unquantize=True):
+    def dists_enc(self, X_enc, Q_luts, unquantize=True,
+                  offset=None, scale=None):
         X_enc = np.ascontiguousarray(X_enc)
+
+        if unquantize:
+            offset = self.total_lut_offset if offset is None else offset
+            scale = self.scale_by if scale is None else scale
 
         all_dists = np.empty((len(Q_luts), len(X_enc)), dtype=np.float32)
         for i, lut in enumerate(Q_luts):
@@ -224,16 +229,58 @@ class MultiCodebookEncoder(abc.ABC):
                 elif self.accumulate_how == 'mean':
                     # mirror hierarchical avg_epu8
                     # print("reducing using mean!")
+
+                    # print("fraction of low bits that are 1: ",
+                    #       np.mean(dists % 2 == 1))  # ya, ~.5, or maybe ~.495
+
                     while dists.shape[-1] > 2:
-                        dists = (dists[:, :, ::2] + dists[:, :, 1::2] + 1) / 2
-                    dists = (dists[:, :, 0] + dists[:, :, 1] + 1) / 2
+                        dists = (dists[:, :, ::2] + dists[:, :, 1::2] + 1) // 2
+                    dists = (dists[:, :, 0] + dists[:, :, 1] + 1) // 2
                     dists = dists.sum(axis=-1)  # clipping not needed
+
+                    # undo biasing; if low bits are {0,0} or {1,1}, no bias
+                    # from the averaging; but if {0,1}, then rounds up by
+                    # .5; happens with prob ~=~ .5, so each avg op adds .25;
+                    # the other tricky thing here is that rounding up when
+                    # you're averaging averages biases it even farther
+                    # base_bias = .5 * .5
+                    # assert self.upcast_every >= 2
+                    # bias_per_upcast = 0
+                    # nlevels = int(np.log2(self.upcast_every))
+                    # for level in range(nlevels):
+                    #     num_avg_ops = self.upcast_every / (2 << level)
+                    #     print("num_avg_ops: ", num_avg_ops)
+                    #     bias_per_op = (1 << level) * base_bias
+                    #     print("level multiplier: ", 1 << level)
+                    #     bias_per_upcast += num_avg_ops * bias_per_op
+
+                    # bias = bias_per_upcast * (self.ncodebooks / self.upcast_every)
+
+                    # num_avg_ops = (self.upcast_every - 1) * (
+                    #     self.ncodebooks / self.upcast_every)
+                    # num_avg_ops = (self.upcast_every - 1) * np.sqrt(
+                    #     self.ncodebooks / self.upcast_every)
+                    # num_avg_ops = (self.upcast_every - 1)
+                    # bias = num_avg_ops * base_bias
+
+                    # bias = (self.ncodebooks / 2) * int(np.log2(self.upcast_every))
+                    # bias = (self.ncodebooks / 2) * int(np.log2(self.upcast_every))
+                    # bias = 0
+                    # dists -= int(bias * self.upcast_every)
+
                     dists *= self.upcast_every  # convert mean to sum
+
+                    # I honestly don't know why this is the formula, but wow
+                    # does it work well
+                    bias = self.ncodebooks / 4 * np.log2(self.upcast_every)
+                    dists -= int(bias)
+
                 else:
                     raise ValueError("accumulate_how must be 'sum' or 'mean'")
 
             if self.quantize_lut and unquantize:
-                dists = (dists / self.scale_by) + self.total_lut_offset
+                # dists = (dists / self.scale_by) + self.total_lut_offset
+                dists = (dists / scale) + offset
             all_dists[i] = dists
 
         return all_dists.T
@@ -406,12 +453,132 @@ class PQEncoder(MultiCodebookEncoder):
 
 # ------------------------------------------------ Mithral
 
+def _mithral_quantize_luts(luts, lut_work_const, force_power_of_2=False):
+    nqueries, ncodebooks, ncentroids = luts.shape
+
+    # if lut_work_const < 0:  # not time constrained
+    #     assert luts.shape == (nqueries, ncodebooks, ncentroids)
+    #     luts2d = np.moveaxis(luts, 2, 1)
+    #     assert luts2d.shape == (nqueries, ncentroids, ncodebooks)
+    #     luts2d = luts2d.reshape(nqueries * ncentroids, ncodebooks)
+
+    #     # if True:
+    #     if False:
+    #         # ax = sb.distplot(luts.ravel(), hist=False, rug=True)
+    #         _, ax = plt.subplots(1, figsize=(13, 5))
+    #         # sb.violinplot(data=luts2d, inner='point', ax=ax)
+    #         # sb.boxenplot(data=luts2d, ax=ax)
+    #         means = luts2d.mean(axis=0)
+
+    #         # # rm largest and smallest entry in each col
+    #         # argmaxs = np.argmax(luts2d, axis=0)
+    #         # argmins = np.argmax(luts2d, axis=0)
+    #         # for c in range(luts.shape[1]):
+    #         #     luts2d[argmins[c], c] = means[c]
+    #         #     luts2d[argmaxs[c], c] = means[c]
+
+    #         maxs = luts2d.max(axis=0)
+    #         mins = luts2d.min(axis=0)
+
+    #         gaps = maxs - mins
+    #         max_idx = np.argmax(gaps)
+    #         print(f"biggest gap = {np.max(gaps)} at idx {max_idx}")
+    #         gaps[max_idx] = 0
+    #         max_idx = np.argmax(gaps)
+    #         print(f"2nd biggest gap = {np.max(gaps)} at idx {max_idx}")
+    #         gaps[max_idx] = 0
+    #         max_idx = np.argmax(gaps)
+    #         print(f"3rd biggest gap = {np.max(gaps)} at idx {max_idx}")
+    #         gaps[max_idx] = 0
+    #         max_idx = np.argmax(gaps)
+    #         print(f"4th biggest gap = {np.max(gaps)} at idx {max_idx}")
+    #         gaps[max_idx] = 0
+    #         max_idx = np.argmax(gaps)
+    #         print(f"5th biggest gap = {np.max(gaps)} at idx {max_idx}")
+
+    #         # for i in range(len(luts2d)):
+    #         #     row = luts2d[i]
+    #         #     luts2d[i, row == mins] = means
+    #         #     luts2d[i, row == maxs] = means
+
+    #         luts2d -= mins
+    #         # luts2d -= means
+    #         # luts2d *= 255 / (maxs - mins).max()
+    #         luts2d *= 255 / gaps.max()
+    #         luts2d = np.minimum(luts2d, 255)
+
+    #         sb.stripplot(data=luts2d, ax=ax, size=4)
+    #         ax.set_xlabel('Query dist to centroids (lut dist histogram)')
+    #         ax.set_ylabel('Fraction of queries')
+    #         plt.show()
+    #         import sys; sys.exit()
+
+    #     offsets, scale, _ = _learn_best_quantization(luts2d)
+    #     offsets = offsets[np.newaxis, :, np.newaxis]
+    #     luts = np.maximum(0, luts - offsets) * scale
+    #     luts = np.floor(luts).astype(np.int)
+    #     luts = np.minimum(255, luts)
+    #     return luts, offsets.sum(), scale
+
+    # luts = np.zeros((Q.shape[0], self.ncodebooks, self.ncentroids))
+    mins = luts.min(axis=(0, 2))
+    maxs = luts.max(axis=(0, 2))
+
+
+    # sums = luts.sum(axis=(0, 2))
+    # sums_sq = (luts * luts).sum(axis=(0, 2))
+    # means = sums / (nqueries * ncentroids)
+    # mean_sqs = sums_sq / (nqueries * ncentroids)
+    # variances = mean_sqs - (means * means)
+    # stds = np.sqrt(variances)
+
+
+    # TODO main issue here is that luts are apparently biased; spitting out
+    # vals that are too small
+
+    gaps = maxs - mins
+    # gaps[np.argmax(gaps)] = 0  # use 2nd highest
+    gap = np.max(gaps)
+    # gap = np.min(maxs - mins)
+    if force_power_of_2:
+        exponent = np.ceil(np.log2())
+        scale = 2 ** int(-exponent)  # scale is a power of 2, so can just shift
+        scale *= (255.5 - 1e-10)  # so max val is at most 255
+        # scale *= (256. - 1e-10)
+    else:
+        scale = (255.5 - 1e-10) / gap
+        # scale = (256. - 1e-10) / gap
+
+    offsets = mins[np.newaxis, :, np.newaxis]
+    luts_quantized = (luts - offsets) * scale
+    luts_quantized = (luts_quantized + .5).astype(np.int)
+    # luts_quantized = np.minimum(luts_quantized, 255)
+
+    assert np.min(luts_quantized) >= 0
+    assert np.max(luts_quantized) <= 255.
+
+    print("total offset: ", mins.sum())
+
+    return luts_quantized, offsets.sum(), scale
+
+    # # compute offset taking into account stuff getting rounded down
+    # luts_hat = (luts / scale) + offsets
+    # diffs = luts - luts_hat
+    # print("mean of diffs: ", diffs.mean())
+    # offset = diffs.mean() + offsets.sum()
+
+    # return luts_quantized, offset, scale
+
+
 class MithralEncoder(MultiCodebookEncoder):
 
     def __init__(self, ncodebooks, lut_work_const=-1):
         super().__init__(
             ncodebooks=ncodebooks, ncentroids=16,
-            quantize_lut=True, upcast_every=8,  # 8 and 16 are fastest in cpp
+            quantize_lut=True, upcast_every=128,
+            # quantize_lut=True, upcast_every=16,
+            # quantize_lut=True, upcast_every=8,
+            # quantize_lut=True, upcast_every=1,
             accumulate_how='mean')
         self.lut_work_const = lut_work_const
 
@@ -425,7 +592,7 @@ class MithralEncoder(MultiCodebookEncoder):
     def fit(self, X, Q=None):
         self.splits_lists, self.centroids = clusterize.learn_mithral(
             X, self.ncodebooks, lut_work_const=self.lut_work_const)
-        self._learn_lut_quantization(X, Q)
+        # self._learn_lut_quantization(X, Q)
 
     def encode_X(self, X):
         idxs = clusterize.mithral_encode(X, self.splits_lists)
@@ -435,10 +602,9 @@ class MithralEncoder(MultiCodebookEncoder):
         Q = np.atleast_2d(Q)
         luts = np.zeros((Q.shape[0], self.ncodebooks, self.ncentroids))
         for i, q in enumerate(Q):
-            lut = clusterize.mithral_lut(q, self.centroids)
-            if self.quantize_lut and quantize:
-                lut = np.maximum(0, lut - self.lut_offsets.reshape(-1, 1))
-                lut = np.floor(lut * self.scale_by).astype(np.int)
-                lut = np.minimum(lut, 255)
-            luts[i] = lut
-        return luts
+            luts[i] = clusterize.mithral_lut(q, self.centroids)
+        if self.quantize_lut:
+            luts, offset, scale = _mithral_quantize_luts(luts, self.lut_work_const)
+            return luts, offset, scale
+
+        return luts, 0, 1

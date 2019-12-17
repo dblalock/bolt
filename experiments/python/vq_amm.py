@@ -295,3 +295,14 @@ class MithralMatmul(VQMatmul):
         # lookups given encoded data + luts
         nlookups = N * M * self.ncodebooks
         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
+
+    def set_B(self, B):
+        self.luts, self.offset, self.scale = self.enc.encode_Q(B.T)
+
+    def __call__(self, A, B):
+        if self.A_enc is None:
+            self.set_A(A)
+        if self.luts is None:
+            self.set_B(B)
+        return self.enc.dists_enc(self.A_enc, self.luts,
+                                  offset=self.offset, scale=self.scale)

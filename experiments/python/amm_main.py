@@ -52,13 +52,14 @@ def _hparams_for_method(method_id):
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [64] # TODO rm after debug
-        mvals = [16] # TODO rm after debug
-        # mvals = [8] # TODO rm after debug
+        # mvals = [32] # TODO rm after debug
+        # mvals = [16] # TODO rm after debug
+        mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
         if method_id == methods.METHOD_MITHRAL:
-            lut_work_consts = [-1, 2, 4]
+            lut_work_consts = (2, 4, -1)
             params = []
             for m in mvals:
                 for const in lut_work_consts:
@@ -137,9 +138,9 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     Y = task.Y_test
     diffs = Y - Y_hat
     raw_mse = np.mean(diffs * diffs)
-    y_var = np.var(Y)
-    r_sq = 1 - raw_mse / y_var
-    metrics = {'raw_mse': raw_mse, 'y_var': y_var, 'r_sq': r_sq}
+    r_sq = 1 - raw_mse / np.var(Y)
+    metrics = {'raw_mse': raw_mse, 'y_std': Y.std(), 'r_sq': r_sq,
+               'bias': diffs.mean(), 'y_mean': Y.mean()}
     if compression_metrics:
 
         # Y_q = compress.quantize(Y, nbits=8)
@@ -342,9 +343,9 @@ def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Exact'])
-    # main_cifar10(methods='Mithral')
+    main_cifar10(methods='Mithral')
     # main_cifar10(methods='Bolt')
-    main_cifar10(methods=['SparsePCA', 'PCA'])
+    # main_cifar10(methods=['SparsePCA', 'PCA'])
     # main_cifar100(methods=['SparsePCA', 'PCA'])
     # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='Mithral')
