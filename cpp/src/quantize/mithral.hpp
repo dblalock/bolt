@@ -989,8 +989,8 @@ static constexpr bool is_power_of_2(int64_t x) {
 // https://godbolt.org/z/cP80FF
 // template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=true>
 template<int NBytes, int UpcastEvery=16, bool Force16BitOutput=false>
-void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
-                   uint8_t* dists_out)
+void mithral_scan_notile(const uint8_t* codes, int64_t nblocks,
+                         const uint8_t* luts, uint8_t* dists_out)
 {
     static_assert(NBytes > 0, "Code length <= 0 is not valid");
     static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
@@ -1132,7 +1132,7 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
                 dists_out += 32;
             } else {
                 auto avgs_0_15 = _mm256_cvtepi8_epi16(
-                _mm256_extracti128_si256(group_avg, 0));
+                    _mm256_extracti128_si256(group_avg, 0));
                 auto avgs_16_31 = _mm256_cvtepi8_epi16(
                     _mm256_extracti128_si256(group_avg, 1));
                 totals_0_15 = _mm256_add_epi16(totals_0_15, avgs_0_15);
@@ -1150,24 +1150,254 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, const uint8_t* luts,
     }
 }
 
-template<int UpcastEvery=64>
-void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+template<int NBytes, int UpcastEvery=16, int _OutTileSz=1,
+         bool Force16BitOutput=false>
+void mithral_scan(const uint8_t* codes, int64_t nblocks,
                   const uint8_t* luts, uint8_t* dists_out)
+{
+    static_assert(NBytes > 0, "Code length <= 0 is not valid");
+    static_assert(UpcastEvery % 2 == 0, "UpcastEvery must be even");
+    static_assert(UpcastEvery >= 2, "UpcastEvery must be >= 2");
+    // static_assert(UpcastEvery <= 16, "UpcastEvery must be <= 16");
+    // static_assert(UpcastEvery <= 32, "UpcastEvery must be <= 32");
+    // static_assert(UpcastEvery <= 64, "UpcastEvery must be <= 64");
+    static_assert(UpcastEvery <= 128, "UpcastEvery must be <= 128");
+    // static_assert(UpcastEvery == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
+    static constexpr int ncodebooks = 2 * NBytes;
+    static constexpr int ncols = NBytes;
+    static constexpr int actually_upcast_every = MIN(UpcastEvery, ncodebooks);
+    // static_assert(actually_upcast_every == 2 || UpcastEvery == 4 || UpcastEvery == 8, "UpcastEvery must be <= 16");
+    static constexpr int colgroup_sz = actually_upcast_every / 2;
+    static_assert(is_power_of_2(colgroup_sz),
+        "Invalid number of columns to unroll at once");
+    static constexpr int ncolgroups = ncols / colgroup_sz;
+    static_assert(colgroup_sz <= ncodebooks, "WTF, did some math wrong");
+    static_assert(ncols % colgroup_sz == 0,
+        "Size of column group must evenly number of columns");
+    static constexpr bool use_uint8_output =
+        ncolgroups == 1 && !Force16BitOutput;
+    static constexpr int OutTileSz = _OutTileSz > 0 ? _OutTileSz : 1;
+
+    int64_t out_stride = use_uint8_output ? nblocks * 32 : 2 * nblocks * 32;
+    int lut_stride = ncodebooks * 16;
+
+    uint8_t* out_ptrs[OutTileSz];
+    for (int mm = 0; mm < OutTileSz; mm++) {
+        out_ptrs[mm] = dists_out + (mm * out_stride);
+    }
+
+    // unpack 16B luts into 32B registers
+    __m256i lut_arrays[ncodebooks][OutTileSz];
+    for (int mm = 0; mm < OutTileSz; mm++) {
+        auto lut_ptr = luts + (mm * lut_stride);
+        for (uint8_t j = 0; j < NBytes; j++) {
+            auto both_luts = load_si256i(lut_ptr);
+            lut_ptr += 32;
+            auto lut0 = _mm256_permute2x128_si256(both_luts, both_luts, 0 + (0 << 4));
+            auto lut1 = _mm256_permute2x128_si256(both_luts, both_luts, 1 + (1 << 4));
+            lut_arrays[2 * j][mm] = lut0;
+            lut_arrays[2 * j + 1][mm] = lut1;
+        }
+    }
+
+    for (int64_t i = 0; i < nblocks; i++) {
+        // used if ncolgroups > 1, in which case we have to upcast
+        __m256i totals_0_15[OutTileSz];
+        __m256i totals_16_31[OutTileSz];
+        for (int mm = 0; mm < OutTileSz; mm++) {
+            totals_0_15[mm] = _mm256_setzero_si256();
+            totals_16_31[mm] = _mm256_setzero_si256();
+        }
+
+        auto low_4bits_mask = _mm256_set1_epi8(0x0F); // not static so sits in reg
+
+        for (int g = 0; g < ncolgroups; g++) {
+
+            __m256i avg_prev1[OutTileSz];
+            __m256i avg_prev2[OutTileSz];
+            __m256i avg_prev4[OutTileSz];
+            __m256i avg_prev8[OutTileSz];
+            __m256i avg_prev16[OutTileSz];
+            __m256i avg_prev32[OutTileSz];
+            __m256i avg_prev64[OutTileSz];
+            __m256i avg_prev128[OutTileSz];
+            for (int mm = 0; mm < OutTileSz; mm++) {
+                avg_prev1[mm] = _mm256_undefined_si256();
+                avg_prev2[mm] = _mm256_undefined_si256();
+                avg_prev4[mm] = _mm256_undefined_si256();
+                avg_prev8[mm] = _mm256_undefined_si256();
+                avg_prev16[mm] = _mm256_undefined_si256();
+                avg_prev32[mm] = _mm256_undefined_si256();
+                avg_prev64[mm] = _mm256_undefined_si256();
+                avg_prev128[mm] = _mm256_undefined_si256();
+            }
+
+            #pragma unroll
+            for (int gg = 0; gg < colgroup_sz; gg++) {
+                auto j = (g * colgroup_sz) + gg;
+
+                auto x_col = load_si256i(codes);
+                codes += 32;
+                auto x_low = _mm256_and_si256(x_col, low_4bits_mask);
+                auto x_shft = _mm256_srli_epi16(x_col, 4);
+                auto x_high = _mm256_and_si256(x_shft, low_4bits_mask);
+
+                for (int mm = 0; mm < OutTileSz; mm++) {
+                    auto lut_low = lut_arrays[2 * j][mm];
+                    auto lut_high = lut_arrays[2 * j + 1][mm];
+
+                    auto dists_low = _mm256_shuffle_epi8(lut_low, x_low);
+                    auto dists_high = _mm256_shuffle_epi8(lut_high, x_high);
+
+                    auto avgs = _mm256_avg_epu8(dists_low, dists_high);
+
+                    // update running averages; this is messy because if you
+                    // need to current and previous average to be over the same
+                    // number of values, or else it's a weird weighted average
+                    // instead of a true average
+                    // note that we need to use inline asm to get the right
+                    // instruction here on my machine for unclear reasons
+                    if (gg % 128 == 127) {
+                        auto new_avg_prev2 = avg_epu8(avg_prev1[mm], avgs);
+                        auto new_avg_prev4 = avg_epu8(avg_prev2[mm], new_avg_prev2);
+                        auto new_avg_prev8 = avg_epu8(avg_prev4[mm], new_avg_prev4);
+                        auto new_avg_prev16 = avg_epu8(avg_prev8[mm], new_avg_prev8);
+                        auto new_avg_prev32 = avg_epu8(avg_prev16[mm], new_avg_prev16);
+                        auto new_avg_prev64 = avg_epu8(avg_prev32[mm], new_avg_prev32);
+                        avg_prev128[mm] = avg_epu8(avg_prev64[mm], new_avg_prev64);
+                    }
+                    if (gg % 64 == 63) {
+                        auto new_avg_prev2 = avg_epu8(avg_prev1[mm], avgs);
+                        auto new_avg_prev4 = avg_epu8(avg_prev2[mm], new_avg_prev2);
+                        auto new_avg_prev8 = avg_epu8(avg_prev4[mm], new_avg_prev4);
+                        auto new_avg_prev16 = avg_epu8(avg_prev8[mm], new_avg_prev8);
+                        auto new_avg_prev32 = avg_epu8(avg_prev16[mm], new_avg_prev16);
+                        avg_prev64[mm] = avg_epu8(avg_prev32[mm], new_avg_prev32);
+                    }
+                    if (gg % 32 == 31) {
+                        auto new_avg_prev2 = avg_epu8(avg_prev1[mm], avgs);
+                        auto new_avg_prev4 = avg_epu8(avg_prev2[mm], new_avg_prev2);
+                        auto new_avg_prev8 = avg_epu8(avg_prev4[mm], new_avg_prev4);
+                        auto new_avg_prev16 = avg_epu8(avg_prev8[mm], new_avg_prev8);
+                        avg_prev32[mm] = avg_epu8(avg_prev16[mm], new_avg_prev16);
+                    }
+                    if (gg % 16 == 15) {
+                        auto new_avg_prev2 = avg_epu8(avg_prev1[mm], avgs);
+                        auto new_avg_prev4 = avg_epu8(avg_prev2[mm], new_avg_prev2);
+                        auto new_avg_prev8 = avg_epu8(avg_prev4[mm], new_avg_prev4);
+                        avg_prev16[mm] = avg_epu8(avg_prev8[mm], new_avg_prev8);
+                    }
+                    if (gg % 8 == 7) {
+                        auto new_avg_prev2 = avg_epu8(avg_prev1[mm], avgs);
+                        auto new_avg_prev4 = avg_epu8(avg_prev2[mm], new_avg_prev2);
+                        avg_prev8[mm] = avg_epu8(avg_prev4[mm], new_avg_prev4);
+                    }
+                    if (gg % 4 == 3) {
+                        auto new_avg_prev2 = avg_epu8(avg_prev1[mm], avgs);
+                        avg_prev4[mm] = avg_epu8(avg_prev2[mm], new_avg_prev2);
+                    }
+                    if (gg % 2 == 1) {
+                        avg_prev2[mm] = avg_epu8(avg_prev1[mm], avgs);
+                    } else {
+                        avg_prev1[mm] = avgs;
+                    }
+                }
+            }
+
+            // __m256i group_avgs[OutTileSz];
+            for (int mm = 0; mm < OutTileSz; mm++) {
+                auto group_avg = colgroup_sz == 1  ? avg_prev1[mm] :
+                                 colgroup_sz == 2  ? avg_prev2[mm] :
+                                 colgroup_sz == 4  ? avg_prev4[mm] :
+                                 colgroup_sz == 8  ? avg_prev8[mm] :
+                                 colgroup_sz == 16 ? avg_prev16[mm] :
+                                 colgroup_sz == 32 ? avg_prev32[mm] :
+                                 colgroup_sz == 64 ? avg_prev64[mm] :
+                                 avg_prev128[mm];
+                if (use_uint8_output) { // write out 8b values
+                    _mm256_stream_si256((__m256i*)out_ptrs[mm], group_avg);
+                    out_ptrs[mm] += 32;
+                } else {
+                    auto avgs_0_15 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(group_avg, 0));
+                    auto avgs_16_31 = _mm256_cvtepi8_epi16(
+                        _mm256_extracti128_si256(group_avg, 1));
+                    totals_0_15[mm] = _mm256_add_epi16(totals_0_15[mm], avgs_0_15);
+                    totals_16_31[mm] = _mm256_add_epi16(totals_16_31[mm], avgs_16_31);
+                }
+            }
+        }
+        if (!use_uint8_output) {
+            for (int mm = 0; mm < OutTileSz; mm++) {
+                _mm256_stream_si256(
+                    (__m256i*)(out_ptrs[mm] + 0), totals_0_15[mm]);
+                _mm256_stream_si256(
+                    (__m256i*)(out_ptrs[mm] + 32), totals_16_31[mm]);
+                out_ptrs[mm] += 64;
+            }
+        }
+    }
+}
+
+template<int UpcastEvery=64>
+void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+                         const uint8_t* luts, uint8_t* dists_out)
 {
     uint8_t* out = dists_out;
     switch(ncodebooks) {
-        case 4: mithral_scan<2, UpcastEvery>(codes, nblocks, luts, out); break;
-        case 8: mithral_scan<4, UpcastEvery>(codes, nblocks, luts, out); break;
-        case 16: mithral_scan<8, UpcastEvery>(codes, nblocks, luts, out); break;
-        case 32: mithral_scan<16, UpcastEvery>(codes, nblocks, luts, out); break;
-        case 64: mithral_scan<32, UpcastEvery>(codes, nblocks, luts, out); break;
-        case 128: mithral_scan<64, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 4: mithral_scan_notile<2, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 8: mithral_scan_notile<4, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 16: mithral_scan_notile<8, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 32: mithral_scan_notile<16, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 64: mithral_scan_notile<32, UpcastEvery>(codes, nblocks, luts, out); break;
+        case 128: mithral_scan_notile<64, UpcastEvery>(codes, nblocks, luts, out); break;
+    }
+}
+
+// template<int UpcastEvery=64, int OutTileSz=1>
+// void mithral_scan_tiled(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+//                         const uint8_t* luts, uint8_t* dists_out)
+// {
+//     uint8_t* out = dists_out;
+//     switch(ncodebooks) {
+//         case 4: mithral_scan_tiled<2, UpcastEvery, OutTileSz>(
+//             codes, nblocks, luts, out); break;
+//         case 8: mithral_scan_tiled<4, UpcastEvery, OutTileSz>(
+//             codes, nblocks, luts, out); break;
+//         case 16: mithral_scan_tiled<8, UpcastEvery, OutTileSz>(
+//             codes, nblocks, luts, out); break;
+//         case 32: mithral_scan_tiled<16, UpcastEvery, OutTileSz>(
+//             codes, nblocks, luts, out); break;
+//         case 64: mithral_scan_tiled<32, UpcastEvery, OutTileSz>(
+//             codes, nblocks, luts, out); break;
+//         case 128: mithral_scan_tiled<64, UpcastEvery, OutTileSz>(
+//             codes, nblocks, luts, out); break;
+//     }
+// }
+template<int UpcastEvery=64, int OutTileSz=1>
+void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+             const uint8_t* luts, uint8_t* dists_out)
+{
+    uint8_t* out = dists_out;
+    switch(ncodebooks) {
+        case 4: mithral_scan<2, UpcastEvery, OutTileSz>(
+            codes, nblocks, luts, out); break;
+        case 8: mithral_scan<4, UpcastEvery, OutTileSz>(
+            codes, nblocks, luts, out); break;
+        case 16: mithral_scan<8, UpcastEvery, OutTileSz>(
+            codes, nblocks, luts, out); break;
+        case 32: mithral_scan<16, UpcastEvery, OutTileSz>(
+            codes, nblocks, luts, out); break;
+        case 64: mithral_scan<32, UpcastEvery, OutTileSz>(
+            codes, nblocks, luts, out); break;
+        case 128: mithral_scan<64, UpcastEvery, OutTileSz>(
+            codes, nblocks, luts, out); break;
     }
 }
 
 template<int UpcastEvery=64>
 // void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+void mithral_scan_nochunk(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
 {
     static constexpr int block_nrows = 32;
@@ -1178,13 +1408,14 @@ void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,
     auto lut_stride = ncodebooks * lut_sz;
 
     for (int i = 0; i < noutputs; i++) {
-        mithral_scan<UpcastEvery>(codes, nblocks, ncodebooks, lut_ptr, out_ptr);
+        mithral_scan_notile<UpcastEvery>(
+            codes, nblocks, ncodebooks, lut_ptr, out_ptr);
         out_ptr += out_stride;
         lut_ptr += lut_stride;
     }
 }
 
-template<int UpcastEvery=64>
+template<int UpcastEvery=128, int OutTileSz=2>
 // void mithral_scan_tiled(const uint8_t* codes, int64_t nblocks, int ncodebooks,
 void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
@@ -1218,11 +1449,28 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
         auto out_ptr = dists_out + (chunk * out_chunk_stride);
         auto lut_ptr = luts + (chunk * lut_chunk_stride);
 
-        for (int i = 0; i < noutputs; i++) {
-            mithral_scan<UpcastEvery>(
-                codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
-            out_ptr += out_col_stride;
-            lut_ptr += lut_col_stride;
+        if (OutTileSz > 0) {
+            int nfullgroups_out = noutputs / OutTileSz;
+            for (int g = 0; g < nfullgroups_out; g++) {
+                mithral_scan<UpcastEvery, OutTileSz>(
+                    codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
+                out_ptr += out_col_stride * OutTileSz;
+                lut_ptr += lut_col_stride * OutTileSz;
+            }
+            int ntrailing_outputs = noutputs % OutTileSz;
+            for (int m = 0; m < ntrailing_outputs; m++) {
+                mithral_scan<UpcastEvery, 1>(
+                    codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
+                out_ptr += out_col_stride * OutTileSz;
+                lut_ptr += lut_col_stride * OutTileSz;
+            }
+        } else {
+            for (int i = 0; i < noutputs; i++) {
+                mithral_scan_notile<UpcastEvery>(
+                    codes_ptr, use_nblocks, ncodebooks, lut_ptr, out_ptr);
+                out_ptr += out_col_stride;
+                lut_ptr += lut_col_stride;
+            }
         }
     }
 }

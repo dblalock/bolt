@@ -161,7 +161,7 @@ TEST_CASE("popcnt scan timing", "[amm][scan][popcount][profile][old]") {
 }
 
 // note that this is the scan time for a single query; ie, matrix-vector prod
-void _profile_scan(int nrows, int nbytes, int nout=1) {
+void _profile_scan_all(int nrows, int nbytes, int nout=1) {
     int nblocks = nrows / 32;
 
     int ncodebooks = 2 * nbytes;
@@ -189,52 +189,266 @@ void _profile_scan(int nrows, int nbytes, int nout=1) {
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%%-22s, N C B M:, %7d, %%3d, %2d, %2d,\t", nrows, ncodebooks_pq, nout);
+        "%%-23s, N C B M:, %7d, %%3d, %2d, %2d,\t", nrows, ncodebooks_pq, nout);
     auto fmt = fmt_as_cppstring.c_str();
 
     // int nbytes16 = ncodebooks / 2;
     // int nbytes256 = ncodebooks;
 
     // ------------------------ mithral
-    // RowVector<uint8_t> dists_u8_x2(nrows * 2); // to handle upcast
     ColMatrix<uint8_t> dists_u8_x2(nrows * 2, nout); // to handle upcast
-    msg = string_with_format(fmt, "mithral scan upcast2", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), nrows,
-        (mithral_scan<2>(codes16.data(), nblocks, ncodebooks, nout,
-                         luts16.data(), dists_u8_x2.data())));
-    msg = string_with_format(fmt, "mithral scan upcast4", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), nrows,
-        (mithral_scan<4>(codes16.data(), nblocks, ncodebooks, nout,
-                         luts16.data(), dists_u8_x2.data())));
-    msg = string_with_format(fmt, "mithral scan upcast8", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), dists_u8_x2.size(),
-        (mithral_scan<8>(codes16.data(), nblocks, ncodebooks, nout,
-                         luts16.data(), dists_u8_x2.data())));
-    msg = string_with_format(fmt, "mithral scan upcast16", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), dists_u8_x2.size(),
-        (mithral_scan<16>(codes16.data(), nblocks, ncodebooks, nout,
-                          luts16.data(), dists_u8_x2.data())));
-    msg = string_with_format(fmt, "mithral scan upcast32", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), dists_u8_x2.size(),
-        (mithral_scan<32>(codes16.data(), nblocks, ncodebooks, nout,
-                          luts16.data(), dists_u8_x2.data())));
-    msg = string_with_format(fmt, "mithral scan upcast64", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), dists_u8_x2.size(),
-        (mithral_scan<64>(codes16.data(), nblocks, ncodebooks, nout,
-                          luts16.data(), dists_u8_x2.data())));
-    msg = string_with_format(fmt, "mithral scan upcast128", ncodebooks);
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-        dists_u8_x2.data(), dists_u8_x2.size(),
-        (mithral_scan<128>(codes16.data(), nblocks, ncodebooks, nout,
-                           luts16.data(), dists_u8_x2.data())));
+    // printf("---- notile\n");
+    // msg = string_with_format(fmt, "mithral scan upcast2", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), nrows,
+    //     (mithral_scan<2, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                      luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral scan upcast4", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), nrows,
+    //     (mithral_scan<4, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                      luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral scan upcast8", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<8, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                      luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral scan upcast16", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<16, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                       luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral scan upcast32", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<32, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                       luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral scan upcast64", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<64, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                       luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral scan upcast128", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<128, -1>(codes16.data(), nblocks, ncodebooks, nout,
+    //                        luts16.data(), dists_u8_x2.data())));
 
-    // // ------------------------ bolt
+    printf("---- tile1\n");
+    msg = string_with_format(fmt, "mithral tile1 upcast4", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<4, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile1 upcast8", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<8, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile2 upcast16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<16, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile1 upcast32", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<32, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile1 upcast64", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<64, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile1 upcast128", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<128, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+
+    printf("---- tile2\n");
+    msg = string_with_format(fmt, "mithral tile2 upcast8", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<8, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile2 upcast16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<16, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile2 upcast32", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<32, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile2 upcast64", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<64, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile2 upcast128", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<128, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                              luts16.data(), dists_u8_x2.data())));
+
+    // printf("---- tile3\n");
+    // msg = string_with_format(fmt, "mithral tile3 upcast4", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<4, 3>(codes16.data(), nblocks, ncodebooks, nout,
+    //                         luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral tile3 upcast8", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<8, 3>(codes16.data(), nblocks, ncodebooks, nout,
+    //                         luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral tile3 upcast16", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<16, 3>(codes16.data(), nblocks, ncodebooks, nout,
+    //                          luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral tile3 upcast32", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<32, 3>(codes16.data(), nblocks, ncodebooks, nout,
+    //                          luts16.data(), dists_u8_x2.data())));
+    // msg = string_with_format(fmt, "mithral tile3 upcast64", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u8_x2.data(), dists_u8_x2.size(),
+    //     (mithral_scan<64, 3>(codes16.data(), nblocks, ncodebooks, nout,
+    //                          luts16.data(), dists_u8_x2.data())));
+
+    printf("---- tile4\n");
+    msg = string_with_format(fmt, "mithral tile4 upcast2", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<2, 4>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast4", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<4, 4>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast8", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<8, 4>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<16, 4>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast32", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<32, 4>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+
+    printf("---- tile6\n");
+    msg = string_with_format(fmt, "mithral tile6 upcast2", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<2, 6>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast4", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<4, 6>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast8", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<8, 6>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<16, 6>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile4 upcast32", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<32, 6>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+
+    // ------------------------ bolt
+    printf("---- bolt + pq\n");
+    static constexpr bool signed_luts = true; // bolt uses signed for dotprod
+    msg = string_with_format(fmt, "bolt scan uint8", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8.data(), dists_u8.size(),
+        (bolt_scan<false, signed_luts>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u8.data())));
+    // msg = string_with_format(fmt, "bolt scan uint16", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u16.data(), dists_u16.size(),
+    //     (bolt_scan<false, signed_luts>(
+    //         codes16.data(), nblocks, ncodebooks, nout,
+    //         luts16.data(), dists_u16.data())));
+    msg = string_with_format(fmt, "bolt scan safe uint16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u16.data(), dists_u16.size(),
+        (bolt_scan<true, signed_luts>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u16.data())));
+    // // bolt scan orig = bolt scan uint16 safe notile
+    // msg = string_with_format(fmt, "bolt scan orig", ncodebooks);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_u16.data(), dists_u16.size(),
+    //     (bolt_scan<true, signed_luts, false>(
+    //         codes16.data(), nblocks, ncodebooks, nout,
+    //         luts16.data(), dists_u16.data())));
+
+    // // ------------------------ pq (same as opq)
+    // msg = string_with_format(fmt, "pq scan", ncodebooks_pq);
+    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+    //     dists_f32.data(), dists_f32.size(),
+    //     pq_scan_8b(codes256.data(), nrows, ncodebooks_pq, nout,
+    //                luts_f32.data(), dists_f32.data()));
+}
+
+void _profile_scan(int nrows, int nbytes, int nout=1) {
+    int nblocks = nrows / 32;
+
+    int ncodebooks = 2 * nbytes;
+    int ncodebooks_pq = nbytes;
+
+    // for mithral / bolt
+    ColMatrix<uint8_t> codes16(nrows, ncodebooks); codes16.setRandom();
+    codes16 = codes16.unaryExpr(
+        [=](const uint8_t x) { return (uint8_t)(x % 16); });
+    ColMatrix<uint8_t> luts16(16, ncodebooks * nout); luts16.setRandom();
+    luts16 = luts16.array() / ncodebooks; // make max lut value small
+    ColMatrix<uint8_t> dists_u8(nrows, nout);
+    ColMatrix<uint16_t> dists_u16(nrows, nout);
+
+    // for pq / opq
+    ColMatrix<uint8_t> codes256(nrows, ncodebooks_pq);
+    codes256.setRandom();
+    codes256 = codes256.unaryExpr(
+        [=](const uint8_t x) { return (uint8_t)(x % 256); });
+    ColMatrix<float> luts_f32(256, ncodebooks_pq * nout); luts_f32.setRandom();
+    ColMatrix<float> dists_f32(nrows, nout); dists_f32.setRandom();
+
+    std::string msg;
+    auto fmt_as_cppstring = string_with_format(
+        "%%-22s, N C B M:, %7d, %%3d, %2d, %2d,\t", nrows, ncodebooks_pq, nout);
+    auto fmt = fmt_as_cppstring.c_str();
+
+    // ------------------------ mithral
+    ColMatrix<uint8_t> dists_u8_x2(nrows * 2, nout); // to handle upcast
+    msg = string_with_format(fmt, "mithral scan", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size() / 2,
+        (mithral_scan<128, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                              luts16.data(), dists_u8_x2.data())));
+
+    // ------------------------ bolt
+    // printf("---- bolt + pq\n");
     static constexpr bool signed_luts = true; // bolt uses signed for dotprod
     msg = string_with_format(fmt, "bolt scan uint8", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
@@ -289,6 +503,7 @@ TEST_CASE("vq scan timing", "[amm][scan][profile]") {
     // static constexpr int nrows = 100 * 1024;
     static constexpr int nrows = 100 * 1000;
     static constexpr int nout = 10;
+    // static constexpr int nout = 12;
     // static constexpr int nrows = 1000 * 1000;
     // static constexpr int nout = 1;
 
