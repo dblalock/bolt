@@ -173,8 +173,6 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
         [=](const uint8_t x) { return (uint8_t)(x % 16); });
     ColMatrix<uint8_t> luts16(16, ncodebooks * nout); luts16.setRandom();
     luts16 = luts16.array() / ncodebooks; // make max lut value small
-    // RowVector<uint8_t> dists_u8(nrows);
-    // RowVector<uint16_t> dists_u16(nrows);
     ColMatrix<uint8_t> dists_u8(nrows, nout);
     ColMatrix<uint16_t> dists_u16(nrows, nout);
 
@@ -184,16 +182,12 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
     codes256 = codes256.unaryExpr(
         [=](const uint8_t x) { return (uint8_t)(x % 256); });
     ColMatrix<float> luts_f32(256, ncodebooks_pq * nout); luts_f32.setRandom();
-    // RowVector<float> dists_f32(nrows); dists_f32.setRandom();
     ColMatrix<float> dists_f32(nrows, nout); dists_f32.setRandom();
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
         "%%-23s, N C B M:, %7d, %%3d, %2d, %2d,\t", nrows, ncodebooks_pq, nout);
     auto fmt = fmt_as_cppstring.c_str();
-
-    // int nbytes16 = ncodebooks / 2;
-    // int nbytes256 = ncodebooks;
 
     // ------------------------ mithral
     ColMatrix<uint8_t> dists_u8_x2(nrows * 2, nout); // to handle upcast
@@ -293,32 +287,32 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
         (mithral_scan<128, 2>(codes16.data(), nblocks, ncodebooks, nout,
                               luts16.data(), dists_u8_x2.data())));
 
-    // printf("---- tile3\n");
-    // msg = string_with_format(fmt, "mithral tile3 upcast4", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u8_x2.data(), dists_u8_x2.size(),
-    //     (mithral_scan<4, 3>(codes16.data(), nblocks, ncodebooks, nout,
-    //                         luts16.data(), dists_u8_x2.data())));
-    // msg = string_with_format(fmt, "mithral tile3 upcast8", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u8_x2.data(), dists_u8_x2.size(),
-    //     (mithral_scan<8, 3>(codes16.data(), nblocks, ncodebooks, nout,
-    //                         luts16.data(), dists_u8_x2.data())));
-    // msg = string_with_format(fmt, "mithral tile3 upcast16", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u8_x2.data(), dists_u8_x2.size(),
-    //     (mithral_scan<16, 3>(codes16.data(), nblocks, ncodebooks, nout,
-    //                          luts16.data(), dists_u8_x2.data())));
-    // msg = string_with_format(fmt, "mithral tile3 upcast32", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u8_x2.data(), dists_u8_x2.size(),
-    //     (mithral_scan<32, 3>(codes16.data(), nblocks, ncodebooks, nout,
-    //                          luts16.data(), dists_u8_x2.data())));
-    // msg = string_with_format(fmt, "mithral tile3 upcast64", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u8_x2.data(), dists_u8_x2.size(),
-    //     (mithral_scan<64, 3>(codes16.data(), nblocks, ncodebooks, nout,
-    //                          luts16.data(), dists_u8_x2.data())));
+    printf("---- tile3\n");
+    msg = string_with_format(fmt, "mithral tile3 upcast4", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<4, 3>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile3 upcast8", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<8, 3>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile3 upcast16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<16, 3>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile3 upcast32", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<32, 3>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile3 upcast64", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<64, 3>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
 
     printf("---- tile4\n");
     msg = string_with_format(fmt, "mithral tile4 upcast2", ncodebooks);
@@ -383,32 +377,32 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
         (bolt_scan<false, signed_luts>(
             codes16.data(), nblocks, ncodebooks, nout,
             luts16.data(), dists_u8.data())));
-    // msg = string_with_format(fmt, "bolt scan uint16", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u16.data(), dists_u16.size(),
-    //     (bolt_scan<false, signed_luts>(
-    //         codes16.data(), nblocks, ncodebooks, nout,
-    //         luts16.data(), dists_u16.data())));
+    msg = string_with_format(fmt, "bolt scan uint16", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u16.data(), dists_u16.size(),
+        (bolt_scan<false, signed_luts>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u16.data())));
     msg = string_with_format(fmt, "bolt scan safe uint16", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u16.data(), dists_u16.size(),
         (bolt_scan<true, signed_luts>(
             codes16.data(), nblocks, ncodebooks, nout,
             luts16.data(), dists_u16.data())));
-    // // bolt scan orig = bolt scan uint16 safe notile
-    // msg = string_with_format(fmt, "bolt scan orig", ncodebooks);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_u16.data(), dists_u16.size(),
-    //     (bolt_scan<true, signed_luts, false>(
-    //         codes16.data(), nblocks, ncodebooks, nout,
-    //         luts16.data(), dists_u16.data())));
+    // bolt scan orig = bolt scan uint16 safe notile
+    msg = string_with_format(fmt, "bolt scan orig", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u16.data(), dists_u16.size(),
+        (bolt_scan<true, signed_luts, false>(
+            codes16.data(), nblocks, ncodebooks, nout,
+            luts16.data(), dists_u16.data())));
 
-    // // ------------------------ pq (same as opq)
-    // msg = string_with_format(fmt, "pq scan", ncodebooks_pq);
-    // REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
-    //     dists_f32.data(), dists_f32.size(),
-    //     pq_scan_8b(codes256.data(), nrows, ncodebooks_pq, nout,
-    //                luts_f32.data(), dists_f32.data()));
+    // ------------------------ pq (same as opq)
+    msg = string_with_format(fmt, "pq scan", ncodebooks_pq);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_f32.data(), dists_f32.size(),
+        pq_scan_8b(codes256.data(), nrows, ncodebooks_pq, nout,
+                   luts_f32.data(), dists_f32.data()));
 }
 
 void _profile_scan(int nrows, int nbytes, int nout=1) {
@@ -485,8 +479,6 @@ void _profile_scan(int nrows, int nbytes, int nout=1) {
 }
 
 TEST_CASE("popcount scan timing", "[amm][scan][popcount][profile]") {
-    // static constexpr int nrows = 100 * 1024;
-    // static constexpr int nrows = 1000 * 1000;
     static constexpr int nrows = 100 * 1000;
     static constexpr int nout = 10;
 
@@ -500,20 +492,24 @@ TEST_CASE("popcount scan timing", "[amm][scan][popcount][profile]") {
 }
 
 TEST_CASE("vq scan timing", "[amm][scan][profile]") {
-    // static constexpr int nrows = 100 * 1024;
     static constexpr int nrows = 100 * 1000;
     static constexpr int nout = 10;
-    // static constexpr int nout = 12;
-    // static constexpr int nrows = 1000 * 1000;
-    // static constexpr int nout = 1;
 
-    // printf("algo, _0, N, C, B, _1, latency0, _2, latency1, _3, latency2, _4\n");
-
-    // std::vector<int> all_ncodebooks {4, 8, 16, 32, 64};
-    // for (auto c : all_ncodebooks) {
     std::vector<int> all_nbytes {8, 16, 32, 64};
     for (auto b : all_nbytes) {
         printf("------------------------ B = %d\n", b);
         _profile_scan(nrows, b, nout);
+    }
+}
+
+// 'old' tag so this this doesn't run by default; use [scan][all] to run this
+TEST_CASE("vq scan timing", "[amm][scan][all][profile][old]") {
+    static constexpr int nrows = 100 * 1000;
+    static constexpr int nout = 10;
+
+    std::vector<int> all_nbytes {8, 16, 32, 64};
+    for (auto b : all_nbytes) {
+        printf("------------------------ B = %d\n", b);
+        _profile_scan_all(nrows, b, nout);
     }
 }
