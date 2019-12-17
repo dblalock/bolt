@@ -503,9 +503,11 @@ TEST_CASE("vq scan timing", "[amm][scan][profile]") {
 }
 
 // 'old' tag so this this doesn't run by default; use [scan][all] to run this
-TEST_CASE("vq scan timing", "[amm][scan][all][profile][old]") {
+TEST_CASE("vq scan timing with all mithral variants",
+          "[amm][scan][all][profile][old]")
+{
     static constexpr int nrows = 100 * 1000;
-    static constexpr int nout = 10;
+    static constexpr int nout = 12; // multiple of all tile sizes tested
 
     std::vector<int> all_nbytes {8, 16, 32, 64};
     for (auto b : all_nbytes) {
