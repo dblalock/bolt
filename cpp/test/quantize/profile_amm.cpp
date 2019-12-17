@@ -12,7 +12,7 @@
     #include "profile_amm.hpp"
 #endif
 
-TEST_CASE("amm mithral", "[amm][mithral][matmul][profile]") {
+TEST_CASE("amm mithral", "[amm][matmul][mithral][profile]") {
      std::vector<int> ncodebooks {4, 8, 16, 32, 64};
 
      float lut_work_const = 2;
@@ -23,7 +23,7 @@ TEST_CASE("amm mithral", "[amm][mithral][matmul][profile]") {
      _profile_mithral(kUcrTaskShape, ncodebooks, lut_work_const);
 }
 
-TEST_CASE("amm bolt", "[amm][bolt][matmul][profile]") {
+TEST_CASE("amm bolt", "[amm][matmul][bolt][profile]") {
      std::vector<int> ncodebooks {4, 8, 16, 32, 64};
      _profile_bolt_amm(kCaltechTaskShape, ncodebooks);
      _profile_bolt_amm(kCifar10TaskShape, ncodebooks);
@@ -31,7 +31,7 @@ TEST_CASE("amm bolt", "[amm][bolt][matmul][profile]") {
      _profile_bolt_amm(kUcrTaskShape, ncodebooks);
 }
 
-TEST_CASE("amm linear approx matmul", "[amm][matmul][linear][profile]") {
+TEST_CASE("amm linear approx matmul", "[amm][matmul][dense][linear][profile]") {
     int N, D, M;
     // std::vector<int> dvals {2, 4, 6, 8, 12, 16, 24, 32, 48, 64};
     std::vector<int> dvals {2, 4, 8, 16, 32, 64, 128}; // TODO uncomment above

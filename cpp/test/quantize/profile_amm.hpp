@@ -361,6 +361,8 @@ void _run_our_sketch_matmul(
 void _profile_sketch_matmul(const char* dset_name, uint32_t N, uint32_t D,
     uint32_t M, uint32_t d)
 {
+    if (d > D || d > M) { return; }
+
     using MatrixT = ColMatrix<float>;
 
     // create random matrices of the appropriate sizes
@@ -439,6 +441,8 @@ void _run_fancy_sketch_matmul(
 void _profile_osnap(const char* dset_name, uint32_t N, uint32_t D,
                     uint32_t M, uint32_t d, int nsketches)
 {
+    if (d > D) { return; }
+
     using MatrixT = ColMatrix<float>;
     MatrixT X(N, D); X.setRandom();
     MatrixT Wt(M, D); Wt.setRandom();
