@@ -453,7 +453,8 @@ class PQEncoder(MultiCodebookEncoder):
 
 # ------------------------------------------------ Mithral
 
-def _mithral_quantize_luts(luts, lut_work_const, force_power_of_2=False):
+# def _mithral_quantize_luts(luts, lut_work_const, force_power_of_2=False):
+def _mithral_quantize_luts(luts, lut_work_const, force_power_of_2=True):
     nqueries, ncodebooks, ncentroids = luts.shape
 
     # if lut_work_const < 0:  # not time constrained
@@ -524,30 +525,15 @@ def _mithral_quantize_luts(luts, lut_work_const, force_power_of_2=False):
     mins = luts.min(axis=(0, 2))
     maxs = luts.max(axis=(0, 2))
 
-
-    # sums = luts.sum(axis=(0, 2))
-    # sums_sq = (luts * luts).sum(axis=(0, 2))
-    # means = sums / (nqueries * ncentroids)
-    # mean_sqs = sums_sq / (nqueries * ncentroids)
-    # variances = mean_sqs - (means * means)
-    # stds = np.sqrt(variances)
-
-
-    # TODO main issue here is that luts are apparently biased; spitting out
-    # vals that are too small
-
     gaps = maxs - mins
     # gaps[np.argmax(gaps)] = 0  # use 2nd highest
     gap = np.max(gaps)
-    # gap = np.min(maxs - mins)
     if force_power_of_2:
-        exponent = np.ceil(np.log2())
+        exponent = np.ceil(np.log2(gap))
         scale = 2 ** int(-exponent)  # scale is a power of 2, so can just shift
         scale *= (255.5 - 1e-10)  # so max val is at most 255
-        # scale *= (256. - 1e-10)
     else:
         scale = (255.5 - 1e-10) / gap
-        # scale = (256. - 1e-10) / gap
 
     offsets = mins[np.newaxis, :, np.newaxis]
     luts_quantized = (luts - offsets) * scale
@@ -557,7 +543,7 @@ def _mithral_quantize_luts(luts, lut_work_const, force_power_of_2=False):
     assert np.min(luts_quantized) >= 0
     assert np.max(luts_quantized) <= 255.
 
-    print("total offset: ", mins.sum())
+    # print("total offset: ", mins.sum())
 
     return luts_quantized, offsets.sum(), scale
 

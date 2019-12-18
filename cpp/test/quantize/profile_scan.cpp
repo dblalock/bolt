@@ -229,6 +229,11 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
     //                        luts16.data(), dists_u8_x2.data())));
 
     printf("---- tile1\n");
+    msg = string_with_format(fmt, "mithral tile1 upcast2", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<2, 1>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral tile1 upcast4", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), dists_u8_x2.size(),
@@ -261,6 +266,16 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
                              luts16.data(), dists_u8_x2.data())));
 
     printf("---- tile2\n");
+    msg = string_with_format(fmt, "mithral tile2 upcast2", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<2, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
+    msg = string_with_format(fmt, "mithral tile2 upcast4", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<4, 2>(codes16.data(), nblocks, ncodebooks, nout,
+                             luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral tile2 upcast8", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), dists_u8_x2.size(),
@@ -288,6 +303,11 @@ void _profile_scan_all(int nrows, int nbytes, int nout=1) {
                               luts16.data(), dists_u8_x2.data())));
 
     printf("---- tile3\n");
+    msg = string_with_format(fmt, "mithral tile3 upcast2", ncodebooks);
+    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
+        dists_u8_x2.data(), dists_u8_x2.size(),
+        (mithral_scan<2, 3>(codes16.data(), nblocks, ncodebooks, nout,
+                            luts16.data(), dists_u8_x2.data())));
     msg = string_with_format(fmt, "mithral tile3 upcast4", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrialsScan,
         dists_u8_x2.data(), dists_u8_x2.size(),

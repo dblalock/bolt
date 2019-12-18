@@ -29,8 +29,8 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        # dvals = [2, 4, 8, 16, 32, 64, 128]
-        dvals = [8] # TODO rm after debug
+        dvals = [2, 4, 8, 16, 32, 64, 128]
+        # dvals = [8] # TODO rm after debug
         # dvals = [32] # TODO rm after debug
         if method_id == methods.METHOD_SPARSE_PCA:
             alpha_vals = (.25, .5, 1, 2, 4, 8)
@@ -46,15 +46,16 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        # mvals = [4, 8, 16, 32, 64]
+        mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
+        # mvals = [128] # TODO rm after debug
         # mvals = [64] # TODO rm after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
-        mvals = [8] # TODO rm after debug
+        # mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
@@ -295,37 +296,37 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
             return
 
 
-def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
-    tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
-    return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
-                 # limit_ntasks=10, compression_metrics=False)
-                 limit_ntasks=5, compression_metrics=True)
+# def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
+#     tasks = md.load_ecg_tasks(limit_nhours=limit_nhours)
+#     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=139,
+#                  # limit_ntasks=10, compression_metrics=False)
+#                  limit_ntasks=5, compression_metrics=True)
 
 
-def main_caltech(methods=None, saveas='caltech'):
+def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     tasks = md.load_caltech_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 ntasks=510, limit_ntasks=10)
+                 ntasks=510, limit_ntasks=None)
 
 
-def main_ucr(methods=None, saveas='ucr'):
-    limit_ntasks = 1
+def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
+    limit_ntasks = None
     tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
     return _main(tasks=tasks, methods=methods, saveas=saveas,
                  ntasks=23, limit_ntasks=limit_ntasks)
 
 
-def main_cifar10(methods=None, saveas='cifar10'):
+def main_cifar10(methods=methods.USE_METHODS, saveas='cifar10'):
     tasks = md.load_cifar10_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=1)
 
 
-def main_cifar100(methods=None, saveas='cifar100'):
+def main_cifar100(methods=methods.USE_METHODS, saveas='cifar100'):
     tasks = md.load_cifar100_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=1)
 
 
-def main_all(methods=None):
+def main_all(methods=methods.USE_METHODS):
     main_cifar10(methods=methods)
     main_cifar100(methods=methods)
     # main_ecg(methods=methods)
@@ -333,6 +334,7 @@ def main_all(methods=None):
 
 
 def main():
+    main_cifar10(methods=methods.USE_METHODS)
     # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
@@ -343,7 +345,7 @@ def main():
     # main_cifar10(methods=['Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
     # main_cifar10(methods=['MithralPQ', 'Exact'])
-    main_cifar10(methods='Mithral')
+    # main_cifar10(methods='Mithral')
     # main_cifar10(methods='Bolt')
     # main_cifar10(methods=['SparsePCA', 'PCA'])
     # main_cifar100(methods=['SparsePCA', 'PCA'])
