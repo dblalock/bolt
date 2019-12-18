@@ -45,7 +45,7 @@ static constexpr MatmulTaskShape kCaltechTaskShape {49284, 27, 2, "Caltech"};
 static constexpr MatmulTaskShape kCifar10TaskShape {10000, 512, 10, "Cifar10"};
 static constexpr MatmulTaskShape kCifar100TaskShape {
     10000, 512, 100, "Cifar100"};
-static constexpr MatmulTaskShape kUcrTaskShape {1896, 320, 128, "UCR"};
+static constexpr MatmulTaskShape kUcrTaskShape {1000, 320, 128, "UCR"};
 
 
 template<class InputT> struct input_type_traits {};
