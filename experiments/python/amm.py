@@ -11,6 +11,9 @@ import numba  # conda install numba
 # import ffht  # https://github.com/FALCONN-LIB/FFHT; python setup.py install
 import scipy
 
+from joblib import Memory
+_memory = Memory('.', verbose=1, compress=9)
+
 KEY_NMULTIPLIES = 'muls'
 
 
@@ -299,6 +302,31 @@ class TrainedPcaSketch(ApproxMatmul):
         return {KEY_NMULTIPLIES: nmuls}
 
 
+@_memory.cache
+def _fitted_sparse_pca(X, d, unscaled_alpha, **kwargs):
+    # this seems to work better than initializing with MiniBatchSparsePCA,
+    # svd of cov mat, or basically anything else I tried
+    U, _, Vt = randomized_svd(X, n_components=d, random_state=123)
+    U = U[:, :d]
+    V = Vt.T[:d]
+
+    # SparsePCA (and all the sklearn dictionary learning stuff)
+    # internally uses sum of squared errs for each sample, and L1 norm
+    # of parameter matrix; to make alpha meaningful across datasets,
+    # want to scale by number of examples (so it's effectively using MSE)
+    # and divide by L1 norm (which grows linearly with size of parameter
+    # matrix / vector); also scale by variance of data for similar reasons
+    N, D = X.shape
+    alpha = unscaled_alpha * np.var(X - X.mean(axis=0)) * N / D
+    verbose = 1
+    pca = SparsePCA(n_components=d, alpha=alpha, normalize_components=True,
+                    method='lars', U_init=U, V_init=V, max_iter=10,
+                    verbose=verbose, random_state=123)
+    if verbose > 0:
+        print("fitting sparse pca...")
+    return pca.fit(X)
+
+
 class TrainedSparsePcaSketch(ApproxMatmul):
     __slots__ = 'pca d alpha nnz A B'.split()
 
@@ -309,66 +337,7 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         self.B = None
 
     def fit(self, A, B, Y=None):  # Y = A @ B if not specified
-        # print("initializing U and V...")
-        # # U, _, V = np.linalg.svd(A)
-        # # X = A - A.mean(axis=0)
-        # # X /= np.std(X)
-        # # cov = X.T @ X
-        # # U, _, Vt = randomized_svd(cov, n_components=self.d, random_state=123)
-        # # U = None
-        # # V = Vt.T[:self.d]
-
-        # def hard_threshold(X, keep_frac=.5):
-        # def hard_threshold(X, keep_frac=.75):
-        #     x_flat = X.ravel()
-        #     n = len(x_flat)
-        #     keep_n = int(n * keep_frac)
-        #     keep_idxs = np.argsort(np.abs(x_flat))[-keep_n:]
-        #     new_x_flat = np.zeros_like(x_flat)
-        #     new_x_flat[keep_idxs] = x_flat[keep_idxs]
-        #     return new_x_flat.reshape(X.shape)
-
-        # U = hard_threshold(U)
-        # V = hard_threshold(V)
-
-        # U, V = None, None
-
-        # pca = MiniBatchSparsePCA(
-        # print("creating sparse pca...")
-        #     n_components=self.d, alpha=self.alpha, normalize_components=True,
-        #     verbose=99, random_state=123, n_iter=50)
-        # print("fitting minibatch sparse pca...")
-        # pca.fit(A)
-        # V = pca.components_
-        # U = decomposition.sparse_encode(A - np.mean(A), V)
-
-        # # this seems to work better than initializing with MiniBatchSparsePCA,
-        # # svd of cov mat, or basically anything else I tried
-        U, _, Vt = randomized_svd(A, n_components=self.d, random_state=123)
-        U = U[:, :self.d]
-        V = Vt.T[:self.d]
-
-        # U, V = None, None
-
-        verbose = 1
-        # verbose = 99
-        # self.alpha *= len(A)
-        # SparsePCA (and all the sklearn dictionary learning stuff)
-        # internally uses sum of squared errs for each sample, and L1 norm
-        # of parameter matrix; to make alpha meaningful across datasets,
-        # want to scale by number of examples (so it's effectively using MSE)
-        # and divide by L1 norm (which grows linearly with size of parameter
-        # matrix / vector); also scale by variance of data for similar reasons
-        N, D = A.shape
-        alpha = self.alpha * np.var(A - A.mean(axis=0)) * N / D
-        solver = 'lars' if self.alpha >= .1 else 'cd'
-        self.pca = SparsePCA(n_components=self.d, alpha=alpha,
-                             normalize_components=True, method=solver,
-                             U_init=U, V_init=V, max_iter=10, verbose=verbose,
-                             random_state=123)
-        if verbose > 0:
-            print("fitting sparse pca...")
-        self.pca.fit(A)
+        self.pca = _fitted_sparse_pca(A, d=self.d, unscaled_alpha=self.alpha)
         self.nnz = np.sum(self.pca.components_ != 0)
 
     def set_A(self, A):
