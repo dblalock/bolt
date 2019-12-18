@@ -540,18 +540,34 @@ def load_cifar_tasks():
 
 @_memory.cache
 def _load_ucr_tasks_for_dset(
-        dset_name, D=320, k=128, min_train_sz=-1, use_test_sz=1896):
+        dset_name, D=320, k=128, min_train_sz=-1, use_test_sz=-1, verbose=1):
 
     dset = ucr.UCRDataset(dset_name)
     if min_train_sz is None or min_train_sz < k:
         min_train_sz = k
+    if use_test_sz is None or use_test_sz < 1:
+        use_test_sz = len(dset.X_test)
+
+    if verbose > 0:
+        print(f"----- loading task for UCR dataset: {dset.name}")
 
     nclasses = len(np.unique(dset.y_test))
+    ntrain = len(dset.X_train)
+    ntest = len(dset.X_test)
     if nclasses > k:
+        if verbose > 0:
+            print(f"returning None because " +
+                  f"nclasses={nclasses} > k={k}")
         return None  # some class will have no centroids
-    if len(dset.X_train) < min_train_sz:
+    if ntrain < min_train_sz:
+        if verbose > 0:
+            print(f"returning None because " +
+                  f"num_train={ntrain} < min_train_sz={min_train_sz}")
         return None
-    if len(dset.X_test) < use_test_sz:
+    if ntest < use_test_sz:
+        if verbose > 0:
+            print(f"returning None because " +
+                  f"num_test={ntest} < min_test_sz={use_test_sz}")
         return None
 
     X_train = dset.X_train
@@ -590,6 +606,8 @@ def load_ucr_tasks(limit_ntasks=-1, **kwargs):
         tasks = _load_ucr_tasks_for_dset(dset_name, **kwargs)
         if tasks is not None:
             all_tasks += tasks
+        # else:
+        #     print("got None instead of tasks for dset: ", dset_name)
         if (limit_ntasks > 0) and (len(all_tasks) >= limit_ntasks):
             all_tasks = all_tasks[:limit_ntasks]
             break
@@ -626,7 +644,11 @@ def main():
     # test_ecg_tasks()
 
     # load_cifar10_tasks()
-    load_cifar100_tasks()
+    # load_cifar100_tasks()
+
+    print("number of ucr dirs:", len(list(ucr.all_ucr_dataset_dirs())))
+    tasks = load_ucr_tasks()
+    print("number of tasks meeting basic size criteria:", len(tasks))
 
     # print("number of caltech imgs: ", len(_load_caltech_test_imgs()))
 

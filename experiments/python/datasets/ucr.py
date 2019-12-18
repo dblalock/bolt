@@ -101,7 +101,7 @@ def _ucr_datasets_in_dir(dirpath):
         files.remove(rm_dir)
     for i in range(len(files)):
         files[i] = os.path.join(datasetsPath, files[i])
-    dirs = filter(os.path.isdir, files)
+    dirs = list(filter(os.path.isdir, files))
     return dirs
 
 
@@ -187,7 +187,7 @@ def main():
 
     # df = df.sort_values(axis=1)
     # df = df.loc[df['N'] > 100]
-    df = df.loc[df['M'] > 100]
+    # df = df.loc[df['M'] > 100]
     print("ucr dset stats:")
     # print(df['M'].sort_values(ascending=False))
     print("number of dsets:", df.shape[0])
@@ -219,8 +219,11 @@ def main():
     # plt.plot(xvals, mvals)
     # plt.show()
 
-    df = df.loc[df['M'] >= best_m_cutoff]
-    print("---- after cutting off M to maximize mat sizes:")
+    # df = df.loc[df['M'] >= best_m_cutoff]
+    # print("---- after cutting off M to maximize mat sizes:")
+    df = df.loc[df['N'] >= 128]
+    print("---- after cutting off N to number of centroids:")
+    print("number of dsets: ", len(df))
     print("mean, median Ntrain: ", df['N'].mean(), df['N'].median())
     print("mean, median Ntest: ", df['M'].mean(), df['M'].median())
     print("mean, median length: ", df['D'].mean(), df['D'].median())

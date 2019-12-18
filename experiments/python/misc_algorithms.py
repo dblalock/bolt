@@ -9,6 +9,9 @@ import torch.optim as optim
 
 from .utils import kmeans
 
+from joblib import Memory
+_memory = Memory('.', verbose=0)
+
 
 def _to_np(A):
     return A.cpu().detach().numpy()
@@ -283,6 +286,7 @@ def protonn(X, labels, k, d=-1, niters=1000, verbose=1, gamma=-1):
     return _to_np(C).T, _to_np(W), _to_np(Z)
 
 
+@_memory.cache
 def stochastic_neighbor_compression(X, labels, k, niters=1000,
                                     gamma=-1, rel_tol=.0001, verbose=1):
     N, D = X.shape
