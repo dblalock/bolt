@@ -17,7 +17,7 @@
 
 #include "debug_utils.hpp" // TODO rm
 
-#define MITHRAL_USE_BOLT_SAFE_SCAN // 10-20% slower, but exact sum of uint8s
+// #define MITHRAL_USE_BOLT_SAFE_SCAN // way slower, but exact sum of uint8s
 
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
@@ -78,8 +78,8 @@ void mithral_lut_sparse(const float* Q, int nrows, int ncols, int ncodebooks,
 
 // ------------------------ scan
 
-// void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-//                   int noutputs, const uint8_t* luts, uint8_t* dists_out);
+void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
+                  int noutputs, const uint8_t* luts, uint8_t* dists_out);
 
 // ------------------------ wrapper
 
