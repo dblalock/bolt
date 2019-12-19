@@ -253,7 +253,7 @@ void _profile_matmul(const char* dset_name, uint32_t N, uint32_t D, uint32_t M)
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%s, %%-25s, N D M:,   %6d, %3d, %3d,\t\t\t", dset_name, N, D, M);
+        "%s, %%-25s, N D M:,   %6d, %3d, %3d,  -1,\t", dset_name, N, D, M);
     auto fmt = fmt_as_cppstring.c_str();
 
     // time it
@@ -458,7 +458,7 @@ void _profile_osnap(const char* dset_name, uint32_t N, uint32_t D,
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%s, %%-25s, N D M d, s:, %6d, %3d, %3d, %3d, %2d\t",
+        "%s, %%-15s, N D M d s:, %6d, %3d, %3d, %3d, %2d,\t",
         dset_name, N, D, M, d, nsketches);
     auto fmt = fmt_as_cppstring.c_str();
 
