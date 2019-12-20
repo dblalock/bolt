@@ -33,7 +33,10 @@ def _hparams_for_method(method_id):
         # dvals = [8] # TODO rm after debug
         # dvals = [32] # TODO rm after debug
         if method_id == methods.METHOD_SPARSE_PCA:
-            alpha_vals = (.25, .5, 1, 2, 4, 8)
+            # alpha_vals = (.0625, .125, .25, .5, 1, 2, 4, 8)
+            # alpha_vals = (.0625, .125, .25, .5, 1, 2, 4, 8)
+            alpha_vals = (.0625, .125)
+            # alpha_vals = [.0625]
             # alpha_vals = (2, 4, 5)
             # alpha_vals = [.1]
             # alpha_vals = [1.]
@@ -313,7 +316,7 @@ def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
     limit_ntasks = None
     tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
     return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 ntasks=23, limit_ntasks=limit_ntasks)
+                 ntasks=76, limit_ntasks=limit_ntasks)
 
 
 def main_cifar10(methods=methods.USE_METHODS, saveas='cifar10'):
@@ -334,7 +337,8 @@ def main_all(methods=methods.USE_METHODS):
 
 
 def main():
-    main_cifar10(methods=methods.USE_METHODS)
+    # main_cifar10(methods=methods.USE_METHODS)
+    main_cifar10(methods='SparsePCA')
     # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
