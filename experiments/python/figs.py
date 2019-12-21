@@ -280,7 +280,7 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
 
         if with_matmuls:
             ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ',
-                    'Matmul 1', 'Matmul 256', 'Matmul 1024']
+                     'Matmul 1', 'Matmul 256', 'Matmul 1024']
         else:
             ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ']
         df = results.query_speed_results()
