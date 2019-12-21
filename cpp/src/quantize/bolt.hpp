@@ -214,6 +214,7 @@ void bolt_lut(const float* q, int len, const float* centroids,
         case 16: bolt_lut<8, Reduction>(q, len, centroids, out); break;
         case 32: bolt_lut<16, Reduction>(q, len, centroids, out); break;
         case 64: bolt_lut<32, Reduction>(q, len, centroids, out); break;
+        case 128: bolt_lut<32, Reduction>(q, len, centroids, out); break;
         default: assert(false); // invalid ncodebooks
     }
 }

@@ -237,7 +237,11 @@ def lut_speed_fig(save=True):
     name_map['pq lut'] = 'PQ'
     name_map['opq lut'] = 'OPQ'
     df = rename_values_in_col(df, 'algo', name_map)
-    # print(df)
+    # print(df[:20])
+
+    # df['lutconst'] = df['lutconst'].str.strip().astype(np.float).astype(np.int)
+    # print("df.dtypes", df.dtypes)
+    # import sys; sys.exit()
 
     names = list(df['algo'])
     consts = np.array(df['lutconst'])
@@ -261,24 +265,24 @@ def lut_speed_fig(save=True):
         # const = consts[i]
         # const = "{:d}".format(int(const)) if const > 0 else "∞"
         # new_names.append(f"{name}, L = {const}")
-        new_names.append(mithral_const_to_name[consts[i]])
+        new_names.append(mithral_const_to_name[int(consts[i])])
         ismithral.append(True)
     # print("len(new_names)", len(new_names))
     df['algo'] = new_names
     df['ismithral'] = ismithral
 
-    # df = melt_times(df, ntimes=5)
-    df = melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
+    df = melt_times(df, ntimes=5)
+    # df = melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
     # print(df)
 
     df['thruput'] = df['N'] * df['D'] / df['time']
     # df['thruput'] /= 1e6  # just use units of billions; times are in ms
 
-    # TODO rm once we have updated results
-    mask = df['algo'].isin(('PQ', 'OPQ'))
-    df['B'] = -1  # create placeholder col
-    df['B'].loc[mask] = df['C'].loc[mask]
-    df['B'].loc[~mask] = df['C'].loc[~mask] / 2
+    # # TODO rm once we have updated results
+    # mask = df['algo'].isin(('PQ', 'OPQ'))
+    # df['B'] = -1  # create placeholder col
+    # df['B'].loc[mask] = df['C'].loc[mask]
+    # df['B'].loc[~mask] = df['C'].loc[~mask] / 2
 
     # ================================ fig creation
 

@@ -17,10 +17,11 @@
 #endif
 
 
-void _profile_lut_mithral(int nrows, int ncols, int ncodebooks,
+void _profile_lut_mithral(int nrows, int ncols, int nbytes,
                           float lut_work_const)
                           // std::vector<float> lut_work_consts)
 {
+    int ncodebooks = nbytes * 2;
     // compute nnz to use for idxs
     // float max_const = lut_work_consts[0];
     // for (int i = 0; i < lut_work_consts.size(); i++) {
@@ -56,8 +57,8 @@ void _profile_lut_mithral(int nrows, int ncols, int ncodebooks,
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%%-20s, N D C lut_work_const:, %7d, %3d, %2d, %%4.1f,\t",
-        nrows, ncols, ncodebooks, lut_work_const);
+        "%%-20s, N D C B lut_work_const:, %7d, %3d, %3d, %2d, %%4.1f,\t",
+        nrows, ncols, ncodebooks, nbytes, lut_work_const);
     auto fmt = fmt_as_cppstring.c_str();
 
     // ------------------------ mithral
@@ -78,24 +79,26 @@ void _profile_lut_mithral(int nrows, int ncols, int ncodebooks,
     }
 }
 
-void _profile_lut_others(int nrows, int ncols, int ncodebooks) {
-    if ((ncols < ncodebooks) || (ncols % ncodebooks)) { return; }
+void _profile_lut_others(int nrows, int ncols, int nbytes) {
+    // if ((ncols < ncodebooks) || (ncols % ncodebooks)) { return; }
+
+    int ncodebooks16 = nbytes * 2;
+    int ncodebooks256 = nbytes;
 
     // shared
     RowMatrix<float> X(nrows, ncols);
     X.setRandom();
     // bolt-specific
-    ColMatrix<float> centroids16(ncodebooks*16, ncols);
-    RowMatrix<uint8_t> lut_out16(nrows, ncodebooks * 16);
-    RowVector<float> offsets(ncodebooks);
+    ColMatrix<float> centroids16(ncodebooks16*16, ncols);
+    RowMatrix<uint8_t> lut_out16(nrows, ncodebooks16 * 16);
+    RowVector<float> offsets(ncodebooks16);
     centroids16.setRandom();
     lut_out16.setRandom();
     offsets.setRandom();
-
     float scale = 1;
     // pq + opq
-    ColMatrix<float> centroids256(ncodebooks * 256, ncols);
-    RowMatrix<float> lut_out256(nrows, ncodebooks * 256);
+    ColMatrix<float> centroids256(ncodebooks256 * 256, ncols);
+    RowMatrix<float> lut_out256(nrows, ncodebooks256 * 256);
     RowMatrix<float> R(ncols, ncols);
     RowMatrix<float> X_rotated(nrows, ncols);
     centroids256.setRandom();
@@ -104,55 +107,70 @@ void _profile_lut_others(int nrows, int ncols, int ncodebooks) {
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%%-20s, N D C lut_work_const:, %7d, %4d, %2d, -1,   \t",
-        nrows, ncols, ncodebooks);
+        "%%-20s, N D C B lut_work_const:, %7d, %4d, %%3d, %2d, -1,   \t",
+        nrows, ncols, nbytes);
     auto fmt = fmt_as_cppstring.c_str();
 
     // ------------------------ bolt
-    msg = string_with_format(fmt, "bolt lut cheating");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        lut_out16.data(), lut_out16.size(),
-        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
-                centroids16.data(), ncodebooks, lut_out16.data()) ) );
-    msg = string_with_format(fmt, "bolt lut");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        lut_out16.data(), lut_out16.size(),
-        (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
-            centroids16.data(), ncodebooks, offsets.data(), scale,
-            lut_out16.data()) ));
+    if ((ncodebooks16 <= ncols) && (ncols % ncodebooks16 == 0)) {
+        msg = string_with_format(fmt, "bolt lut cheating", ncodebooks16);
+        REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+            lut_out16.data(), lut_out16.size(),
+            (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
+                    centroids16.data(), ncodebooks16, lut_out16.data()) ) );
+        msg = string_with_format(fmt, "bolt lut", ncodebooks16);
+        REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+            lut_out16.data(), lut_out16.size(),
+            (bolt_lut<Reductions::DotProd>(X.data(), nrows, ncols,
+                centroids16.data(), ncodebooks16, offsets.data(), scale,
+                lut_out16.data()) ));
+    }
 
     // ------------------------ pq
-    msg = string_with_format(fmt, "pq lut");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        lut_out256.data(), lut_out256.size(),
-        (pq_lut_8b<Reductions::DotProd>(X.data(), nrows, ncols, ncodebooks,
-                centroids256.data(), lut_out256.data()) ) );
+    if ((ncodebooks256 <= ncols)  && (ncols % ncodebooks256 == 0)) {
+        msg = string_with_format(fmt, "pq lut", ncodebooks256);
+        REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+            lut_out256.data(), lut_out256.size(),
+            (pq_lut_8b<Reductions::DotProd>(X.data(), nrows, ncols, ncodebooks256,
+                    centroids256.data(), lut_out256.data()) ) );
 
-    // ------------------------ opq
-    msg = string_with_format(fmt, "opq lut");
-    REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
-        lut_out256.data(), lut_out256.size(),
-        (opq_lut_8b<Reductions::DotProd>(X, ncodebooks,
-                centroids256.data(), R, X_rotated, lut_out256.data()) ) );
+        // ------------------------ opq
+        msg = string_with_format(fmt, "opq lut", ncodebooks256);
+        REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
+            lut_out256.data(), lut_out256.size(),
+            (opq_lut_8b<Reductions::DotProd>(X, ncodebooks256,
+                    centroids256.data(), R, X_rotated, lut_out256.data()) ) );
+    }
 }
 
 TEST_CASE("vq lut timing", "[amm][lut][profile]") {
 //    static constexpr int nrows = 10 * 1024;
     static constexpr int nrows = 1 << 14;
 
-    printf("algo, _0, N, D, C, lut_work_const, "
-           "_1, latency0, _2, latency1, _3, latency2, _4\n");
+    printf("algo, _0, N, D, C, B, lut_work_const, "
+           "_1, latency0, _2, latency1, _3, latency2, _4,"
+           "latency3, _5, latency4, _6\n");
+
+    // static constexpr bool profile_mithral = true;
+    static constexpr bool profile_mithral = false;
+    static constexpr bool profile_others = true;
 
     std::vector<int> all_ncols {32, 64, 128, 256, 512, 1024};
-    std::vector<int> all_ncodebooks {16, 32, 64};
+    // std::vector<int> all_ncodebooks {16, 32, 64};
+    std::vector<int> all_nbytes {8, 16, 32, 64};
     std::vector<float> lut_work_consts {-1.f, 2.f, 4.f};
     // std::vector<float> lut_work_consts {-1};
     // std::vector<float> lut_work_consts {2.f};
     for (auto ncols : all_ncols) {
-        for (auto c : all_ncodebooks) {
-            _profile_lut_others(nrows, ncols, c);
-            for (auto w : lut_work_consts) {
-                _profile_lut_mithral(nrows, ncols, c, w);
+        // for (auto c : all_ncodebooks) {
+        for (auto b : all_nbytes) {
+            if (profile_others) {
+                _profile_lut_others(nrows, ncols, b);
+            }
+            if (profile_mithral) {
+                for (auto w : lut_work_consts) {
+                    _profile_lut_mithral(nrows, ncols, b, w);
+                }
             }
         }
     }
