@@ -38,6 +38,10 @@ class VQMatmul(amm.ApproxMatmul, abc.ABC):
         self.luts = None
 
     def fit(self, A, B, Y=None):
+        _, D = A.shape
+        if D < self.ncodebooks:
+            raise amm.InvalidParametersException(
+                'D < C: {} < {}'.format(D, self.ncodebooks))
         self.enc.fit(A, B.T)
 
     def set_A(self, A):

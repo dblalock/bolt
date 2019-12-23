@@ -114,10 +114,67 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
         assert not (fixedA and fixedB)  # this would be stupid, so fail fast
         sketch_nmuls = self._get_nmuls(A.shape[0], A.shape[1], B.shape[1],
                                        self.d, fixedA=fixedA, fixedB=fixedB)
-        return {KEY_NMULTIPLIES: sketch_nmuls + _nmultiplies_matmul(A, B)}
+        N, D = A.shape
+        D, M = B.shape
+        sketched_matmul_nmuls = N * self.d * M
+        return {KEY_NMULTIPLIES: sketch_nmuls + sketched_matmul_nmuls}
 
     def _get_nmuls(self, N, D, M, d, fixedA=False, fixedB=False):
-        pass
+        # default nmuls = sketching with dense matrix
+        nmuls = 0
+        if not fixedA:
+            nmuls += N * D * d
+        if not fixedB:
+            nmuls += M * D * d
+        return nmuls
+
+
+class RandGaussSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        D = A.shape[1]
+        V = np.random.randn(D, self.d).astype(np.float32)
+        # dividing by expected norm is more similar to theory papers,
+        # but no reason this should actually be better AFAIK
+        # V /= np.sqrt(D)
+        V /= np.linalg.norm(V, axis=0)
+        A = A @ V
+        B = V.T @ B
+        return A, B
+
+
+class RandOrthoGaussSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        D = A.shape[1]
+        V = np.random.randn(D, self.d).astype(np.float32)
+        V, _ = np.linalg.qr(V)
+        A = A @ V
+        B = V.T @ B
+        return A, B
+
+
+class RandRademacherSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        D = A.shape[1]
+        V = np.random.randint(2, size=(D, self.d)).astype(np.float32) * 2 - 1
+        V /= np.sqrt(D)
+        A = A @ V
+        B = V.T @ B
+        return A, B
+
+
+class HadamardSketch(SketchedMatmul):
+
+    def sketch(self, A, B):
+        D = A.shape[1]
+        use_D = 1 << int(np.ceil(np.log2(D)))
+        V = scipy.linalg.hadamard(use_D)[:D, :self.d].astype(np.float32)
+        V /= np.linalg.norm(V, axis=0)
+        A = A @ V
+        B = V.T @ B
+        return A, B
 
 
 class SketchSqSample(SketchedMatmul):
@@ -253,30 +310,44 @@ class SvdSketch(SketchedMatmul):
         return {KEY_NMULTIPLIES: total}
 
 
+@_memory.cache
+def _fitted_pca(X, n_components):
+    pca = PCA(n_components=n_components)
+    return pca.fit(X)
+
+
 class TrainedPcaSketch(ApproxMatmul):
-    __slots__ = 'pca d A B'.split()
+    __slots__ = 'pca d A B V'.split()
 
     def __init__(self, d):
-        self.pca = PCA(n_components=d)
+        # self.pca = PCA(n_components=d)
         self.d = d
         self.A = None
         self.B = None
 
     def fit(self, A, B, Y=None):  # Y = A @ B if not specified
-        self.pca.fit(A)
-
-    def set_A(self, A):
-        self.A = self.pca.transform(A)
-
-    def set_B(self, B):
-        self.B = self.pca.transform(B.T).T
-
-    def __call__(self, A, B):
-        assert A.shape[1] == B.shape[0]  # dims need to match
-        D = A.shape[1]
+        D, M = B.shape
+        print("called fit on TrainedPcaSketch!")
         if D < self.d:
             raise InvalidParametersException(
                 'D < d: {} < {}'.format(D, self.d))
+        if M < self.d:
+            raise InvalidParametersException(
+                'M < d: {} < {}'.format(M, self.d))
+
+        # A = A[:50000]  # TODO rm
+        self.pca = _fitted_pca(A, n_components=self.d)
+        self.V = self.pca.components_.T
+        # print("components V.T @ V =\n", self.V.T @ self.V) # yep, orthonormal
+
+    def set_A(self, A):
+        self.A = A @ self.V
+
+    def set_B(self, B):
+        self.B = self.V.T @ B
+
+    def __call__(self, A, B):
+        assert A.shape[1] == B.shape[0]  # dims need to match
         if B.shape[1] < self.d:
             raise InvalidParametersException(
                 'M < d: {} < {}'.format(B.shape[1], self.d))
@@ -337,6 +408,11 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         self.B = None
 
     def fit(self, A, B, Y=None):  # Y = A @ B if not specified
+        _, M = B.shape
+        if M < self.d:
+            raise InvalidParametersException(
+                'M < d: {} < {}'.format(M, self.d))
+
         self.pca = _fitted_sparse_pca(A, d=self.d, unscaled_alpha=self.alpha)
         self.nnz = np.sum(self.pca.components_ != 0)
 
@@ -373,16 +449,7 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         return self.A @ self.B
 
     def get_params(self):
-        try:
-            nnz = self.nnz
-            sparsity = (self.pca.components_ == 0).mean()
-        except AttributeError:  # model not fitted yet
-            nnz = -1
-            sparsity = -1
-        # nnz and sparsity aren't params per se, but we do want them returned
-        # with the performance metrics
-        return {'d': self.d, 'alpha': self.alpha,
-                'nnz': nnz, 'sparsity': sparsity}
+        return {'d': self.d, 'alpha': self.alpha}
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         N, D = A.shape
@@ -395,7 +462,16 @@ class TrainedSparsePcaSketch(ApproxMatmul):
             total_nmuls += nmuls_sketch_X
         if not fixedB:
             total_nmuls += nmuls_sketch_W
-        return {KEY_NMULTIPLIES: total_nmuls}
+
+        try:  # compute degree of sparsity
+            nnz = self.nnz
+            sparsity = (self.pca.components_ == 0).mean()
+        except AttributeError:  # model not fitted yet
+            nnz = -1
+            sparsity = -1
+
+        return {KEY_NMULTIPLIES: total_nmuls,
+                'nnz': nnz, 'sparsity': sparsity}
 
 
 # ================================================================ drineas06
@@ -703,7 +779,7 @@ def osnap_sketches(A, B, d, s=4):
         start_idx = ss * subspace_len
         end_idx = min(D, start_idx + subspace_len)
         A_hat[:, start_idx:end_idx], B_hat[start_idx:end_idx] = \
-            hash_sketches(A, B, subspace_len, scale=np.sqrt(s))
+            hash_sketches(A, B, subspace_len, scale=1./np.sqrt(s))
 
     # A_hat /= np.linalg.norm(A_hat, axis=)
 

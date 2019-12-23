@@ -29,13 +29,18 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        dvals = [2, 4, 8, 16, 32, 64, 128]
-        # dvals = [8] # TODO rm after debug
+        # dvals = [2, 4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
+        # dvals = [16] # TODO rm after debug
+        # dvals = [8] # TODO rm after debug
+        # dvals = [4] # TODO rm after debug
+        # dvals = [3] # TODO rm after debug
+        # dvals = [2] # TODO rm after debug
+        dvals = [1] # TODO rm after debug
         if method_id == methods.METHOD_SPARSE_PCA:
+            alpha_vals = (.03125, .0625, .125, .25, .5, 1, 2, 4, 8)
             # alpha_vals = (.0625, .125, .25, .5, 1, 2, 4, 8)
-            # alpha_vals = (.0625, .125, .25, .5, 1, 2, 4, 8)
-            alpha_vals = (.0625, .125)
+            # alpha_vals = (.0625, .125)
             # alpha_vals = [.0625]
             # alpha_vals = (2, 4, 5)
             # alpha_vals = [.1]
@@ -49,7 +54,7 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [4, 8, 16, 32, 64]
+        # mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
@@ -59,7 +64,7 @@ def _hparams_for_method(method_id):
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        # mvals = [4] # TODO rm after debug
+        mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
         if method_id == methods.METHOD_MITHRAL:
@@ -71,7 +76,10 @@ def _hparams_for_method(method_id):
             return params
 
         return [{'ncodebooks': m} for m in mvals]
-    return [{}]
+    if method_id == methods.METHOD_EXACT:
+        return [{}]
+
+    raise ValueError(f"Unrecognized method: '{method_id}'")
 
 
 def _ntrials_for_method(method_id, ntasks):
@@ -83,34 +91,6 @@ def _ntrials_for_method(method_id, ntasks):
 
 # ================================================================ metrics
 
-def _zstd_compress(buff, comp=None):
-    comp = zstd.ZstdCompressor() if comp is None else comp
-    if isinstance(buff, str):
-        buff = bytes(buff, encoding='utf8')
-    return comp.compress(buff)
-
-
-def _zstd_decompress(buff, decomp=None):
-    decomp = zstd.ZstdDecompressor() if decomp is None else decomp
-    return decomp.decompress(decomp)
-
-
-def _blosc_compress(buff, elem_sz=8, compressor='zstd', shuffle=blosc.SHUFFLE):
-    """Thin wrapper around blosc.compress()
-
-    Params:
-        compressor: ['blosclz', 'lz4', 'lz4hc', 'snappy', 'zlib', 'zstd']
-        shuffle: one of [blosc.SHUFFLE, blosc.BITSHUFFLE, blosc.NOSHUFFLE]
-        elem_sz: int, size in bytes of each element in buff (eg, 4 for fp32)
-    Returns:
-        compressed buffer as bytes object
-    """
-    # decomp with blosc.decompress(compressed_buff)
-    return blosc.compress(buff, typesize=elem_sz,
-                          cname=compressor, shuffle=shuffle)
-
-
-# def _compute_compression_metrics(ar, quantize_to_type=np.uint16):
 def _compute_compression_metrics(ar):
     # if quantize_to_type is not None:
     #     ar = ar.astype(quantize_to_type)
@@ -142,9 +122,11 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     Y = task.Y_test
     diffs = Y - Y_hat
     raw_mse = np.mean(diffs * diffs)
-    r_sq = 1 - raw_mse / np.var(Y)
-    metrics = {'raw_mse': raw_mse, 'y_std': Y.std(), 'r_sq': r_sq,
-               'bias': diffs.mean(), 'y_mean': Y.mean()}
+    normalized_mse = raw_mse / np.var(Y)
+    r = ((Y / np.linalg.norm(Y)) * (Y_hat / np.linalg.norm(Y_hat))).sum()
+    metrics = {'raw_mse': raw_mse, 'y_std': Y.std(), 'r': r,
+               'normalized_mse': normalized_mse, 'bias': diffs.mean(),
+               'y_mean': Y.mean()}
     if compression_metrics:
 
         # Y_q = compress.quantize(Y, nbits=8)
@@ -174,7 +156,6 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
         metrics_raw = _compute_compression_metrics(diffs_q)
         metrics.update({k + '_diffs': v for k, v in metrics_raw.items()})
 
-    # eval softmax accuracy TODO better criterion for when to try this
     if task.info:
         if task.info['problem'] == 'classify_linear':
             b = task.info['biases']
@@ -248,6 +229,8 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
     methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
         methods = [methods]
+    if limit_ntasks is None or limit_ntasks < 1:
+        limit_ntasks = np.inf
     independent_vars = _get_all_independent_vars()
 
     # for task in load_caltech_tasks():
@@ -263,14 +246,14 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
             # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
             metrics_dicts = []
             for hparams_dict in _hparams_for_method(method_id):
-                if verbose > 2:
+                if verbose > 3:
                     print("got hparams: ")
                     pprint.pprint(hparams_dict)
 
-                est = _fitted_est_for_hparams(
-                    method_id, hparams_dict,
-                    task.X_train, task.W_train, task.Y_train)
                 try:
+                    est = _fitted_est_for_hparams(
+                        method_id, hparams_dict,
+                        task.X_train, task.W_train, task.Y_train)
                     for trial in range(ntrials):
                         metrics = _eval_amm(
                             task, est, compression_metrics=compression_metrics)
@@ -309,7 +292,7 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     tasks = md.load_caltech_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 ntasks=510, limit_ntasks=None)
+                 ntasks=510, limit_ntasks=1)
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
@@ -337,8 +320,19 @@ def main_all(methods=methods.USE_METHODS):
 
 
 def main():
-    # main_cifar10(methods=methods.USE_METHODS)
-    main_cifar10(methods='SparsePCA')
+    # main_cifar10(methods='SparsePCA')
+    # main_cifar10(methods='OSNAP')
+    # main_cifar100(methods='OSNAP')
+    # main_cifar100(methods=methods.USE_METHODS)
+    # main_caltech(methods=methods.USE_METHODS)
+    main_caltech(methods='PCA')
+    # main_caltech(methods='RandGauss')
+    # main_caltech(methods='Hadamard')
+    # main_caltech(methods='Rademacher')
+    # main_caltech(methods='OrthoGauss')
+    # main_caltech(methods='FastJL')
+    # main_caltech(methods='Bolt')
+    # main_caltech(methods=['Mithral', 'MithralPQ'])
     # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])

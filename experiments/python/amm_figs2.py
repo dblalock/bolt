@@ -361,6 +361,10 @@ def lut_speed_fig(save=True):
         plt.show()
 
 
+def cifar_fig(save=False):
+    pass
+
+
 def main():
     # scan_speed_fig()
     # encode_speed_fig()
