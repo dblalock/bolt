@@ -313,22 +313,23 @@ def _filters_list_to_mat(filters):
 
 
 def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
-                        order='chw'):
+                        strides=(1, 1), order='chw'):
     # extract and flatten windows into rows of X matrix
     if order == 'hwc':
         windows = window.extract_conv2d_windows(
-            img, filt_shape=filt_spatial_shape)
+            img, filt_shape=filt_spatial_shape, strides=strides)
         filt_sz = img.shape[-1] * np.prod(filt_spatial_shape)
         X = windows.reshape(-1, filt_sz)
     else:
         assert order == 'chw'
         assert img.shape[2] == 3  # assumes img in hwc order
+        # print("using order: ", order)
         X_subs_list = []
         filt_spatial_sz = np.prod(filt_spatial_shape)
         for c in range(3):
             windows = window.extract_conv2d_windows(
                 img[:, :, c][..., np.newaxis],
-                filt_shape=filt_spatial_shape)
+                filt_shape=filt_spatial_shape, strides=strides)
             X_subs_list.append(windows.reshape(-1, filt_spatial_sz))
         X = np.hstack(X_subs_list)
 
@@ -360,7 +361,8 @@ def _load_caltech_test_imgs():
 
 
 # def _load_caltech_train(filters, filt_spatial_shape):
-def _load_caltech_train(W, filt_spatial_shape):
+# def _load_caltech_train(W, filt_spatial_shape, strides=(3, 3)):
+def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2)):
     train_imgs = _load_caltech_train_imgs()
 
     #
@@ -374,17 +376,19 @@ def _load_caltech_train(W, filt_spatial_shape):
     #     axes.ravel()[i].imshow(train_imgs[idx])
     # plt.show()
 
-    train_mats = [caltech_x_y_for_img(img,
-                  filt_spatial_shape=filt_spatial_shape, W=W)
+    train_mats = [caltech_x_y_for_img(img, W=W, strides=strides,
+                                      filt_spatial_shape=filt_spatial_shape)
                   for img in train_imgs]
     Xs, Ys = list(zip(*train_mats))
     X_train = np.vstack(Xs)
     Y_train = np.vstack(Ys)
+    print("caltech training shape: ", X_train.shape, Y_train.shape)
 
     return X_train, Y_train
 
 
-def load_caltech_tasks(validate=False, order='chw'):
+def load_caltech_tasks(validate=False, order='chw', limit_ntrain=-1,
+                       limit_ntest=-1):
     filters = load_filters_sobel_3x3(order=order)
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
@@ -406,6 +410,15 @@ def load_caltech_tasks(validate=False, order='chw'):
             img, filt_spatial_shape=filt_spatial_shape, W=W, order=order)
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
                           X_test=X_test, Y_test=Y_test, W_test=W)
+        if limit_ntrain is not None and limit_ntrain > 0:
+            limit_ntrain = int(limit_ntrain)
+            task.X_train = task.X_train[:limit_ntrain]
+            task.Y_train = task.Y_train[:limit_ntrain]
+        if limit_ntest is not None and limit_ntest > 0:
+            limit_ntest = int(limit_ntest)
+            task.X_test = task.X_test[:limit_ntest]
+            task.Y_test = task.Y_test[:limit_ntest]
+
         # task.info = {'task_id: ', i}
         task.name = str(i)
         if validate:

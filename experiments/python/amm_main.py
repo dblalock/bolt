@@ -54,7 +54,7 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [4, 8, 16, 32, 64]
+        # mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
@@ -63,12 +63,13 @@ def _hparams_for_method(method_id):
         # mvals = [64] # TODO rim after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
-        # mvals = [8] # TODO rm after debug
+        mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
         if method_id == methods.METHOD_MITHRAL:
             lut_work_consts = (2, 4, -1)
+            # lut_work_consts = [-1] # TODO rm
             params = []
             for m in mvals:
                 for const in lut_work_consts:
@@ -294,8 +295,19 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 
 def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     tasks = md.load_caltech_tasks()
+    # tasks = md.load_caltech_tasks(limit_ntrain=100e3, limit_ntest=10e3) # TODO rm after debug
+    # tasks = md.load_caltech_tasks(limit_ntrain=-1, limit_ntest=10e3) # TODO rm after debug
+    # tasks = md.load_caltech_tasks(limit_ntrain=100e3)
+    # tasks = md.load_caltech_tasks(limit_ntrain=500e3)
+    # tasks = md.load_caltech_tasks(limit_ntrain=1e6)  # does great
+    # tasks = md.load_caltech_tasks(limit_ntrain=15e5)
+    # tasks = md.load_caltech_tasks(limit_ntrain=17.5e5) # bad
+    # tasks = md.load_caltech_tasks(limit_ntrain=2e6)
+    # tasks = md.load_caltech_tasks(limit_ntrain=2.5e6)
     return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 ntasks=510, limit_ntasks=10)
+                 # ntasks=510, limit_ntasks=10)
+                 # ntasks=510, limit_ntasks=2)
+                 ntasks=510, limit_ntasks=3)
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
@@ -330,6 +342,7 @@ def main():
     # main_cifar10(methods=methods.USE_METHODS)
     # main_cifar100(methods=methods.USE_METHODS)
     # main_caltech(methods=methods.USE_METHODS)
+    # main_cifar10(methods='Mithral')
     main_caltech(methods='Mithral')
     # main_caltech(methods='PCA')
     # main_caltech(methods='RandGauss')

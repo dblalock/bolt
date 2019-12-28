@@ -127,7 +127,7 @@ class Bucket(object):
             return_possible_vals_losses=return_possible_vals_losses)
 
     def col_means(self):
-        return self.sumX / max(1, self.N)
+        return self.sumX.astype(np.float64) / max(1, self.N)
 
     def col_variances(self, safe=False):
         if self.N < 1:
@@ -197,6 +197,7 @@ def _cumsse_cols(X):
 
 
 # def optimal_split_val(X, dim, possible_vals=None, return_val_idx=False):
+# @_memory.cache
 def optimal_split_val(X, dim, possible_vals=None, X_orig=None,
                       # return_possible_vals_losses=False, force_val='median'):
                       return_possible_vals_losses=False, force_val=None,
@@ -648,7 +649,8 @@ def learn_multisplits(
 
     if verbose > 0:
         print("================================")
-        print("learn_multisplits(): initial loss: ", total_loss)
+        # print("learn_multisplits(): initial loss: ", total_loss)
+        print("learn_multisplits(): initial loss:   ", total_loss)
 
     splits = []
     col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
@@ -880,7 +882,7 @@ def _densify_X_enc(X_enc, K=16):
     return out
 
 
-def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None):
+def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
     # yscales = np.linalg.norm(Y, axis=0)
     # Y /= yscales
 
@@ -888,10 +890,27 @@ def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None):
         XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
     # TODO precondition XtX based on largest value here?
     # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32) * (1./256 * len(X_enc))  # ridge
-        XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+        # lamda = max(1, .001 * len(X_enc) / float(K * K))
+        # lamda = 1
+        # lamda = max(1, len(X_enc) / 1e6)
+        # lamda = max(1, len(X_enc) / 1e5)
+        lamda = max(1, len(X_enc) / 1e4)
+        # lamda = max(1, len(X_enc) / float(K * K))
+        # lamda = len(X_enc) / float(K)
+        # print("computing and regularizing XtX using lambda = ", lamda)
+        XtX += np.diag(np.ones(XtX.shape[0]) * lamda).astype(np.float32)  # ridge
 
     if XtY is None:
         XtY = _XtY_encoded(X_enc, Y, K=K)
+
+    # preconditioning to avoid numerical issues (seemingly unnecessary, but
+    # might as well do it)
+    # scale = 1. / np.std(XtX)
+    if precondition:
+        scale = 1. / len(X_enc)
+        # print("scaling XtX and XtY by ", scale)
+        XtX = XtX * scale
+        XtY = XtY * scale
 
     W = np.linalg.solve(XtX, XtY)
     # W *= yscales  # undo preconditioning
@@ -1002,9 +1021,17 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
 
     # precompute XtX and XtY and create initial dense W
     XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
-    XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+    lamda = max(1, len(X_enc) / 1e4)
+    # lamda = max(1, len(X_enc) / float(K * K))
+    XtX += np.diag(np.ones(XtX.shape[0]) * lamda).astype(np.float32)  # ridge
+    # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
     XtY = _XtY_encoded(X_enc, Y, K=K)
-    W = encoded_lstsq(X_enc, Y, XtX=XtX, XtY=XtY)  # KC x M
+
+    scale = 1. / len(X_enc)
+    XtX = XtX * scale
+    XtY = XtY * scale
+
+    W = encoded_lstsq(X_enc, Y, XtX=XtX, XtY=XtY, precondition=False)  # KC x M
 
     XtX = np.asfarray(XtX)  # since we'll be slicing columns
 
@@ -1214,7 +1241,7 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
     X = X.astype(np.float32)
     X_res = X.copy()
     X_orig = X
-    X_hat = np.zeros_like(X)
+    X_hat = np.zeros_like(X_res)
 
     all_centroids = np.zeros(
         (ncodebooks, ncentroids_per_codebook, D), dtype=np.float32)
@@ -1233,11 +1260,6 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
     for c in range(ncodebooks):
         if nonzeros_heuristic == 'pq':
             start_idx, end_idx = pq_idxs[c]
-            # subvec_len = full_subvec_len
-            # if c < (D % ncodebooks):
-            #     subvec_len += 1
-            #     start_idx = c * subvec_len
-            # end_idx = min(D, start_idx + subvec_len)
             idxs = np.arange(start_idx, end_idx)
         elif nonzeros_heuristic == 'pca':
             v = subs.top_principal_component(X_res)
@@ -1261,9 +1283,6 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
         all_splits.append(multisplits)
         all_buckets.append(buckets)
 
-        # use_X_res[:, start_idx:end_idx] = 0
-        # use_X_res[:] = 0
-
         # update residuals and store centroids
         centroid = np.zeros(D, dtype=np.float32)
         for b, buck in enumerate(buckets):
@@ -1276,29 +1295,53 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
                 all_centroids[c, b] = centroid
         X_res -= X_hat
 
-        print("X res var / X var: ", X_res.var() / X_orig.var())
+        print("X_res mse / X mse: ",
+              (X_res * X_res).mean() / (X_orig * X_orig).mean())
+        # print("X_res[:, idxs] var / X[:, idxs] var: ",
+        #       X_res[:, idxs].var() / X_orig[:, idxs].var())
 
-    # print("original centroid norms: ", np.linalg.norm(all_centroids.reshape(ncodebooks, -1), axis=-1))
-    # print("original centroids shape: ", all_centroids.shape)
+    # print("min, median, max, std, of all centroids before lstsq:\n",
+    #       all_centroids.min(), np.median(all_centroids),
+    #       all_centroids.max(), all_centroids.std())
 
     # optimize centroids discriminatively conditioned on assignments
     X_enc = mithral_encode(X, all_splits)
+    # if False: # TODO rm
     if lut_work_const != 1:  # if it's 1, equivalent to just doing PQ
-        # W = encoded_lstsq(X_enc, X)  # 16C x D
-        # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=ncodebooks)
-        # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=(ncodebooks - 1))
-        W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X, nnz_blocks=lut_work_const)
-        # W, nonzero_blocks = sparse_encoded_lstsq(X_enc, X)  # nnz=sqrt(ncodebooks)
-        all_centroids = W.reshape(ncodebooks, 16, D)
+        #
+        # shrink W towards 0
+        #
+        # if lut_work_const < 0:
+        #     W = encoded_lstsq(X_enc, X)
+        # else:
+        #     W, nonzero_blocks = sparse_encoded_lstsq(
+        #         X_enc, X, nnz_blocks=lut_work_const)
 
-    # print("new centroid norms: ", np.linalg.norm(all_centroids.reshape(ncodebooks, -1), axis=-1))
-    # print("new centroids shape: ", all_centroids.shape)
+        #
+        # shrink W towards initial centroids
+        #
+        if lut_work_const < 0:
+            print("fitting dense lstsq to X_res")
+            W = encoded_lstsq(X_enc, X_res)
+        else:
+            W, _ = sparse_encoded_lstsq(
+                    X_enc, X_res, nnz_blocks=lut_work_const)
 
-    # check how much improvement we got
-    X_hat = _XW_encoded(X_enc, W)
-    X_res = X_orig - X_hat
-    # X_hat = np.zeros_like(X)
-    print("X res var / X var after lstsq: ", X_res.var() / X_orig.var())
+        all_centroids_delta = W.reshape(ncodebooks, 16, D)
+        all_centroids += all_centroids_delta
+
+        # check how much improvement we got
+        X_res -= _XW_encoded(X_enc, W)  # if we fit to X_res
+        # X_hat = _XW_encoded(X_enc, W)
+        # X_res = X_orig - X_hat
+        # X_hat = np.zeros_like(X)
+        # print("X res var / X var after lstsq: ", X_res.var() / X_orig.var())
+        print("X_res mse / X mse after lstsq: ",
+              (X_res * X_res).mean() / (X_orig * X_orig).mean())
+        # print("std of all centroids: ", all_centroids.std())
+        # print("min, median, max, std, of all centroids after lstsq:\n",
+        #       all_centroids.min(), np.median(all_centroids),
+        #       all_centroids.max(), all_centroids.std())
 
     if return_buckets:
         return all_splits, all_centroids, all_buckets
