@@ -335,7 +335,6 @@ class TrainedPcaSketch(ApproxMatmul):
             raise InvalidParametersException(
                 'M < d: {} < {}'.format(M, self.d))
 
-        # A = A[:50000]  # TODO rm
         self.pca = _fitted_pca(A, n_components=self.d)
         self.V = self.pca.components_.T
         # print("components V.T @ V =\n", self.V.T @ self.V) # yep, orthonormal
@@ -741,10 +740,9 @@ def hash_sketches(A, B, d, scale=1., share_projections=True):
     for j in range(D):
         idx = np.random.randint(d)
         sign = (np.random.randint(0, 2) * 2) - 1
-        # coeff = sign  # worse than chance, especially for small d
-        coeff = sign * scale
-        # coeff = sign * np.sqrt(d / D)  # best for small d / D
-        # coeff = sign * d / D  # best for larger d / D
+        coeff = sign * scale  # worse than predicting mean, esp for small d
+        coeff = sign * scale * np.sqrt(d / D)  # best for small d / D
+        # coeff = sign * scale * d / D  # best for larger d / D
         A_hat[:, idx] += A[:, j] * coeff
         if share_projections:
             B_hat[idx] += B[j] * coeff
@@ -774,12 +772,15 @@ def osnap_sketches(A, B, d, s=4):
     A_hat = np.zeros((N, d), dtype=A.dtype)
     B_hat = np.zeros((d, M), dtype=B.dtype)
 
+    scale = 1. / np.sqrt(s)
+    # scale = 1  # seems to often work better than dividing by 1/sqrt(s)?
+
     subspace_len = (d + s - 1) // s  # round up
     for ss in range(s):
         start_idx = ss * subspace_len
         end_idx = min(D, start_idx + subspace_len)
         A_hat[:, start_idx:end_idx], B_hat[start_idx:end_idx] = \
-            hash_sketches(A, B, subspace_len, scale=1./np.sqrt(s))
+            hash_sketches(A, B, subspace_len, scale=scale)
 
     # A_hat /= np.linalg.norm(A_hat, axis=)
 

@@ -29,35 +29,6 @@ def save_fig(name):
                 dpi=300, bbox_inches='tight')
 
 
-def rename_values_in_col(df, col, name_map, drop_others=True):
-    vals = [name_map.get(name.strip().lower(), "") for name in df[col]]
-    valid_vals = set(name_map.values())
-    # print("valid_vals: ", valid_vals)
-    valid_mask = np.array([val in valid_vals for val in vals])
-    # print("valid mask: ", valid_mask)
-    df[col] = vals
-    if drop_others:
-        df = df.loc[valid_mask]
-    return df
-    # print(df)
-
-
-def melt_observation_cols(df, cols, var_name=None, value_name=None):
-    """like pd.melt, but assumes only 1 observation var instead of 1 id var"""
-    independent_vars = [col for col in df.columns
-                        if col not in set(cols)]
-    var_name = 'trial'
-    return pd.melt(df, id_vars=independent_vars, value_vars=cols,
-                   var_name=var_name, value_name='time')
-
-
-def melt_times(df, ntimes=5):
-    observation_vars = 't0 t1 t2 t3 t4'.split()
-    observation_vars = observation_vars[:ntimes]
-    return melt_observation_cols(
-        df, observation_vars, var_name='trial', value_name='time')
-
-
 def add_ylabels_on_right(axes, fmt, vals):
     for i, ax in enumerate(axes):
         lbl = fmt.format(vals[i])
@@ -84,8 +55,8 @@ def scan_speed_fig(save=True):
     name_map['bolt scan safe uint16'] = 'Bolt'
     name_map['popcount scan'] = 'Popcount'
     name_map['pq scan'] = 'PQ / OPQ'
-    df = rename_values_in_col(df, 'algo', name_map)
-    df = melt_times(df)
+    df = res.rename_values_in_col(df, 'algo', name_map)
+    df = res.melt_times(df)
 
     # alright, can't get stds to show without really screwing with stuff
     # times = np.array(df['time'])
@@ -164,8 +135,8 @@ def encode_speed_fig(save=True):
     name_map['bolt encode'] = 'Bolt'
     name_map['pq encode'] = 'PQ'
     name_map['opq encode'] = 'OPQ'
-    df = rename_values_in_col(df, 'algo', name_map)
-    df = melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
+    df = res.rename_values_in_col(df, 'algo', name_map)
+    df = res.melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
 
     df['thruput'] = df['N'] * df['D'] / df['time']
     # df['thruput'] /= 1e6  # just use units of billions; times are in ms
@@ -236,7 +207,7 @@ def lut_speed_fig(save=True):
     name_map['bolt lut'] = 'Bolt'
     name_map['pq lut'] = 'PQ'
     name_map['opq lut'] = 'OPQ'
-    df = rename_values_in_col(df, 'algo', name_map)
+    df = res.rename_values_in_col(df, 'algo', name_map)
     # print(df[:20])
 
     # df['lutconst'] = df['lutconst'].str.strip().astype(np.float).astype(np.int)
@@ -271,8 +242,8 @@ def lut_speed_fig(save=True):
     df['algo'] = new_names
     df['ismithral'] = ismithral
 
-    df = melt_times(df, ntimes=5)
-    # df = melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
+    df = res.melt_times(df, ntimes=5)
+    # df = res.melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
     # print(df)
 
     df['thruput'] = df['N'] * df['D'] / df['time']
