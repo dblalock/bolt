@@ -283,8 +283,8 @@ def _lift_grayscale_filt_to_rgb(filt, order='hwc'):
 def _lift_vert_filter_to_rgb_pair(filt_v, order='hwc'):
     filt_v = np.array(filt_v)
     filt_h = np.ascontiguousarray(filt_v.T)
-    filt_v = _lift_grayscale_filt_to_rgb(filt_v)
-    filt_h = _lift_grayscale_filt_to_rgb(filt_h)
+    filt_v = _lift_grayscale_filt_to_rgb(filt_v, order=order)
+    filt_h = _lift_grayscale_filt_to_rgb(filt_h, order=order)
 
     return filt_v, filt_h
 
@@ -294,7 +294,7 @@ def load_filters_sobel_3x3(order='hwc'):
               [-2, 0, 2],
               [-1,  0, 1]]
     filt_v = np.array(filt_v, dtype=np.float32) / 2.
-    return _lift_vert_filter_to_rgb_pair(filt_v)
+    return _lift_vert_filter_to_rgb_pair(filt_v, order=order)
 
 
 def load_filters_sobel_5x5(order='hwc'):
@@ -312,14 +312,27 @@ def _filters_list_to_mat(filters):
     return np.vstack(filters_flat).T
 
 
-def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None):
+def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
+                        order='chw'):
     # extract and flatten windows into rows of X matrix
-    windows = window.extract_conv2d_windows(img, filt_shape=filt_spatial_shape)
-    # filt_sz = filters_list[0].size
-    filt_sz = img.shape[-1] * np.prod(filt_spatial_shape)
-    X = windows.reshape(-1, filt_sz)
+    if order == 'hwc':
+        windows = window.extract_conv2d_windows(
+            img, filt_shape=filt_spatial_shape)
+        filt_sz = img.shape[-1] * np.prod(filt_spatial_shape)
+        X = windows.reshape(-1, filt_sz)
+    else:
+        assert order == 'chw'
+        assert img.shape[2] == 3  # assumes img in hwc order
+        X_subs_list = []
+        filt_spatial_sz = np.prod(filt_spatial_shape)
+        for c in range(3):
+            windows = window.extract_conv2d_windows(
+                img[:, :, c][..., np.newaxis],
+                filt_shape=filt_spatial_shape)
+            X_subs_list.append(windows.reshape(-1, filt_spatial_sz))
+        X = np.hstack(X_subs_list)
 
-    # compute each column of y matrix
+    # compute each column of w matrix
     W = _filters_list_to_mat(filters_list) if W is None else W
     # filters need to all be the same shape
     # shapes = [filt.shape for filt in filters_list]
@@ -371,8 +384,8 @@ def _load_caltech_train(W, filt_spatial_shape):
     return X_train, Y_train
 
 
-def load_caltech_tasks(validate=False):
-    filters = load_filters_sobel_3x3()
+def load_caltech_tasks(validate=False, order='chw'):
+    filters = load_filters_sobel_3x3(order=order)
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
 
@@ -390,7 +403,7 @@ def load_caltech_tasks(validate=False):
 
     for i, img in enumerate(test_imgs):
         X_test, Y_test = caltech_x_y_for_img(
-            img, filt_spatial_shape=filt_spatial_shape, W=W)
+            img, filt_spatial_shape=filt_spatial_shape, W=W, order=order)
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
                           X_test=X_test, Y_test=Y_test, W_test=W)
         # task.info = {'task_id: ', i}
@@ -639,16 +652,16 @@ def test_cifar_tasks():
 def main():
     np.set_printoptions(formatter={'float': lambda f: "{:.3}".format(f)})
 
-    # test_caltech_tasks()
+    test_caltech_tasks()
     # test_cifar_tasks()
     # test_ecg_tasks()
 
     # load_cifar10_tasks()
     # load_cifar100_tasks()
 
-    print("number of ucr dirs:", len(list(ucr.all_ucr_dataset_dirs())))
-    tasks = load_ucr_tasks()
-    print("number of tasks meeting basic size criteria:", len(tasks))
+    # print("number of ucr dirs:", len(list(ucr.all_ucr_dataset_dirs())))
+    # tasks = load_ucr_tasks()
+    # print("number of tasks meeting basic size criteria:", len(tasks))
 
     # print("number of caltech imgs: ", len(_load_caltech_test_imgs()))
 
