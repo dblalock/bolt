@@ -1778,6 +1778,7 @@ def centroids_from_splits(X, splits):
     return _centroids_from_assignments(X, assignments, ncentroids=ncentroids)
 
 
+@_memory.cache
 def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
                               return_centroids=True, algo='splits',
                               verbose=2):
