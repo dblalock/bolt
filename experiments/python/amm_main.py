@@ -18,7 +18,7 @@ from joblib import Memory
 _memory = Memory('.', verbose=0)
 
 
-NUM_TRIALS = 1  # only for randomized svd, which seems nearly deterministic
+NUM_TRIALS = 5
 
 
 # @_memory.cache
@@ -29,14 +29,14 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        # dvals = [2, 4, 8, 16, 32, 64, 128]
+        dvals = [1, 2, 4, 8, 16, 32, 64, 128]
         # dvals = [32] # TODO rm after debug
         # dvals = [16] # TODO rm after debug
         # dvals = [8] # TODO rm after debug
         # dvals = [4] # TODO rm after debug
         # dvals = [3] # TODO rm after debug
         # dvals = [2] # TODO rm after debug
-        dvals = [1] # TODO rm after debug
+        # dvals = [1] # TODO rm after debug
         if method_id == methods.METHOD_SPARSE_PCA:
             alpha_vals = (.03125, .0625, .125, .25, .5, 1, 2, 4, 8)
             # alpha_vals = (.0625, .125, .25, .5, 1, 2, 4, 8)
@@ -54,17 +54,17 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        # mvals = [4, 8, 16, 32, 64]
+        mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [128] # TODO rm after debug
-        # mvals = [64] # TODO rm after debug
+        # mvals = [64] # TODO rim after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        mvals = [4] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
         if method_id == methods.METHOD_MITHRAL:
@@ -86,7 +86,8 @@ def _ntrials_for_method(method_id, ntasks):
     # return 1 # TODO rm
     if ntasks > 1:  # no need to avg over trials if avging over multiple tasks
         return 1
-    return NUM_TRIALS if method_id in methods.NONDETERMINISTIC_METHODS else 1
+    # return NUM_TRIALS if method_id in methods.NONDETERMINISTIC_METHODS else 1
+    return NUM_TRIALS if method_id in methods.RANDOM_SKETCHING_METHODS else 1
 
 
 # ================================================================ metrics
@@ -123,7 +124,9 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     diffs = Y - Y_hat
     raw_mse = np.mean(diffs * diffs)
     normalized_mse = raw_mse / np.var(Y)
-    r = ((Y / np.linalg.norm(Y)) * (Y_hat / np.linalg.norm(Y_hat))).sum()
+    ynorm = np.linalg.norm(Y) + 1e-20
+    yhat_norm = np.linalg.norm(Y_hat) + 1e-20
+    r = ((Y / ynorm) * (Y_hat / yhat_norm)).sum()
     metrics = {'raw_mse': raw_mse, 'y_std': Y.std(), 'r': r,
                'normalized_mse': normalized_mse, 'bias': diffs.mean(),
                'y_mean': Y.mean()}
@@ -292,7 +295,7 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     tasks = md.load_caltech_tasks()
     return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 ntasks=510, limit_ntasks=1)
+                 ntasks=510, limit_ntasks=10)
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
@@ -321,16 +324,20 @@ def main_all(methods=methods.USE_METHODS):
 
 def main():
     # main_cifar10(methods='SparsePCA')
-    # main_cifar10(methods='OSNAP')
+    # main_cifar10(methods=['OSNAP', 'HashJL'])
+    # main_cifar100(methods=['OSNAP', 'HashJL'])
     # main_cifar100(methods='OSNAP')
+    # main_cifar10(methods=methods.USE_METHODS)
     # main_cifar100(methods=methods.USE_METHODS)
     # main_caltech(methods=methods.USE_METHODS)
-    main_caltech(methods='PCA')
+    main_caltech(methods='Mithral')
+    # main_caltech(methods='PCA')
     # main_caltech(methods='RandGauss')
     # main_caltech(methods='Hadamard')
     # main_caltech(methods='Rademacher')
     # main_caltech(methods='OrthoGauss')
     # main_caltech(methods='FastJL')
+    # main_caltech(methods=['FastJL', 'HashJL', 'OSNAP'])
     # main_caltech(methods='Bolt')
     # main_caltech(methods=['Mithral', 'MithralPQ'])
     # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
