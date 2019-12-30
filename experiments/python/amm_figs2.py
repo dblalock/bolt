@@ -30,6 +30,16 @@ def save_fig(name):
                 dpi=300, bbox_inches='tight')
 
 
+def _xlabel_for_xmetric(x_metric):
+    return {'d': 'Sketch Size',
+            'secs': 'Time (s)',
+            'muls': 'Number of Multiplies',
+            'nlookups': 'Number of Lookups',
+            'ops': 'Number of Operations',
+            'Latency': 'Latency (ms)',
+            'Throughput': 'Throughput (elements/s)'}[x_metric]
+
+
 def add_ylabels_on_right(axes, fmt, vals):
     for i, ax in enumerate(axes):
         lbl = fmt.format(vals[i])
@@ -76,7 +86,7 @@ def scan_speed_fig(save=True):
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
     axes = [ax]
 
-    sb.barplot(data=df, x='algo', y='thruput', units='trial',
+    sb.barplot(data=df, x='algo', y='thruput', units='timing_trial',
                hue='B', hue_order=[8, 16, 32, 64], order=name_map.values(),
                ax=ax, ci='sd')
 
@@ -159,7 +169,7 @@ def encode_speed_fig(save=True):
         dashes = {name: ([] if name.lower().startswith('mithral') else
                          mpl.rcParams['lines.dashed_pattern'])
                   for name in order}
-        sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='trial',
+        sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='timing_trial',
                     ax=axes[i], ci='sd', estimator=None, hue_order=order,
                     style='algo', style_order=order, dashes=dashes)
 
@@ -297,11 +307,12 @@ def lut_speed_fig(save=True):
         dashes = {name: ([] if name.lower().startswith('mithral') else
                          mpl.rcParams['lines.dashed_pattern'])
                   for name in order}
-        sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='trial',
-                    ax=axes[i], ci='sd', estimator=None, hue_order=order,
+        sb.lineplot(data=data, x='D', y='thruput', hue='algo',
+                    units='timing_trial', ax=axes[i], ci='sd',
+                    estimator=None, hue_order=order,
                     style='algo', style_order=order, dashes=dashes)
 
-        # sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='trial',
+        # sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='timing_trial',
         #             hue_order=order,
         #             # hue_order=order, style='algo', style_order=order,
         #             # dashes=True,
@@ -347,14 +358,83 @@ def lut_speed_fig(save=True):
         plt.show()
 
 
-def cifar_fig(save=False):
-    pass
+def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
+    df10 = res.cifar10_amm()
+    df100 = res.cifar100_amm()
+    fig, axes = plt.subplots(2, 1, figsize=(11, 13.5), sharex=True)
+
+
+    # print("uniq methods df10 : ", df10['method'].unique())
+    # print("uniq methods df100: ", df100['method'].unique())
+    # return
+
+    # TODO self pick up here
+
+
+
+
+    def lineplot(data, ax):
+        # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
+        # order = [m for m in order if m in data['Method'].unique()]
+        order = list(data['method'].unique())
+        # move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
+        # move_methods_to_front = ['Mithral', 'MithralPQ', 'Brute Force']
+        mithral_methods = [method for method in order
+                           if method.lower().startswith('mithral')]
+        move_methods_to_front = mithral_methods[:]
+        move_methods_to_front.append('Brute Force')
+        for elem in move_methods_to_front[:]:
+            if elem in order:
+                order.remove(elem)
+            else:
+                move_methods_to_front.remove(elem)
+        order = move_methods_to_front + order
+
+        # have to specify markers or seaborn freaks out because it doesn't
+        # have enough of them
+        filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
+                          'H', 'D', 'd', 'P', 'X')
+        sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
+                    style='method', style_order=order, hue_order=order,
+                    markers=filled_markers, dashes=False, ax=ax)
+
+    lineplot(df10, axes[0])
+    lineplot(df100, axes[1])
+
+    # plt.suptitle('Sketch size vs Classification Accuracy')
+    xlbl = _xlabel_for_xmetric(x_metric)
+    # plt.suptitle('{} vs {}'.format(xlbl, y_metric))
+    plt.suptitle('Approximating Softmax Layers')
+    axes[0].set_title('CIFAR-10')
+    for ax in axes:
+        ax.set_ylabel(y_metric)
+    axes[0].set_xlabel(None)
+    axes[1].set_xlabel(xlbl)
+    axes[1].set_title('CIFAR-100')
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    handles, labels = handles[1:], labels[1:]  # rm 'Method' title
+    axes[0].legend(handles, labels, fontsize='small')
+    # axes[1].legend(handles, labels, fontsize='small')
+    # plt.figlegend(handles, labels, loc='lower center', ncol=1)
+    # plt.figlegend(handles, labels, loc='center right', ncol=1)
+    axes[1].get_legend().remove()
+    # axes[1].get_legend().remove()
+
+    if x_metric in ('muls', 'ops', 'nlookups', 'Latency', 'Throughput'):
+        axes[0].semilogx()
+
+    plt.tight_layout()
+    # plt.subplots_adjust(top=.92, bottom=.2)
+    plt.subplots_adjust(top=.92, bottom=.22)
+    save_fig('cifar_{}_{}'.format(x_metric, y_metric))
 
 
 def main():
     # scan_speed_fig()
     # encode_speed_fig()
-    lut_speed_fig()
+    # lut_speed_fig()
+    cifar_fig()
 
 
 if __name__ == '__main__':

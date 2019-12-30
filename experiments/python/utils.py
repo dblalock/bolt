@@ -57,6 +57,10 @@ def element_size_bytes(x):
     return np.dtype(x.dtype).itemsize
 
 
+def invert_permutation(permutation):
+    return np.arange(len(permutation))[np.argsort(permutation)]
+
+
 # ================================================================ image
 
 def conv2d(img, filt, pad='same'):
