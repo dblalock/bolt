@@ -3,6 +3,7 @@
 import collections
 import os
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sb
 import pandas as pd
@@ -130,10 +131,10 @@ def encode_speed_fig(save=True):
 
     name_map = collections.OrderedDict()
     name_map['mithral encode 4b i8'] = 'Mithral i8'
-    name_map['mithral encode 4b i16'] = 'Mithral i16'
-    name_map['mithral encode 4b f32'] = 'Mithral f32'
     name_map['bolt encode'] = 'Bolt'
+    name_map['mithral encode 4b i16'] = 'Mithral i16'
     name_map['pq encode'] = 'PQ'
+    name_map['mithral encode 4b f32'] = 'Mithral f32'
     name_map['opq encode'] = 'OPQ'
     df = res.rename_values_in_col(df, 'algo', name_map)
     df = res.melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
@@ -154,8 +155,13 @@ def encode_speed_fig(save=True):
     fig, axes = plt.subplots(len(use_nbytes), 1, figsize=(6, 8), sharey=True)
     for i, nbytes in enumerate(use_nbytes):
         data = df.loc[df['B'] == nbytes]
+        order = name_map.values()
+        dashes = {name: ([] if name.lower().startswith('mithral') else
+                         mpl.rcParams['lines.dashed_pattern'])
+                  for name in order}
         sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='trial',
-                    ax=axes[i], ci='sd', estimator=None)
+                    ax=axes[i], ci='sd', estimator=None, hue_order=order,
+                    style='algo', style_order=order, dashes=dashes)
 
     # ------------------------ axis cleanup
     axes[0].set_title('Speed of g() Functions\nfor Different Encoding Sizes',
@@ -166,7 +172,7 @@ def encode_speed_fig(save=True):
     plt.figlegend(handles, labels, loc='lower center', ncol=3, fontsize=13)
 
     for ax in axes:
-        ax.semilogx()
+        # ax.semilogx()
         ax.semilogy()
         ax.get_legend().remove()
         # ax.set_ylabel('Billions of\nScalars Encoded/s',
@@ -278,14 +284,23 @@ def lut_speed_fig(save=True):
         data = df.loc[df['B'] == nbytes]
         ax = axes[i]
         print(f"------------------------ {nbytes}B")
-        for algo in order:
-            subdf = data.loc[df['algo'] == algo]
-            print("plotting algo: ", algo)
-            x = subdf['D'].as_matrix()
-            y = subdf['thruput'].as_matrix()
-            sort_idxs = np.argsort(x)
-            x, y = x[sort_idxs], y[sort_idxs]
-            ax.plot(x, y, dashes[algo], label=algo)
+        # manual version
+        # for algo in order:
+        #     subdf = data.loc[df['algo'] == algo]
+        #     print("plotting algo: ", algo)
+        #     x = subdf['D'].as_matrix()
+        #     y = subdf['thruput'].as_matrix()
+        #     sort_idxs = np.argsort(x)
+        #     x, y = x[sort_idxs], y[sort_idxs]
+        #     ax.plot(x, y, dashes[algo], label=algo)
+
+        dashes = {name: ([] if name.lower().startswith('mithral') else
+                         mpl.rcParams['lines.dashed_pattern'])
+                  for name in order}
+        sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='trial',
+                    ax=axes[i], ci='sd', estimator=None, hue_order=order,
+                    style='algo', style_order=order, dashes=dashes)
+
         # sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='trial',
         #             hue_order=order,
         #             # hue_order=order, style='algo', style_order=order,
@@ -302,14 +317,14 @@ def lut_speed_fig(save=True):
     #     print(ax.get_legend_handles_labels())
 
     handles, labels = axes[-1].get_legend_handles_labels()
-    # handles, labels = handles[1:], labels[1:]  # rm df column name
+    handles, labels = handles[1:], labels[1:]  # rm df column name
     # handles, labels = handles[:-3], labels[:-3]  # rm ismithral
     plt.figlegend(handles, labels, loc='lower center', ncol=3, fontsize=13)
 
     for ax in axes:
-        ax.semilogx()
+        # ax.semilogx()
         ax.semilogy()
-        # ax.get_legend().remove()
+        ax.get_legend().remove()
         ax.set_ylabel('Scalars Encoded/s',
                       family=USE_FONT, fontsize=14)
     for ax in axes[:-1]:
