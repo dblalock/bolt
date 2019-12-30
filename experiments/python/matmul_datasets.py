@@ -387,8 +387,8 @@ def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2)):
     return X_train, Y_train
 
 
-def load_caltech_tasks(validate=False, order='chw', limit_ntrain=-1,
-                       limit_ntest=-1):
+def load_caltech_tasks(order='chw', limit_ntrain=-1,
+                       limit_ntest=-1, validate=True):
     filters = load_filters_sobel_3x3(order=order)
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
@@ -402,14 +402,21 @@ def load_caltech_tasks(validate=False, order='chw', limit_ntrain=-1,
     print("X train nbytes: ", X_train.nbytes)
     print("Y train shape: ", Y_train.shape)
     print("Y train nbytes: ", Y_train.nbytes)
-    print("size of test imgs (not windows): ",
-          sum([img.nbytes for img in test_imgs]))
+    print("type(test_imgs)", type(test_imgs))
+    print("len(test_imgs)", len(test_imgs))
 
+    # print("size of test imgs (not windows): ",
+    #       sum([img.nbytes for img in test_imgs]))
+
+    _, test_ids = load_caltech_img_ids()
     for i, img in enumerate(test_imgs):
+
         X_test, Y_test = caltech_x_y_for_img(
             img, filt_spatial_shape=filt_spatial_shape, W=W, order=order)
+        name = f'Caltech {i} ({os.path.dirname(test_ids[i]).split("/")[-1]})'
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
-                          X_test=X_test, Y_test=Y_test, W_test=W)
+                          X_test=X_test, Y_test=Y_test, W_test=W,
+                          name=name)
         if limit_ntrain is not None and limit_ntrain > 0:
             limit_ntrain = int(limit_ntrain)
             task.X_train = task.X_train[:limit_ntrain]
@@ -420,12 +427,16 @@ def load_caltech_tasks(validate=False, order='chw', limit_ntrain=-1,
             task.Y_test = task.Y_test[:limit_ntest]
 
         # task.info = {'task_id: ', i}
-        task.name = str(i)
+        # task.name = str(i)
         if validate:
             print("validating caltech task {}/{}...".format(
                 i + 1, len(test_imgs)))
             task.validate()
+        # print("about to yield task with name: ", task.name)
         yield task
+
+    # print("exiting at load_caltech_tasks()")
+    # import sys; sys.exit()
 
 
 def test_caltech_loading():

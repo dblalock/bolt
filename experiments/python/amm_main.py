@@ -54,7 +54,7 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        # mvals = [4, 8, 16, 32, 64]
+        mvals = [4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
@@ -63,7 +63,7 @@ def _hparams_for_method(method_id):
         # mvals = [64] # TODO rim after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
-        mvals = [8] # TODO rm after debug
+        # mvals = [8] # TODO rm after debug
         # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
@@ -229,7 +229,7 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks, methods=None, saveas=None, ntasks=None,
-          verbose=3, limit_ntasks=2, compression_metrics=False):
+          verbose=3, limit_ntasks=-1, compression_metrics=False):
     methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
         methods = [methods]
@@ -307,7 +307,8 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     return _main(tasks=tasks, methods=methods, saveas=saveas,
                  # ntasks=510, limit_ntasks=10)
                  # ntasks=510, limit_ntasks=2)
-                 ntasks=510, limit_ntasks=3)
+                 # ntasks=510, limit_ntasks=3)
+                 ntasks=510, limit_ntasks=-1)
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
@@ -341,18 +342,21 @@ def main():
     # main_cifar100(methods='OSNAP')
     # main_cifar10(methods=methods.USE_METHODS)
     # main_cifar100(methods=methods.USE_METHODS)
-    main_caltech(methods=methods.USE_METHODS)
+    # main_caltech(methods=methods.USE_METHODS)
+    # main_caltech(methods=['Mithral'])
     # main_cifar10(methods='Mithral')
     # main_cifar100(methods='Mithral')
-    # main_caltech(methods='Mithral')
-    # main_caltech(methods='PCA')
+    main_caltech(methods='PCA')
     # main_caltech(methods='RandGauss')
-    # main_caltech(methods='Hadamard')
+    # # main_caltech(methods='Hadamard')
     # main_caltech(methods='Rademacher')
     # main_caltech(methods='OrthoGauss')
-    # main_caltech(methods='FastJL')
+    # main_caltech(methods='Mithral')
+    # # main_caltech(methods='FastJL')
     # main_caltech(methods=['FastJL', 'HashJL', 'OSNAP'])
     # main_caltech(methods='Bolt')
+    # main_caltech(methods='Mithral')
+    # main_caltech(methods='SparsePCA')
     # main_caltech(methods=['Mithral', 'MithralPQ'])
     # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
     # main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
