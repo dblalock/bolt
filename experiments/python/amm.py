@@ -16,6 +16,9 @@ _memory = Memory('.', verbose=1, compress=9)
 
 KEY_NMULTIPLIES = 'muls'
 
+OSNAP_DEFAULT_S = 4
+# OSNAP_DEFAULT_S = 2
+
 
 # ================================================================ utils
 
@@ -172,6 +175,10 @@ class HadamardSketch(SketchedMatmul):
         use_D = 1 << int(np.ceil(np.log2(D)))
         V = scipy.linalg.hadamard(use_D)[:D, :self.d].astype(np.float32)
         V /= np.linalg.norm(V, axis=0)
+        # V /= np.sqrt(2)
+        # V *= np.sqrt(2)
+        # V *= np.sqrt(D / self.d)
+        V *= (D / self.d) ** .25
         A = A @ V
         B = V.T @ B
         return A, B
@@ -225,7 +232,10 @@ class HashJlSketch(SketchedMatmul):
 class OsnapSketch(SketchedMatmul):
 
     def sketch(self, A, B):
-        return osnap_sketches(A, B, self.d)
+        return osnap_sketches(A, B, self.d, s=OSNAP_DEFAULT_S)
+
+    # def get_params(self):
+    #     return {'d': self.d, 's': OSNAP_DEFAULT_S}
 
     def _get_nmuls(self, N, D, M, d, **sink):
         return _nmultiplies_osnap_sketches(N, D, M, d)
@@ -740,8 +750,10 @@ def hash_sketches(A, B, d, scale=1., share_projections=True):
     for j in range(D):
         idx = np.random.randint(d)
         sign = (np.random.randint(0, 2) * 2) - 1
-        coeff = sign * scale  # worse than predicting mean, esp for small d
-        coeff = sign * scale * np.sqrt(d / D)  # best for small d / D
+        # coeff = sign * scale  # worse than predicting mean, esp for small d
+        coeff = sign * scale / np.sqrt(2)  # actually pretty decent
+        # coeff = sign * scale * ((d / D) ** .25)
+        # coeff = sign * scale * np.sqrt(d / D)  # best for small d / D
         # coeff = sign * scale * d / D  # best for larger d / D
         A_hat[:, idx] += A[:, j] * coeff
         if share_projections:
@@ -765,7 +777,7 @@ def hash_sketches(A, B, d, scale=1., share_projections=True):
     return A_hat, B_hat
 
 
-def osnap_sketches(A, B, d, s=4):
+def osnap_sketches(A, B, d, s=OSNAP_DEFAULT_S):
     N, D = A.shape
     D, M = B.shape
     s = max(1, min(d // 2, s))  # handle s too large relative to d
@@ -773,7 +785,10 @@ def osnap_sketches(A, B, d, s=4):
     B_hat = np.zeros((d, M), dtype=B.dtype)
 
     scale = 1. / np.sqrt(s)
+    # scale = 1. / s
     # scale = 1  # seems to often work better than dividing by 1/sqrt(s)?
+    # scale = np.sqrt(s)
+    # scale = s
 
     subspace_len = (d + s - 1) // s  # round up
     for ss in range(s):

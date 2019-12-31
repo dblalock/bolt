@@ -37,6 +37,8 @@ def _xlabel_for_xmetric(x_metric):
             'nlookups': 'Number of Lookups',
             'ops': 'Number of Operations',
             'Latency': 'Latency (ms)',
+            'Speedup': 'Speedup over Brute Force',
+            'NormalizedTime': 'Normalized Latency',
             'Throughput': 'Throughput (elements/s)'}[x_metric]
 
 
@@ -358,20 +360,33 @@ def lut_speed_fig(save=True):
         plt.show()
 
 
-def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
+def lotsa_colors_cmap(value):
+    assert 0 <= value <= 1  # if this throws, I don't understand cmaps
+    if value < .3333:
+        return plt.get_cmap('tab20')(3 * value)
+    elif value < .6666:
+        return plt.get_cmap('tab20b')((3 * value) - 1)
+    else:
+        return plt.get_cmap('tab20c')((3 * value) - 2)
+
+
+def my_tab10(value):
+    assert 0 <= value <= 1
+    value = int(value * 10)
+    perm = [3, 1, 2, 4, 5, 6, 7, 8, 9]  # make red first, then orange
+    value = perm[value]
+    return plt.get_cmap('tab10')((value / 10.) + .01)
+
+
+# def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
+def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     df10 = res.cifar10_amm()
     df100 = res.cifar100_amm()
+    sb.set_context('poster')
     fig, axes = plt.subplots(2, 1, figsize=(11, 13.5), sharex=True)
 
-
-    # print("uniq methods df10 : ", df10['method'].unique())
-    # print("uniq methods df100: ", df100['method'].unique())
-    # return
-
-    # TODO self pick up here
-
-
-
+    # df10 = df10.loc[df10['method'] != 'OrthoGauss']
+    # df100 = df100.loc[df100['method'] != 'OrthoGauss']
 
     def lineplot(data, ax):
         # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
@@ -392,11 +407,15 @@ def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
 
         # have to specify markers or seaborn freaks out because it doesn't
         # have enough of them
-        filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
-                          'H', 'D', 'd', 'P', 'X')
+        # filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
+        #                   'H', 'D', 'd', 'P', 'X')
+        use_markers = ('*', '*', 's') + (
+            'o', 'v', '^', '<', '>', '8', 'p', 'h', 'H', 'D', 'd', 'P', 'X')
         sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
                     style='method', style_order=order, hue_order=order,
-                    markers=filled_markers, dashes=False, ax=ax)
+                    markers=use_markers, dashes=False, ax=ax,
+                    # palette=my_tab10)
+                    palette='tab10')
 
     lineplot(df10, axes[0])
     lineplot(df100, axes[1])
@@ -404,7 +423,7 @@ def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
     # plt.suptitle('Sketch size vs Classification Accuracy')
     xlbl = _xlabel_for_xmetric(x_metric)
     # plt.suptitle('{} vs {}'.format(xlbl, y_metric))
-    plt.suptitle('Approximating Softmax Layers')
+    plt.suptitle('Approximating Softmax Classifiers')
     axes[0].set_title('CIFAR-10')
     for ax in axes:
         ax.set_ylabel(y_metric)
@@ -414,19 +433,25 @@ def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
 
     handles, labels = axes[0].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
-    axes[0].legend(handles, labels, fontsize='small')
+    # axes[0].legend(handles, labels, fontsize='small')
     # axes[1].legend(handles, labels, fontsize='small')
     # plt.figlegend(handles, labels, loc='lower center', ncol=1)
     # plt.figlegend(handles, labels, loc='center right', ncol=1)
-    axes[1].get_legend().remove()
+    for ax in axes.ravel():
+        ax.get_legend().remove()
+    axes[0].set_ylim([.09, .95])
+    axes[1].set_ylim([.009, .72])
+    # axes[1].get_legend().remove()
     # axes[1].get_legend().remove()
 
-    if x_metric in ('muls', 'ops', 'nlookups', 'Latency', 'Throughput'):
-        axes[0].semilogx()
+    plt.figlegend(handles, labels, loc='lower center', ncol=3)
+
+    # if x_metric in ('muls', 'ops', 'nlookups', 'Latency', 'Throughput'):
+    axes[0].semilogx()
 
     plt.tight_layout()
-    # plt.subplots_adjust(top=.92, bottom=.2)
-    plt.subplots_adjust(top=.92, bottom=.22)
+    plt.subplots_adjust(top=.91, bottom=.24)
+    # plt.subplots_adjust(top=.95, bottom=.1)
     save_fig('cifar_{}_{}'.format(x_metric, y_metric))
 
 
@@ -434,7 +459,10 @@ def main():
     # scan_speed_fig()
     # encode_speed_fig()
     # lut_speed_fig()
-    cifar_fig()
+    # cifar_fig()
+    # cifar_fig(x_metric='ops')
+    cifar_fig(x_metric='NormalizedTime')
+    # cifar_fig(x_metric='Speedup')
 
 
 if __name__ == '__main__':

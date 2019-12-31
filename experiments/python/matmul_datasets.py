@@ -388,7 +388,7 @@ def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2)):
 
 
 def load_caltech_tasks(order='chw', limit_ntrain=-1,
-                       limit_ntest=-1, validate=True):
+                       limit_ntest=-1, validate=False):
     filters = load_filters_sobel_3x3(order=order)
     filt_spatial_shape = (3, 3)
     W = _filters_list_to_mat(filters)
@@ -402,7 +402,7 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
     print("X train nbytes: ", X_train.nbytes)
     print("Y train shape: ", Y_train.shape)
     print("Y train nbytes: ", Y_train.nbytes)
-    print("type(test_imgs)", type(test_imgs))
+    # print("type(test_imgs)", type(test_imgs))
     print("len(test_imgs)", len(test_imgs))
 
     # print("size of test imgs (not windows): ",

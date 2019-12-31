@@ -11,6 +11,8 @@ from io import StringIO
 
 from . import amm_methods as methods
 
+from joblib import Memory
+_memory = Memory('.', verbose=1)
 
 pd.options.mode.chained_assignment = None  # suppress stupid warning
 
@@ -319,7 +321,6 @@ def _join_with_sparse_sketch_times(df):
     #     df[k] = 100. * (1. - df['sparsity'])
 
 
-
     new_rows = []
     for _, row in df.iterrows():
         # pprint.pprint(dict(row))
@@ -353,19 +354,19 @@ def _join_with_sparse_sketch_times(df):
     # subdf = df.loc[df['method'] == 'SparsePCA']
 
     # here we have a bunch of hack stuff
-    print("df columns: ", df.columns)
-    xvals = df['time'].values
+    # print("df columns: ", df.columns)
     # yvals = 1. - df['normalized_mse'].values  # corr coeff
+    xvals = df['time'].values
     yvals = df['acc_amm'].values  # corr coeff
-    print("xvals: ", xvals)
-    print("yvals: ", yvals)
     idxs = extract_pareto_frontier_idxs(xvals, yvals)
-    print("chose pareto vals: ")
-    xvals = xvals[idxs]
-    yvals = yvals[idxs]
-    sort_idxs = np.argsort(xvals)
-    print(xvals[sort_idxs])
-    print(yvals[sort_idxs])
+    # print("xvals: ", xvals)
+    # print("yvals: ", yvals)
+    # print("chose pareto vals: ")
+    # xvals = xvals[idxs]
+    # yvals = yvals[idxs]
+    # sort_idxs = np.argsort(xvals)
+    # print(xvals[sort_idxs])
+    # print(yvals[sort_idxs])
 
     # import sys; sys.exit()
     # zeros = np.zeros(len(xvals), dtype=np.bool)
@@ -395,6 +396,21 @@ def _clean_metrics_amm(df):
     df = df.rename({'acc_amm': 'Accuracy'}, axis=1)
     df['time'] = (df['t0'] + df['t1'] + df['t2'] + df['t3'] + df['t4']) / 5.
     df['Throughput'] = 1e3 * df['N'] * df['M'] / df['time']
+
+    # create ops column that sums number of multiplies + lookups
+    df['muls'] = df['muls'].fillna(0)
+    mask = ~df['nlookups'].isna()
+    df['ops'] = df['muls']
+    df['ops'].loc[mask] += df['nlookups'].loc[mask]
+
+    # df['nor']
+    # df_exact = df.loc[df['method'] == 'Brute Force']
+    df_exact = df.loc[df['method'] == 'Exact']
+    # print("df_exact\n", df_exact)
+    assert df_exact.shape[0] == 1
+    base_time = float(df_exact.loc[0, 'time'])
+    df['NormalizedTime'] = df['time'] / base_time
+    df['Speedup'] = 1. / df['NormalizedTime']
 
     return df
 
@@ -438,6 +454,7 @@ def _clean_amm_results_df(df):
     return df
 
 
+# @_memory.cache
 def cifar10_amm():
     df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar10.csv'))
     df.drop(AMM_DROP_COLS + ['task_id'], axis=1, inplace=True)  # only 1 task

@@ -1,7 +1,7 @@
 #!/bin/env/python
 
 import blosc  # pip install blosc
-# import functools
+import functools
 import numpy as np
 import pprint
 import time
@@ -18,7 +18,8 @@ from joblib import Memory
 _memory = Memory('.', verbose=0)
 
 
-NUM_TRIALS = 5
+# NUM_TRIALS = 1
+NUM_TRIALS = 10
 
 
 # @_memory.cache
@@ -30,6 +31,7 @@ def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
         dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        # dvals = [1, 2, 4, 8]
         # dvals = [32] # TODO rm after debug
         # dvals = [16] # TODO rm after debug
         # dvals = [8] # TODO rm after debug
@@ -120,17 +122,27 @@ def _compute_compression_metrics(ar):
             'nbytes_sprintz': compress.sprintz_packed_size(ar)}
 
 
+def _cossim(Y, Y_hat):
+    ynorm = np.linalg.norm(Y) + 1e-20
+    yhat_norm = np.linalg.norm(Y_hat) + 1e-20
+    return ((Y / ynorm) * (Y_hat / yhat_norm)).sum()
+
+
 def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     Y = task.Y_test
     diffs = Y - Y_hat
     raw_mse = np.mean(diffs * diffs)
     normalized_mse = raw_mse / np.var(Y)
-    ynorm = np.linalg.norm(Y) + 1e-20
-    yhat_norm = np.linalg.norm(Y_hat) + 1e-20
-    r = ((Y / ynorm) * (Y_hat / yhat_norm)).sum()
-    metrics = {'raw_mse': raw_mse, 'y_std': Y.std(), 'r': r,
-               'normalized_mse': normalized_mse, 'bias': diffs.mean(),
-               'y_mean': Y.mean()}
+    # Y_meannorm = Y - Y.mean()
+    # Y_hat_meannorm = Y_hat - Y_hat.mean()
+    # ynorm = np.linalg.norm(Y_meannorm) + 1e-20
+    # yhat_norm = np.linalg.norm(Y_hat_meannorm) + 1e-20
+    # r = ((Y_meannorm / ynorm) * (Y_hat_meannorm / yhat_norm)).sum()
+    metrics = {'raw_mse': raw_mse, 'normalized_mse': normalized_mse,
+               'corr': _cossim(Y - Y.mean(), Y_hat - Y_hat.mean()),
+               'cossim': _cossim(Y, Y_hat),
+               'bias': diffs.mean(), 'y_mean': Y.mean(),
+               'y_std': Y.std(), 'yhat_std': Y_hat.std()}
     if compression_metrics:
 
         # Y_q = compress.quantize(Y, nbits=8)
@@ -228,7 +240,7 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 
 
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
-def _main(tasks, methods=None, saveas=None, ntasks=None,
+def _main(tasks_func, methods=None, saveas=None, ntasks=None,
           verbose=3, limit_ntasks=-1, compression_metrics=False):
     methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
@@ -237,53 +249,83 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
         limit_ntasks = np.inf
     independent_vars = _get_all_independent_vars()
 
-    # for task in load_caltech_tasks():
-    for i, task in enumerate(tasks):
-        if verbose > 0:
-            print("-------- running task: {} ({}/{})".format(
-                task.name, i + 1, ntasks))
-        task.validate_shapes()  # fail fast if task is ill-formed
-        for method_id in methods:
-            if verbose > 1:
-                print("running method: ", method_id)
-            ntrials = _ntrials_for_method(method_id=method_id, ntasks=ntasks)
-            # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
-            metrics_dicts = []
-            for hparams_dict in _hparams_for_method(method_id):
-                if verbose > 3:
-                    print("got hparams: ")
-                    pprint.pprint(hparams_dict)
+    for method_id in methods:
+        if verbose > 1:
+            print("running method: ", method_id)
+        ntrials = _ntrials_for_method(method_id=method_id, ntasks=ntasks)
+        # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
+        for hparams_dict in _hparams_for_method(method_id):
+            if verbose > 3:
+                print("got hparams: ")
+                pprint.pprint(hparams_dict)
 
-                try:
-                    est = _fitted_est_for_hparams(
-                        method_id, hparams_dict,
-                        task.X_train, task.W_train, task.Y_train)
-                    for trial in range(ntrials):
-                        metrics = _eval_amm(
-                            task, est, compression_metrics=compression_metrics)
-                        metrics['N'] = task.X_test.shape[0]
-                        metrics['D'] = task.X_test.shape[1]
-                        metrics['M'] = task.W_test.shape[1]
-                        metrics['trial'] = trial
-                        metrics['method'] = method_id
-                        metrics['task_id'] = task.name
-                        # metrics.update(hparams_dict)
-                        metrics.update(est.get_params())
-                        print("got metrics: ")
-                        pprint.pprint(metrics)
-                        metrics_dicts.append(metrics)
-                except amm.InvalidParametersException as e:
-                    # hparams don't make sense for this task (eg, D < d)
-                    if verbose > 2:
-                        print("hparams apparently invalid: {}".format(e))
+            metrics_dicts = []
+            try:
+                prev_X_shape, prev_Y_shape = None, None
+                prev_X_std, prev_Y_std = None, None
+                est = None
+                for i, task in enumerate(tasks_func()):
+                    if i + 1 > limit_ntasks:
+                        raise StopIteration()
+                    if verbose > 0:
+                        print("-------- running task: {} ({}/{})".format(
+                            task.name, i + 1, ntasks))
+                        task.validate_shapes()  # fail fast if task is ill-formed
+
+                    can_reuse_est = (
+                        (i != 0) and (est is not None)
+                        and (prev_X_shape is not None)
+                        and (prev_Y_shape is not None)
+                        and (prev_X_std is not None)
+                        and (prev_Y_std is not None)
+                        and (task.X_train.shape == prev_X_shape)
+                        and (task.Y_train.shape == prev_Y_shape)
+                        and (task.X_train.std() == prev_X_std)
+                        and (task.Y_train.std() == prev_Y_std))
+                    if not can_reuse_est:
+                        try:
+                            est = _fitted_est_for_hparams(
+                                method_id, hparams_dict,
+                                task.X_train, task.W_train, task.Y_train)
+                        except amm.InvalidParametersException as e:
+                            # hparams don't make sense for task (eg, D < d)
+                            if verbose > 2:
+                                print(f"hparams apparently invalid: {e}")
+                            est = None
+                            continue
+
+                        prev_X_shape = task.X_train.shape
+                        prev_Y_shape = task.Y_train.shape
+                        prev_X_std = task.X_train.std()
+                        prev_Y_std = task.Y_train.std()
+
+                    try:
+                        for trial in range(ntrials):
+                            metrics = _eval_amm(
+                                task, est, compression_metrics=compression_metrics)
+                            metrics['N'] = task.X_test.shape[0]
+                            metrics['D'] = task.X_test.shape[1]
+                            metrics['M'] = task.W_test.shape[1]
+                            metrics['trial'] = trial
+                            metrics['method'] = method_id
+                            metrics['task_id'] = task.name
+                            # metrics.update(hparams_dict)
+                            metrics.update(est.get_params())
+                            print("got metrics: ")
+                            pprint.pprint(metrics)
+                            metrics_dicts.append(metrics)
+                    except amm.InvalidParametersException as e:
+                        if verbose > 2:
+                            print(f"hparams apparently invalid: {e}")
+                        continue
+
+            except StopIteration:  # no more tasks for these hparams
+                pass
 
             if len(metrics_dicts):
                 pyn.save_dicts_as_data_frame(
                     metrics_dicts, save_dir='results/amm', name=saveas,
                     dedup_cols=independent_vars)
-
-        if i + 1 >= limit_ntasks:
-            return
 
 
 # def main_ecg(methods=None, saveas='ecg', limit_nhours=1):
@@ -294,7 +336,7 @@ def _main(tasks, methods=None, saveas=None, ntasks=None,
 
 
 def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
-    tasks = md.load_caltech_tasks()
+    # tasks = md.load_caltech_tasks()
     # tasks = md.load_caltech_tasks(limit_ntrain=100e3, limit_ntest=10e3) # TODO rm after debug
     # tasks = md.load_caltech_tasks(limit_ntrain=-1, limit_ntest=10e3) # TODO rm after debug
     # tasks = md.load_caltech_tasks(limit_ntrain=100e3)
@@ -304,28 +346,30 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     # tasks = md.load_caltech_tasks(limit_ntrain=17.5e5) # bad
     # tasks = md.load_caltech_tasks(limit_ntrain=2e6)
     # tasks = md.load_caltech_tasks(limit_ntrain=2.5e6)
-    return _main(tasks=tasks, methods=methods, saveas=saveas,
-                 # ntasks=510, limit_ntasks=10)
-                 # ntasks=510, limit_ntasks=2)
-                 # ntasks=510, limit_ntasks=3)
-                 ntasks=510, limit_ntasks=-1)
+    # return _main(tasks=tasks, methods=methods, saveas=saveas,
+    limit_ntasks = -1
+    return _main(tasks_func=md.load_caltech_tasks, methods=methods,
+                 saveas=saveas, ntasks=510, limit_ntasks=limit_ntasks)
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
     limit_ntasks = None
-    tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
-    return _main(tasks=tasks, methods=methods, saveas=saveas,
+    # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
+    tasks_func = functools.partial(md.load_ucr_tasks, limit_ntasks=limit_ntasks)
+    return _main(tasks_func=tasks_func, methods=methods, saveas=saveas,
                  ntasks=76, limit_ntasks=limit_ntasks)
 
 
 def main_cifar10(methods=methods.USE_METHODS, saveas='cifar10'):
-    tasks = md.load_cifar10_tasks()
-    return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=1)
+    # tasks = md.load_cifar10_tasks()
+    return _main(tasks_func=md.load_cifar10_tasks, methods=methods,
+                 saveas=saveas, ntasks=1)
 
 
 def main_cifar100(methods=methods.USE_METHODS, saveas='cifar100'):
-    tasks = md.load_cifar100_tasks()
-    return _main(tasks=tasks, methods=methods, saveas=saveas, ntasks=1)
+    # tasks = md.load_cifar100_tasks()
+    return _main(tasks_func=md.load_cifar100_tasks, methods=methods,
+                 saveas=saveas, ntasks=1)
 
 
 def main_all(methods=methods.USE_METHODS):
@@ -337,25 +381,30 @@ def main_all(methods=methods.USE_METHODS):
 
 def main():
     # main_cifar10(methods='SparsePCA')
-    # main_cifar10(methods=['OSNAP', 'HashJL'])
-    # main_cifar100(methods=['OSNAP', 'HashJL'])
-    # main_cifar100(methods='OSNAP')
+    # main_cifar10(methods='PCA')
+    # main_cifar100(methods='PCA')
+    # main_cifar10(methods=methods.DENSE_SKETCH_METHODS)
+    # main_cifar100(methods=methods.DENSE_SKETCH_METHODS)
+    main_cifar10(methods='HashJL')
+    main_cifar10(methods='OSNAP')
+    main_cifar100(methods='HashJL')
+    main_cifar100(methods='OSNAP')
     # main_cifar10(methods=methods.USE_METHODS)
     # main_cifar100(methods=methods.USE_METHODS)
     # main_caltech(methods=methods.USE_METHODS)
     # main_caltech(methods=['Mithral'])
     # main_cifar10(methods='Mithral')
     # main_cifar100(methods='Mithral')
-    main_caltech(methods='PCA')
+    # main_caltech(methods='Hadamard')
+
+    # # main_caltech(methods='PCA')
     # main_caltech(methods='RandGauss')
-    # # main_caltech(methods='Hadamard')
     # main_caltech(methods='Rademacher')
     # main_caltech(methods='OrthoGauss')
-    # main_caltech(methods='Mithral')
-    # # main_caltech(methods='FastJL')
     # main_caltech(methods=['FastJL', 'HashJL', 'OSNAP'])
     # main_caltech(methods='Bolt')
     # main_caltech(methods='Mithral')
+
     # main_caltech(methods='SparsePCA')
     # main_caltech(methods=['Mithral', 'MithralPQ'])
     # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
