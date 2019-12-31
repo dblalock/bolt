@@ -370,12 +370,29 @@ def lotsa_colors_cmap(value):
         return plt.get_cmap('tab20c')((3 * value) - 2)
 
 
-def my_tab10(value):
-    assert 0 <= value <= 1
-    value = int(value * 10)
-    perm = [3, 1, 2, 4, 5, 6, 7, 8, 9]  # make red first, then orange
-    value = perm[value]
-    return plt.get_cmap('tab10')((value / 10.) + .01)
+# def my_tab10(value):
+#     assert 0 <= value <= 1
+#     value = int(value * 10)
+#     perm = [3, 1, 2, 4, 5, 6, 7, 8, 9]  # make red first, then orange
+#     value = perm[value]
+#     return plt.get_cmap('tab10')((value / 10.) + .01)
+
+# def my_cmap(value):
+
+my_colors_list = (plt.get_cmap('Set1').colors
+                  + plt.get_cmap('Set3').colors[:1]  # skip light yellow
+                  + plt.get_cmap('Set3').colors[2:]
+                  + plt.get_cmap('Dark2').colors[:6])
+# my_colors_list = my_colors_list[:5] + () my_colors_list[6:]  # rm bright yellow
+# new_yellow = (240./255, 230./255, 140./255)
+new_yellow = (204. / 255, 204. / 255, 0. / 255)
+# print(type(my_colors_list))
+# print(my_colors_list)
+my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
+# print(type(my_colors_list))
+# print(my_colors_list)
+
+# import sys; sys.exit()
 
 
 # def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
@@ -395,7 +412,7 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
         # move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
         # move_methods_to_front = ['Mithral', 'MithralPQ', 'Brute Force']
         mithral_methods = [method for method in order
-                           if method.lower().startswith('mithral')]
+                           if method.lower().startswith('mithral')][::-1]
         move_methods_to_front = mithral_methods[:]
         move_methods_to_front.append('Brute Force')
         for elem in move_methods_to_front[:]:
@@ -403,19 +420,20 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
                 order.remove(elem)
             else:
                 move_methods_to_front.remove(elem)
-        order = move_methods_to_front + order
+        order = move_methods_to_front + sorted(order)
 
         # have to specify markers or seaborn freaks out because it doesn't
         # have enough of them
         # filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
         #                   'H', 'D', 'd', 'P', 'X')
-        use_markers = ('*', '*', 's') + (
-            'o', 'v', '^', '<', '>', '8', 'p', 'h', 'H', 'D', 'd', 'P', 'X')
+        # use_markers = ('*', '*', 's') + (
+        use_markers = ('D', 'D', 's') + (
+            'o', 'v', '^', '<', '>', '8', 'p', 'h', 'd', 'P', 'X', '*', 'D')
         sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
                     style='method', style_order=order, hue_order=order,
                     markers=use_markers, dashes=False, ax=ax,
                     # palette=my_tab10)
-                    palette='tab10')
+                    palette=my_colors_list)
 
     lineplot(df10, axes[0])
     lineplot(df100, axes[1])
@@ -439,8 +457,8 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # plt.figlegend(handles, labels, loc='center right', ncol=1)
     for ax in axes.ravel():
         ax.get_legend().remove()
-    axes[0].set_ylim([.09, .95])
-    axes[1].set_ylim([.009, .72])
+    axes[0].set_ylim([.09, .96])
+    axes[1].set_ylim([.009, .73])
     # axes[1].get_legend().remove()
     # axes[1].get_legend().remove()
 
@@ -448,6 +466,12 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
 
     # if x_metric in ('muls', 'ops', 'nlookups', 'Latency', 'Throughput'):
     axes[0].semilogx()
+
+    for ax in axes:
+        if x_metric == 'Speedup':
+            ax.set_xlim([.94, ax.get_xlim()[1]])
+        elif x_metric == 'NormalizedTime':
+            ax.set_xlim([ax.get_xlim()[0], 1.06])
 
     plt.tight_layout()
     plt.subplots_adjust(top=.91, bottom=.24)
@@ -462,7 +486,7 @@ def main():
     # cifar_fig()
     # cifar_fig(x_metric='ops')
     cifar_fig(x_metric='NormalizedTime')
-    # cifar_fig(x_metric='Speedup')
+    cifar_fig(x_metric='Speedup')
 
 
 if __name__ == '__main__':

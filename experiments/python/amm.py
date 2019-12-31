@@ -178,7 +178,7 @@ class HadamardSketch(SketchedMatmul):
         # V /= np.sqrt(2)
         # V *= np.sqrt(2)
         # V *= np.sqrt(D / self.d)
-        V *= (D / self.d) ** .25
+        # V *= (D / self.d) ** .25
         A = A @ V
         B = V.T @ B
         return A, B
