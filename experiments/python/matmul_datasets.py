@@ -40,6 +40,7 @@ class MatmulTask(object):
 
         self.train_mats = (self.X_train, self.Y_train, self.W_train)
         self.test_mats = (self.X_test, self.Y_test, self.W_test)
+        self.initial_hashes = self._hashes()
 
     def __str__(self):
         train_str = '{} @ {} = {}'.format(
@@ -58,15 +59,36 @@ class MatmulTask(object):
             assert D == D2
             assert (N, M) == Y.shape
 
-    def validate(self, verbose=1, mse_thresh=1e-7):
+    def validate_hashes(self):
+        assert self._hashes() == self.initial_hashes
+
+    def validate(self, verbose=1, mse_thresh=1e-7, train=True, test=True):
         self.validate_shapes()
-        for (X, Y, W) in [self.train_mats, self.test_mats]:
+        self.validate_hashes()
+
+        which_mats = []
+        if train:
+            which_mats.append(self.train_mats)
+        if test:
+            which_mats.append(self.test_mats)
+
+        for (X, Y, W) in which_mats:
             Y_hat = X @ W
             diffs = Y - Y_hat
             mse = np.mean(diffs * diffs) / np.var(Y)
             if verbose > 0:
                 print("mse: ", mse)
             assert mse < mse_thresh
+
+    def _hashes(self):
+        return {
+            'X_train': self.X_train.std(),
+            'Y_train': self.Y_train.std(),
+            'W_train': self.W_train.std(),
+            'X_test': self.X_test.std(),
+            'Y_test': self.Y_test.std(),
+            'W_test': self.W_test.std()
+        }
 
 
 # ================================================================ ECG
@@ -222,30 +244,53 @@ def load_ecg_tasks(*args, **kwargs):
 
 # ================================================================ caltech
 
-def load_caltech_imgs(ntrain_classes=50, limit_per_class=10):
-    # imgs = caltech.load_caltech101(resample=None, crop=None)
-    (imgs, y), label2name = caltech.load_caltech101(
-        limit_per_class=limit_per_class)
-    # print(len(imgs))
-    # print(sum([img.size for img in imgs]))
-    # print("class counts: ", np.bincount(y))
+# def load_caltech_imgs(ntrain_classes=50, limit_per_class=10):
+#     # imgs = caltech.load_caltech101(resample=None, crop=None)
+#     (imgs, y), label2name = caltech.load_caltech101(
+#         limit_per_class=limit_per_class)
+#     # print(len(imgs))
+#     # print(sum([img.size for img in imgs]))
+#     # print("class counts: ", np.bincount(y))
 
-    # split by class; more relaxed than assuming you have examples from
-    # the same dataset/class you're later going to apply your filter to
-    train_idxs = np.where(y < ntrain_classes)[0]
-    test_idxs = np.where(y >= ntrain_classes)[0]
-    imgs_train = [imgs[i] for i in train_idxs]
-    imgs_test = [imgs[i] for i in test_idxs]
+#     # split by class; more relaxed than assuming you have examples from
+#     # the same dataset/class you're later going to apply your filter to
+#     train_idxs = np.where(y < ntrain_classes)[0]
+#     test_idxs = np.where(y >= ntrain_classes)[0]
+#     imgs_train = [imgs[i] for i in train_idxs]
+#     imgs_test = [imgs[i] for i in test_idxs]
 
-    return imgs_train, imgs_test
+#     return imgs_train, imgs_test
 
 
+@_memory.cache
 def load_caltech_img_ids(ntrain_classes=50, limit_per_class=10):
     (imgs, y), label2name = caltech.load_caltech101_ids(
         limit_per_class=limit_per_class)
 
     # split by class; more relaxed than assuming you have examples from
     # the same dataset/class you're later going to apply your filter to
+    # train_idxs = []
+    # test_idxs = []
+    # assert limit_per_class >= 2
+    # train_per_class = limit_per_class // 2
+    # test_per_class = limit_per_class - train_per_class
+    # for lbl in range(101): # 101 classes:
+    #     lbl_idxs = np.where(y == lbl)[0]
+
+
+
+
+    #     # XXX TODO rm after debug
+    #     train_idxs += list(lbl_idxs)
+    #     test_idxs += list(lbl_idxs)
+
+
+
+
+
+    #     # train_idxs += list(lbl_idxs[:train_per_class])
+    #     # test_idxs += list(lbl_idxs[train_per_class:])
+
     train_idxs = np.where(y < ntrain_classes)[0]
     test_idxs = np.where(y >= ntrain_classes)[0]
     imgs_ids_train = [imgs[i] for i in train_idxs]
@@ -307,6 +352,27 @@ def load_filters_sobel_5x5(order='hwc'):
     return _lift_vert_filter_to_rgb_pair(filt_v)
 
 
+def load_filters_gaussian_3x3(order='hwc'):
+    x = np.array([1, 2, 1])
+    filt = (np.outer(x, x) / 16.).astype(np.float32)
+    return [_lift_grayscale_filt_to_rgb(filt, order=order)]
+
+
+def load_filters_gaussian_5x5(order='hwc'):
+    x = np.array([1, 4, 6, 4, 1])
+    filt = (np.outer(x, x) / 256.).astype(np.float32)
+    return [_lift_grayscale_filt_to_rgb(filt, order=order)]
+
+
+def load_filters_sharpen_5x5(order='hwc'):
+    # from https://en.wikipedia.org/wiki/Kernel_(image_processing)
+    x = np.array([1, 4, 6, 4, 1])
+    x = np.outer(x, x)
+    x[2, 2] = -476
+    filt = (x / -256.).astype(np.float32)
+    return [_lift_grayscale_filt_to_rgb(filt, order=order)]
+
+
 def _filters_list_to_mat(filters):
     filters_flat = [filt.ravel() for filt in filters]
     return np.vstack(filters_flat).T
@@ -332,6 +398,9 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
                 filt_shape=filt_spatial_shape, strides=strides)
             X_subs_list.append(windows.reshape(-1, filt_spatial_sz))
         X = np.hstack(X_subs_list)
+
+    assert X.max() <= 255
+    assert X.min() >= 0
 
     # compute each column of w matrix
     W = _filters_list_to_mat(filters_list) if W is None else W
@@ -362,7 +431,7 @@ def _load_caltech_test_imgs():
 
 # def _load_caltech_train(filters, filt_spatial_shape):
 # def _load_caltech_train(W, filt_spatial_shape, strides=(3, 3)):
-def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2)):
+def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2), order='chw'):
     train_imgs = _load_caltech_train_imgs()
 
     #
@@ -376,7 +445,7 @@ def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2)):
     #     axes.ravel()[i].imshow(train_imgs[idx])
     # plt.show()
 
-    train_mats = [caltech_x_y_for_img(img, W=W, strides=strides,
+    train_mats = [caltech_x_y_for_img(img, W=W, strides=strides, order=order,
                                       filt_spatial_shape=filt_spatial_shape)
                   for img in train_imgs]
     Xs, Ys = list(zip(*train_mats))
@@ -388,13 +457,29 @@ def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2)):
 
 
 def load_caltech_tasks(order='chw', limit_ntrain=-1,
-                       limit_ntest=-1, validate=False):
-    filters = load_filters_sobel_3x3(order=order)
-    filt_spatial_shape = (3, 3)
-    W = _filters_list_to_mat(filters)
+                       limit_ntest=-1, validate=False, filt='sobel'):
+    if filt == 'sobel':
+        filters = load_filters_sobel_3x3(order=order)
+        filt_spatial_shape = (3, 3)
+    elif filt == 'gauss3x3':
+        filters = load_filters_gaussian_3x3(order=order)
+        filt_spatial_shape = (3, 3)
+    elif filt == 'gauss5x5':
+        filters = load_filters_gaussian_5x5(order=order)
+        filt_spatial_shape = (5, 5)
+    else:
+        assert filt == 'sharpen5x5'
+        filters = load_filters_sharpen_5x5(order=order)
+        filt_spatial_shape = (5, 5)
 
+    W = _filters_list_to_mat(filters)
     X_train, Y_train = _load_caltech_train(
-        W=W, filt_spatial_shape=filt_spatial_shape)
+            W=W, filt_spatial_shape=filt_spatial_shape, order=order)
+    if limit_ntrain is not None and limit_ntrain > 0:
+        limit_ntrain = int(limit_ntrain)
+        X_train = X_train[:limit_ntrain]
+        Y_train = Y_train[:limit_ntrain]
+
     test_imgs = _load_caltech_test_imgs()
 
     print("caltech tasks stats:")
@@ -408,8 +493,23 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
     # print("size of test imgs (not windows): ",
     #       sum([img.nbytes for img in test_imgs]))
 
+
+    # # img = test_imgs[-1] # TODO rm after debug
+    # img0 = test_imgs[-1] # TODO rm after debug
+    # img1 = test_imgs[42] # TODO rm after debug
+
+    # okay, so for any particular image, it works great; but when we actually
+    # have more than one image, it works terribly
+
+
     _, test_ids = load_caltech_img_ids()
+    # for i, _ in enumerate(test_imgs):
     for i, img in enumerate(test_imgs):
+        # if i < 2: # TODO rm after debug
+        #     continue
+
+        # img = img1.copy() if i % 2 else img0.copy()
+        # img = img1
 
         X_test, Y_test = caltech_x_y_for_img(
             img, filt_spatial_shape=filt_spatial_shape, W=W, order=order)
@@ -417,10 +517,11 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
                           X_test=X_test, Y_test=Y_test, W_test=W,
                           name=name)
-        if limit_ntrain is not None and limit_ntrain > 0:
-            limit_ntrain = int(limit_ntrain)
-            task.X_train = task.X_train[:limit_ntrain]
-            task.Y_train = task.Y_train[:limit_ntrain]
+
+        # print(f"task {task.name} matrix hashes:")
+        # import pprint
+        # pprint.pprint(task.hashes())
+
         if limit_ntest is not None and limit_ntest > 0:
             limit_ntest = int(limit_ntest)
             task.X_test = task.X_test[:limit_ntest]
@@ -431,6 +532,10 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
         if validate:
             print("validating caltech task {}/{}...".format(
                 i + 1, len(test_imgs)))
+            print("X_train.std()", X_train.std())
+            print("Y_train.std()", Y_train.std())
+            print("X_test.std()", X_test.std())
+            print("Y_test.std()", Y_test.std())
             task.validate()
         # print("about to yield task with name: ", task.name)
         yield task
@@ -676,7 +781,14 @@ def test_cifar_tasks():
 def main():
     np.set_printoptions(formatter={'float': lambda f: "{:.3}".format(f)})
 
-    test_caltech_tasks()
+    train_ids, test_ids = load_caltech_img_ids()
+    print("number of uniq train ids: ", len(np.unique(train_ids)))
+    print("number of uniq test ids: ", len(np.unique(test_ids)))
+
+    for i, task in enumerate(load_caltech_tasks(validate=True)):
+        pass
+
+    # test_caltech_tasks()
     # test_cifar_tasks()
     # test_ecg_tasks()
 

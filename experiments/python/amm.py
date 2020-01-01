@@ -58,6 +58,9 @@ class ApproxMatmul(abc.ABC):
     def set_B(self, B):
         pass
 
+    def reset_for_new_task(self):
+        pass
+
     @abc.abstractmethod
     def __call__(self, A, B):
         pass
@@ -247,10 +250,7 @@ class SvdSketch(SketchedMatmul):
     def __init__(self, d, niters=5):
         self.d = d
         self.niters = niters
-        self.Ua = None
-        self.SVTa = None
-        self.Ub = None
-        self.SVTb = None
+        self.reset_for_new_task()
 
     def get_params(self):
         return {'d': self.d, 'niters': self.niters}
@@ -273,6 +273,12 @@ class SvdSketch(SketchedMatmul):
     def set_B(self, B):
         if self._check_mat_shape(B):
             self.Ub, self.SVTb = svd_sketch(B, self.d)
+
+    def reset_for_new_task(self):
+        self.Ua = None
+        self.SVTa = None
+        self.Ub = None
+        self.SVTb = None
 
     # def __call__(self, A=None, B=None):
     #     assert A.shape[1] == B.shape[0]  # dims need to match
@@ -332,6 +338,9 @@ class TrainedPcaSketch(ApproxMatmul):
     def __init__(self, d):
         # self.pca = PCA(n_components=d)
         self.d = d
+        self.reset_for_new_task()
+
+    def reset_for_new_task(self):
         self.A = None
         self.B = None
 
@@ -413,6 +422,9 @@ class TrainedSparsePcaSketch(ApproxMatmul):
     def __init__(self, d, alpha):
         self.d = d
         self.alpha = alpha
+        self.reset_for_new_task()
+
+    def reset_for_new_task(self):
         self.A = None
         self.B = None
 
@@ -494,23 +506,22 @@ def _compute_dim_scores(A, B, A_col_norms=None, B_row_norms=None):
 
 
 def sketch_sq_sample(A, B, d):
-    scores = _compute_dim_scores(A, B)  # TODO uncomment after debug
+    scores = _compute_dim_scores(A, B)
     idxs, weights = importance_sample(scores, d)
     # idxs, weights = sample_varopt_1d(scores, d)  # doesn't help
     return A[:, idxs] / weights, B[idxs]
     # weights = np.sqrt(weights)
     # return A[:, idxs] / weights, B[idxs] / weights.reshape(-1, 1)
 
-    # scores = np.ones(A.shape[1]) # TODO rm after debug
     # probs = scores / np.sum(scores)
 
     # D = A.shape[1]
     # keep_idxs = np.random.choice(D, size=d, p=probs)
-    # # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)  # TODO rm
-    # # keep_idxs = np.random.choice(D, size=d, replace=False)  # TODO rm
-    # # keep_idxs = np.arange(D-1)  # TODO rm
-    # # keep_idxs = np.arange(1, D)  # TODO rm
-    # # keep_idxs = np.arange(D)  # TODO rm
+    # # keep_idxs = np.random.choice(D, size=d, p=probs, replace=False)
+    # # keep_idxs = np.random.choice(D, size=d, replace=False)
+    # # keep_idxs = np.arange(D-1)
+    # # keep_idxs = np.arange(1, D)
+    # # keep_idxs = np.arange(D)
 
     # weights = np.sqrt(d * probs)  # what the paper says; huge errors
     # # weights = np.sqrt(D * probs)  # slightly less bad
@@ -646,8 +657,6 @@ def sample_varopt_1d(x, m):
             # renormalize such that tail sums to m - 1
         else:
             break
-
-    # head_sz = 0; # TODO rm
 
     tail_sz = m - head_sz
     # print("m, head_sz, tail_sz:", m, head_sz, tail_sz)

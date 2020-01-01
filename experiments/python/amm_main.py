@@ -203,13 +203,21 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
 # ================================================================ driver funcs
 
 def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
+    est.reset_for_new_task()
     if fixedB:
         est.set_B(task.W_test)
+
+    print("eval_amm validating task: ", task.name)
+    task.validate(train=False, test=True)
+    # print(f"task {task.name} matrix hashes:")
+    # pprint.pprint(task._hashes())
+
     # print("task: ", task.name)
     # print("X_test shape: ", task.X_test.shape)
     # print("W_test shape: ", task.W_test.shape)
     t = time.perf_counter()
-    Y_hat = est.predict(task.X_test, task.W_test)
+    Y_hat = est.predict(task.X_test.copy(), task.W_test.copy())
+    # Y_hat = task.X_test @ task.W_test  # yep, zero error
     duration_secs = time.perf_counter() - t
 
     metrics = _compute_metrics(task, Y_hat, **metrics_kwargs)
@@ -217,6 +225,12 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
     # metrics['nmultiplies'] = est.get_nmuls(task.X_test, task.W_test)
     metrics.update(est.get_speed_metrics(
         task.X_test, task.W_test, fixedB=fixedB))
+
+    print("eval_amm re-validating task: ", task.name)
+    task.validate(train=False, test=True)
+    # print(f"task {task.name} matrix hashes:")
+    # pprint.pprint(task.hashes())
+
     return metrics
 
 
@@ -241,7 +255,8 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks_func, methods=None, saveas=None, ntasks=None,
-          verbose=3, limit_ntasks=-1, compression_metrics=False):
+          verbose=3, limit_ntasks=-1, compression_metrics=False,
+          tasks_all_same_shape=False):
     methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
         methods = [methods]
@@ -282,6 +297,11 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                         and (task.Y_train.shape == prev_Y_shape)
                         and (task.X_train.std() == prev_X_std)
                         and (task.Y_train.std() == prev_Y_std))
+
+
+                    # can_reuse_est = False # TODO rm
+
+
                     if not can_reuse_est:
                         try:
                             est = _fitted_est_for_hparams(
@@ -292,7 +312,10 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                             if verbose > 2:
                                 print(f"hparams apparently invalid: {e}")
                             est = None
-                            continue
+                            if tasks_all_same_shape:
+                                raise StopIteration()
+                            else:
+                                continue
 
                         prev_X_shape = task.X_train.shape
                         prev_Y_shape = task.Y_train.shape
@@ -300,6 +323,9 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                         prev_Y_std = task.Y_train.std()
 
                     try:
+                        # print(f"task {task.name} matrix hashes:")
+                        # pprint.pprint(task.hashes())
+
                         for trial in range(ntrials):
                             metrics = _eval_amm(
                                 task, est, compression_metrics=compression_metrics)
@@ -317,7 +343,10 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                     except amm.InvalidParametersException as e:
                         if verbose > 2:
                             print(f"hparams apparently invalid: {e}")
-                        continue
+                        if tasks_all_same_shape:
+                            raise StopIteration()
+                        else:
+                            continue
 
             except StopIteration:  # no more tasks for these hparams
                 pass
@@ -348,8 +377,19 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     # tasks = md.load_caltech_tasks(limit_ntrain=2.5e6)
     # return _main(tasks=tasks, methods=methods, saveas=saveas,
     limit_ntasks = -1
-    return _main(tasks_func=md.load_caltech_tasks, methods=methods,
-                 saveas=saveas, ntasks=510, limit_ntasks=limit_ntasks)
+    # limit_ntasks = 3
+    # filt = 'sharpen5x5'
+    # filt = 'gauss5x5'
+    filt = 'sobel'
+    saveas = '{}_{}'.format(saveas, filt)
+    # saveas = '{}_{}'.format(saveas, filt)
+    limit_ntrain = -1
+    # limit_ntrain = 500e3
+    task_func = functools.partial(
+        md.load_caltech_tasks, filt=filt, limit_ntrain=limit_ntrain)
+    return _main(tasks_func=task_func, methods=methods,
+                 saveas=saveas, ntasks=510, limit_ntasks=limit_ntasks,
+                 tasks_all_same_shape=True)
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
@@ -357,7 +397,8 @@ def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
     # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
     tasks_func = functools.partial(md.load_ucr_tasks, limit_ntasks=limit_ntasks)
     return _main(tasks_func=tasks_func, methods=methods, saveas=saveas,
-                 ntasks=76, limit_ntasks=limit_ntasks)
+                 ntasks=76, limit_ntasks=limit_ntasks,
+                 tasks_all_same_shape=True)
 
 
 def main_cifar10(methods=methods.USE_METHODS, saveas='cifar10'):
@@ -397,12 +438,19 @@ def main():
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
 
+    # main_caltech(methods='Bolt')
+    main_caltech(methods='Bolt')
+    # main_caltech(methods='Exact')
     # main_caltech(methods='PCA')
+    # main_caltech(methods=methods.USE_METHODS)
+    # main_caltech(methods=['PCA', 'Bolt', 'Mithral', 'SparsePCA'])
+    # main_ucr(methods=['PCA', 'Bolt', 'Mithral', 'SparsePCA'])
+    # main_caltech(methods='HashJL')
     # main_caltech(methods='RandGauss')
     # main_caltech(methods='Rademacher')
     # main_caltech(methods='OrthoGauss')
     # main_caltech(methods=['FastJL', 'HashJL', 'OSNAP'])
-    main_caltech(methods=methods.DENSE_SKETCH_METHODS)
+    # main_caltech(methods=methods.DENSE_SKETCH_METHODS[1:])  # skip pca
     # main_caltech(methods='Bolt')
     # main_caltech(methods='Mithral')
 

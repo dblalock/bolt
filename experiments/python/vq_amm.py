@@ -15,7 +15,7 @@ class VQMatmul(amm.ApproxMatmul, abc.ABC):
         self.ncentroids = (self._get_ncentroids() if ncentroids is None
                            else ncentroids)
         self.enc = self._create_encoder(ncodebooks)
-        self._reset()
+        self.reset_for_new_task()
 
     @abc.abstractmethod
     def _create_encoder(self, ncodebooks):  # to be overriden by subclasses
@@ -33,7 +33,7 @@ class VQMatmul(amm.ApproxMatmul, abc.ABC):
     def _get_encoder_kwargs(self):  # to be overriden by subclasses
         return {}
 
-    def _reset(self):
+    def reset_for_new_task(self):
         self.A_enc = None
         self.luts = None
 
@@ -284,7 +284,7 @@ class MithralMatmul(VQMatmul):
             ncodebooks=ncodebooks, lut_work_const=self.lut_work_const)
 
     def get_params(self):
-        return {'ncodebooks': self.ncodebooks, 'ncentroids': self.ncentroids,
+        return {'ncodebooks': self.ncodebooks,
                 'lut_work_const': self.lut_work_const}
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
