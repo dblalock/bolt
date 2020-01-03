@@ -359,7 +359,11 @@ def _join_with_sparse_sketch_times(df):
         # print(subdf)
         # N, D, M, d = [row[k] for k in 'N D M d'.split()]
         target_frac = row['sparsity']
-        take_idx = np.where(sparsities.values <= target_frac)[0][-1]
+        small_enough_sparsities_idxs = np.where(sparsities.values <= target_frac)[0]
+        if len(small_enough_sparsities_idxs):
+            take_idx = small_enough_sparsities_idxs[-1]
+        else:  # no nonzeros, or at least uselessly few of them
+            take_idx = np.argmin(sparsities.values)
 
         time_keys = 't0 t1 t2 t3 t4'.split()
         times_row = subdf.iloc[take_idx]
@@ -381,25 +385,18 @@ def _join_with_sparse_sketch_times(df):
     # here we have a bunch of hack stuff
     # print("df columns: ", df.columns)
     # yvals = 1. - df['normalized_mse'].values
-    xvals = df['time'].values
-    if 'acc_amm' in df.columns:
-        yvals = df['acc_amm'].values
-    else:
-        yvals = 1. - df['normalized_mse'].values
-    idxs = extract_pareto_frontier_idxs(xvals, yvals)
-    # print("xvals: ", xvals)
-    # print("yvals: ", yvals)
-    # print("chose pareto vals: ")
-    # xvals = xvals[idxs]
-    # yvals = yvals[idxs]
-    # sort_idxs = np.argsort(xvals)
-    # print(xvals[sort_idxs])
-    # print(yvals[sort_idxs])
 
-    # import sys; sys.exit()
-    # zeros = np.zeros(len(xvals), dtype=np.bool)
-    # zeros[idxs] = 1
-    df = df.iloc[idxs]
+    subdfs = []
+    for tid in df['task_id'].unique():
+        subdf = df.loc[df['task_id'] == tid]
+        xvals = subdf['time'].values
+        if 'acc_amm' in df.columns:
+            yvals = subdf['acc_amm'].values
+        else:
+            yvals = 1. - subdf['normalized_mse'].values
+        idxs = extract_pareto_frontier_idxs(xvals, yvals)
+        subdfs.append(subdf.iloc[idxs])
+    df = pd.concat(subdfs, axis=0)
 
     return df
 
@@ -441,6 +438,23 @@ def _clean_metrics_amm(df):
     base_time = float(df_exact.loc[0, 'time'])
     df['NormalizedTime'] = df['time'] / base_time
     df['Speedup'] = 1. / df['NormalizedTime']
+    df['1 - NMSE'] = 1. - df['normalized_mse']
+    if 'Accuracy' in df.columns:
+        # df['Relative Accuracy'] = df['Accuracy'] / (df['acc_orig'] + 1e-20)
+        # # note that relative accuracy can actually be higher if errors
+        # # happen to compensate for incorrect classification sometimes
+        # print("max relative acc: ", df['Relative Accuracy'].values.max())
+        # # assert df['Relative Accuracy'].values.max() <= 1.000001
+
+        # acc_orig field is supposed to capture this, but I messed it up for
+        # 1nn so this will also work
+        tid2acc = {}
+        exactdf = df.loc[df['method'] == 'Exact']
+        for tid in df['task_id'].unique():
+            subdf = exactdf.loc[exactdf['task_id'] == tid]
+            tid2acc[tid] = subdf['Accuracy'].values[0]
+        df['BaseAccuracy'] = [tid2acc[tid] for tid in df['task_id']]
+        df['Relative Accuracy'] = df['Accuracy'] / df['BaseAccuracy']
 
     return df
 
@@ -460,6 +474,9 @@ def _join_with_times(df, timing_dtype='f32'):
     # print("mithral mismatched rows:\n", df_tmp.loc[mismatch_mask])
     # print(df_mithral['lutconst', 'lut_work_const'])
     # import sys; sys.exit()
+
+    # if this line fails, it's usually because the join with mithral times
+    # failed
     assert np.all(df_mithral['lutconst'] == df_mithral['lut_work_const'])
 
     df_bolt = _join_with_bolt_times(df)
@@ -480,26 +497,19 @@ def _clean_amm_results_df(df, timing_dtype='f32'):
     df = _clean_metrics_amm(df)
     df = df.loc[~df['time'].isna()]
     df = _clean_method_names_amm(df)
-
-    # for method in df['method'].unique()
-
-
-    # sort_idxs =
-
-
     return df
 
 
 # @_memory.cache
 def cifar10_amm():
     df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar10.csv'))
-    drop_cols_inplace(df, AMM_DROP_COLS + ['task_id'])  # only 1 task
+    drop_cols_inplace(df, AMM_DROP_COLS)
     return _clean_amm_results_df(df)
 
 
 def cifar100_amm():
     df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar100.csv'))
-    drop_cols_inplace(df, AMM_DROP_COLS + ['task_id'])  # only 1 task
+    drop_cols_inplace(df, AMM_DROP_COLS)
     return _clean_amm_results_df(df)
 
 
@@ -510,8 +520,16 @@ def caltech_amm():
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
+@_memory.cache
 def ucr_amm():
-    pass
+    df = pd.read_csv(os.path.join(RESULTS_DIR, 'ucr.csv'))
+    drop_cols_inplace(df, AMM_DROP_COLS)
+    df['origN'] = df['N'].values
+    df['N'] = 1000  # timing is for test size of 1000
+
+    df['M'] = 128  # XXX rm after we redo the timing results
+
+    return _clean_amm_results_df(df)
 
 
 def main():
@@ -526,6 +544,7 @@ def main():
     # print(cifar10_amm())
     # print(cifar100_amm())
     print(caltech_amm())
+    # print(ucr_amm())
     # cifar10_amm()
 
 

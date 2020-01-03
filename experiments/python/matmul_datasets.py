@@ -742,10 +742,10 @@ def _load_ucr_tasks_for_dset(
                        name=f'ucr {dset.name} k={k}', info=info)]
 
 
-def load_ucr_tasks(limit_ntasks=-1, **kwargs):
+def load_ucr_tasks(limit_ntasks=-1, k=128, **kwargs):
     all_tasks = []
     for dset_name in ucr.all_ucr_dataset_dirs():
-        tasks = _load_ucr_tasks_for_dset(dset_name, **kwargs)
+        tasks = _load_ucr_tasks_for_dset(dset_name, k=k, **kwargs)
         if tasks is not None:
             all_tasks += tasks
         # else:

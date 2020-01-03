@@ -192,7 +192,7 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
             sample_norms_sq = (task.X_test * task.X_test).sum(
                 axis=1, keepdims=True)
             for prods in [Y_hat, Y]:
-                prods = Y_hat
+                # prods = Y_hat
                 dists_sq_hat = (-2 * prods) + centroid_norms_sq + sample_norms_sq
                 # assert np.min(dists_sq_hat) > -1e-5  # sanity check
                 centroid_idx = np.argmin(dists_sq_hat, axis=1)
@@ -403,7 +403,10 @@ def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
     # limit_ntasks = 10
     # limit_ntasks = 13
     # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
-    tasks_func = functools.partial(md.load_ucr_tasks, limit_ntasks=limit_ntasks)
+    k = 128
+    tasks_func = functools.partial(
+        md.load_ucr_tasks, limit_ntasks=limit_ntasks, k=k)
+    saveas = '{}_k={}'.format(saveas, k)
     return _main(tasks_func=tasks_func, methods=methods, saveas=saveas,
                  ntasks=76, limit_ntasks=limit_ntasks,
                  tasks_all_same_shape=False)

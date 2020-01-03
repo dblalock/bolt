@@ -394,7 +394,10 @@ my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
 
 # import sys; sys.exit()
 
-def lineplot(data, ax, x_metric, y_metric):
+
+# def lineplot(data, ax, x_metric, y_metric):
+def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False):
+    estimator = 'mean' if units is None else None
     # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
     # order = [m for m in order if m in data['Method'].unique()]
     order = list(data['method'].unique())
@@ -418,11 +421,25 @@ def lineplot(data, ax, x_metric, y_metric):
     # use_markers = ('*', '*', 's') + (
     use_markers = ('D', 'D', 's') + (
         'o', 'v', '^', '<', '>', '8', 'p', 'h', 'd', 'P', 'X', '*', 'D')
+    if scatter:
+        # sb.violinplot(cut=0, saturation=1, linewidth=.001, scale='width', inner='box',
+        # data['Speedup'] *= 1 + (np.random.randn(len(data['Speedup'])) / 100)
+        sb.scatterplot(alpha=.4, # seems to suck the least
+            data=data, x=x_metric, y=y_metric, hue='method',
+            style='method', style_order=order, hue_order=order,
+            markers=use_markers, estimator=estimator,
+            # units=units, estimator=estimator, markers=use_markers,
+            palette=my_colors_list, ax=ax)
+        # sb.boxplot(linewidth=.1, width=2, whis=999,
+        # sb.stripplot(alpha=.25, orient='v', jitter=False,
+        #     data=data, x=x_metric, y=y_metric, hue='method', hue_order=order,
+        #     palette=my_colors_list, ax=ax)
+        return
     sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
                 style='method', style_order=order, hue_order=order,
-                markers=use_markers, dashes=False, ax=ax,
-                # palette=my_tab10)
-                palette=my_colors_list)
+                ci='sd', markers=use_markers, estimator=estimator,
+                # units=units, estimator=estimator, markers=use_markers,
+                dashes=False, palette=my_colors_list, ax=ax)
 
 
 # def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
@@ -479,9 +496,10 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     save_fig('cifar_{}_{}'.format(x_metric, y_metric))
 
 
-def caltech_fig(x_metric='Speedup'):
-    y_metric='normalized_mse'
+def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
     df = res.caltech_amm()
+    # print("df cols: ", df.columns)
+
     sb.set_context('poster')
     fig, ax = plt.subplots(1, 1, figsize=(11, 6))
     # axes = [ax]
@@ -491,18 +509,28 @@ def caltech_fig(x_metric='Speedup'):
     others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
     df = df.loc[is_mithral | others_to_keep]  # others suck too hard
 
-    df['not_mse'] = 1. - df['normalized_mse']
+    df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
+    df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
+
+    # df = _clean_amm_results_df(df, timing_dtype='i8')
+    # print("df cols: ", df.columns)
+    # import sys; sys.exit()
+
+    # df['not_mse'] = 1. - df['normalized_mse']
     # df = df.loc[df['not_mse'] < 2]
-    lineplot(df, ax, x_metric=x_metric, y_metric='not_mse')
+    # print("df[1 - nmse]", df['1 - NMSE'].values)
+
+    # lineplot(df, ax, x_metric=x_metric, y_metric=y_metric, units=None)
+    lineplot(df, ax, x_metric=x_metric, y_metric=y_metric)
 
     plt.suptitle('Approximating an Image Filter')
     ax.set_xlabel(_xlabel_for_xmetric(x_metric))
-    ax.set_ylabel('1. - NMSE')
+    ax.set_ylabel(y_metric)
 
     handles, labels = ax.get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
     ax.get_legend().remove()
-    plt.figlegend(handles, labels, loc='lower center', ncol=2)
+    plt.figlegend(handles, labels, loc='lower center', ncol=3)
 
     # ax.semilogx()
     # ax.semilogy()
@@ -513,7 +541,82 @@ def caltech_fig(x_metric='Speedup'):
     plt.tight_layout()
     plt.subplots_adjust(top=.91, bottom=.37)
     # plt.subplots_adjust(top=.95, bottom=.1)
-    save_fig('caltech_{}_{}'.format(x_metric, y_metric))
+    save_fig('caltech_{}_{}'.format(x_metric, '1 - NMSE'))
+
+
+# def ucr_fig(x_metric='Speedup', y_metric='Accuracy'):
+def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
+    df = res.ucr_amm()
+    sb.set_context('poster')
+    fig, ax = plt.subplots(1, 1, figsize=(11, 8))
+    # axes = [ax]
+
+    # print("uniq N, D, M: ")
+    # print(df['N'].unique())
+    # print(df['D'].unique())
+    # print(df['M'].unique())
+    # df_brute = df.loc[df['method'] == 'Brute Force']
+    # print("uniq times from brute force: ", df_brute['time'].unique())
+    # print("df Brute:\n", df_brute['N D M method normalized_mse Accuracy time'.split()])
+    # import sys; sys.exit()
+
+    # # TODO put in results cleaning after debug
+    # if 'Accuracy' in df.columns:
+    #     # df['Relative Accuracy'] = df['Accuracy'] / (df['acc_orig'] + 1e-20)
+    #     # # note that relative accuracy can actually be higher if errors
+    #     # # happen to compensate for incorrect classification sometimes
+    #     # print("max relative acc: ", df['Relative Accuracy'].values.max())
+    #     # # assert df['Relative Accuracy'].values.max() <= 1.000001
+
+    #     # acc_orig field is supposed to capture this, but I messed it up for
+    #     # 1nn so this will also work
+    #     tid2acc = {}
+    #     exactdf = df.loc[df['method'] == 'Brute Force']
+    #     for tid in df['task_id'].unique():
+    #         subdf = exactdf.loc[exactdf['task_id'] == tid]
+    #         if subdf.shape[0] != 1:
+    #             print(f"tid = {tid} gives bad subdf:\n", subdf)
+    #         tid2acc[tid] = subdf['Accuracy'].values[0]
+    #     df['BaseAccuracy'] = [tid2acc[tid] for tid in df['task_id']]
+    #     df['Relative Accuracy'] = df['Accuracy'] / df['BaseAccuracy']
+
+
+    df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
+    df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
+    df = df.loc[df['method'] != 'Brute Force']
+
+    is_mithral = df['method'].str.startswith('Mithral')
+    # # is_exact = df['method'] == 'Brute Force'
+    others_to_keep = df['method'].isin([
+        'Brute Force', 'PCA', 'SparsePCA', 'Bolt', 'HashJL', 'OSNAP'])
+    # others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
+    df = df.loc[is_mithral | others_to_keep]
+    # df = df.loc[df['method'] == 'Brute Force']
+
+    # df['not_mse'] = 1. - df['normalized_mse']
+    # df = df.loc[df['not_mse'] < 2]
+    lineplot(df, ax, x_metric=x_metric, y_metric=y_metric, scatter=True)
+
+    plt.suptitle('Approximating a Nearest-Neighbor Classifier')
+    ax.set_xlabel(_xlabel_for_xmetric(x_metric))
+    # ax.set_ylabel('1. - NMSE')
+    ax.set_ylabel(y_metric)
+
+    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = handles[1:], labels[1:]  # rm 'Method' title
+    ax.get_legend().remove()
+    plt.figlegend(handles, labels, loc='lower center', ncol=3)
+
+    ax.semilogx()
+    # ax.semilogy()
+    ax.set_xlim([.9, ax.get_xlim()[1]])
+    # ax.set_ylim([.2, 1.1])
+    # plt.plot([1, 1], ax.get_ylim(), 'k--')
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=.91, bottom=.37)
+    # plt.subplots_adjust(top=.95, bottom=.1)
+    save_fig('ucr_{}_{}'.format(x_metric, y_metric))
 
 
 def main():
@@ -524,7 +627,8 @@ def main():
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='NormalizedTime')
     # cifar_fig(x_metric='Speedup')
-    caltech_fig(x_metric='Speedup')
+    caltech_fig()
+    # ucr_fig()
 
 
 if __name__ == '__main__':
