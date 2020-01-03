@@ -744,9 +744,15 @@ def _load_ucr_tasks_for_dset(
 
 def load_ucr_tasks(limit_ntasks=-1, k=128, **kwargs):
     all_tasks = []
+    df = ucr.load_ucr_dset_stats()
+    name2acc = dict(zip(df['Name'], df['l2-1nn-acc']))
+
     for dset_name in ucr.all_ucr_dataset_dirs():
+        orig_acc = name2acc[os.path.basename(dset_name)]
         tasks = _load_ucr_tasks_for_dset(dset_name, k=k, **kwargs)
         if tasks is not None:
+            for task in tasks:
+                task.info['acc-1nn-raw'] = orig_acc
             all_tasks += tasks
         # else:
         #     print("got None instead of tasks for dset: ", dset_name)

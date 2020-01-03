@@ -560,6 +560,8 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     # print("df Brute:\n", df_brute['N D M method normalized_mse Accuracy time'.split()])
     # import sys; sys.exit()
 
+    # df['acc']
+
     # # TODO put in results cleaning after debug
     # if 'Accuracy' in df.columns:
     #     # df['Relative Accuracy'] = df['Accuracy'] / (df['acc_orig'] + 1e-20)
@@ -627,8 +629,8 @@ def main():
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='NormalizedTime')
     # cifar_fig(x_metric='Speedup')
-    caltech_fig()
-    # ucr_fig()
+    # caltech_fig()
+    ucr_fig()
 
 
 if __name__ == '__main__':

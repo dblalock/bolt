@@ -108,12 +108,12 @@ class SketchedMatmul(ApproxMatmul, abc.ABC):
     def __call__(self, A, B):
         assert A.shape[1] == B.shape[0]  # dims need to match
         D = A.shape[1]
-        if D < self.d:
+        if D <= self.d:
             raise InvalidParametersException(
-                'D < d: {} < {}'.format(D, self.d))
-        if B.shape[1] < self.d:
+                'D <= d: {} < {}'.format(D, self.d))
+        if B.shape[1] <= self.d:
             raise InvalidParametersException(
-                'M < d: {} < {}'.format(B.shape[1], self.d))
+                'M <= d: {} < {}'.format(B.shape[1], self.d))
         return self.call(np.copy(A), np.copy(B))  # guarantee A, B unchanged
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
@@ -434,9 +434,9 @@ class TrainedSparsePcaSketch(ApproxMatmul):
 
     def fit(self, A, B, Y=None):  # Y = A @ B if not specified
         _, M = B.shape
-        if M < self.d:
+        if M <= self.d:
             raise InvalidParametersException(
-                'M < d: {} < {}'.format(M, self.d))
+                'M <= d: {} < {}'.format(M, self.d))
 
         self.pca = _fitted_sparse_pca(A, d=self.d, unscaled_alpha=self.alpha)
         self.nnz = np.sum(self.pca.components_ != 0)

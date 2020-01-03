@@ -4,6 +4,7 @@ import blosc  # pip install blosc
 import functools
 import numpy as np
 import pprint
+import scipy
 import time
 import zstandard as zstd  # pip install zstandard
 
@@ -30,11 +31,11 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        # dvals = [1, 2, 4, 8, 16, 32, 64, 128]
         # dvals = [1, 2, 4, 8]
         # dvals = [32] # TODO rm after debug
         # dvals = [16] # TODO rm after debug
-        # dvals = [8] # TODO rm after debug
+        dvals = [8] # TODO rm after debug
         # dvals = [4] # TODO rm after debug
         # dvals = [3] # TODO rm after debug
         # dvals = [2] # TODO rm after debug
@@ -178,6 +179,7 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
         metrics.update({k + '_diffs': v for k, v in metrics_raw.items()})
 
     if task.info:
+        lbls = task.info['lbls_test'].astype(np.int32)
         if task.info['problem'] == 'classify_linear':
             b = task.info['biases']
             logits_amm = Y_hat + b
@@ -186,19 +188,44 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
             lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
         elif task.info['problem'] == '1nn':
             lbls_centroids = task.info['lbls_centroids']
-            lbls_hat = []
+            lbls_hat_1nn = []
+            rbf_lbls_hat = []
             W = task.W_test
             centroid_norms_sq = (W * W).sum(axis=0)
             sample_norms_sq = (task.X_test * task.X_test).sum(
                 axis=1, keepdims=True)
+
+            k = W.shape[1]
+            nclasses = np.max(lbls_centroids) + 1
+            affinities = np.zeros((k, nclasses), dtype=np.float32)
+            for kk in range(k):
+                affinities[kk, lbls_centroids[kk]] = 1
+
             for prods in [Y_hat, Y]:
-                # prods = Y_hat
                 dists_sq_hat = (-2 * prods) + centroid_norms_sq + sample_norms_sq
-                # assert np.min(dists_sq_hat) > -1e-5  # sanity check
+                # 1nn classification
                 centroid_idx = np.argmin(dists_sq_hat, axis=1)
-                lbls_hat.append(lbls_centroids[centroid_idx])
-            lbls_amm, lbls_orig = lbls_hat
-        lbls = task.info['lbls_test'].astype(np.int32)
+                lbls_hat_1nn.append(lbls_centroids[centroid_idx])
+                # rbf kernel classification (bandwidth=1)
+                # gamma = 1. / np.sqrt(W.shape[0])
+                # gamma = 1. / W.shape[0]
+                gamma = 1
+                similarities = scipy.special.softmax(-dists_sq_hat * gamma, axis=1)
+                class_probs = similarities @ affinities
+                rbf_lbls_hat.append(np.argmax(class_probs, axis=1))
+
+            lbls_amm_1nn, lbls_orig_1nn = lbls_hat_1nn
+            rbf_lbls_amm, rbf_lbls_orig = rbf_lbls_hat
+            metrics['acc_amm_1nn'] = np.mean(lbls_amm_1nn == lbls)
+            metrics['acc_orig_1nn'] = np.mean(lbls_orig_1nn == lbls)
+            metrics['acc_amm_rbf'] = np.mean(rbf_lbls_amm == lbls)
+            metrics['acc_orig_rbf'] = np.mean(rbf_lbls_orig == lbls)
+            lbls_amm, lbls_orig = rbf_lbls_amm, rbf_lbls_orig  # default choice
+
+            orig_acc_key = 'acc-1nn-raw'
+            if orig_acc_key in task.info:
+                metrics[orig_acc_key] = task.info[orig_acc_key]
+
         metrics['acc_amm'] = np.mean(lbls_amm == lbls)
         metrics['acc_orig'] = np.mean(lbls_orig == lbls)
 
@@ -398,8 +425,7 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
                  tasks_all_same_shape=True)
 
 
-def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
-    limit_ntasks = None
+def main_ucr(methods=methods.USE_METHODS, saveas='ucr', limit_ntasks=None):
     # limit_ntasks = 10
     # limit_ntasks = 13
     # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
@@ -449,13 +475,13 @@ def main():
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
 
-    # main_ucr(methods='SparsePCA')
+    main_ucr(methods='HashJL', limit_ntasks=10)
     # main_caltech(methods='SparsePCA')
 
-    use_methods = list(methods.USE_METHODS)
-    use_methods.remove(methods.METHOD_SPARSE_PCA)
-    # main_caltech(methods=methods.USE_METHODS)
-    main_ucr(methods=methods.USE_METHODS)
+    # use_methods = list(methods.USE_METHODS)
+    # use_methods.remove(methods.METHOD_SPARSE_PCA)
+    # # main_caltech(methods=methods.USE_METHODS)
+    # main_ucr(methods=methods.USE_METHODS)
 
     # main_caltech(methods='Bolt')
     # main_caltech(methods='Bolt')

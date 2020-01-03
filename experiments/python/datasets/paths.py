@@ -12,6 +12,7 @@ def to_path(*args):
 # straightforward datasets
 MSRC_12 = to_path('MSRC-12', 'origData')
 UCR = to_path('ucr/UCRArchive_2018')
+UCR_INFO = to_path('ucr/DataSummary.csv')
 UWAVE = to_path('uWave', 'extracted')
 PAMAP = to_path('PAMAP_Dataset')
 PAMAP2 = to_path('PAMAP2_Dataset')

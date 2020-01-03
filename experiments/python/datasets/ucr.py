@@ -3,6 +3,7 @@
 import os
 import numpy as np
 from joblib import Memory
+import pandas as pd
 
 from . import paths
 
@@ -10,6 +11,7 @@ from . import paths
 _memory = Memory('.', verbose=1, compress=9)
 
 UCR_DATASETS_DIR = paths.UCR
+UCR_INFO_PATH = paths.UCR_INFO
 
 
 # ================================================================
@@ -160,11 +162,18 @@ def read_all_ucr_data(ucrDatasetDir):
     return X, Y
 
 
+@_memory.cache
+def load_ucr_dset_stats():
+    df = pd.read_csv(UCR_INFO_PATH)
+    df['l2-1nn-acc'] = 1. - df['ED (w=0)']
+    return df
+
+
 # ================================================================ Main
 
 @_memory.cache
 def _load_ucr_stats_df():
-    import pandas as pd
+
     stats = []
     for i, datasetDir in enumerate(all_ucr_dataset_dirs()):
         # Xtrain, _ = read_ucr_train_data(datasetDir)
