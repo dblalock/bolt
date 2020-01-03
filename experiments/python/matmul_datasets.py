@@ -36,7 +36,7 @@ class MatmulTask(object):
         self.W_train = W_train
         self.W_test = W_test if W_test is not None else W_train
         self.name = name
-        self.info = info
+        self.info = info if info is not None else {}
 
         self.train_mats = (self.X_train, self.Y_train, self.W_train)
         self.test_mats = (self.X_test, self.Y_test, self.W_test)
@@ -269,28 +269,6 @@ def load_caltech_img_ids(ntrain_classes=50, limit_per_class=10):
 
     # split by class; more relaxed than assuming you have examples from
     # the same dataset/class you're later going to apply your filter to
-    # train_idxs = []
-    # test_idxs = []
-    # assert limit_per_class >= 2
-    # train_per_class = limit_per_class // 2
-    # test_per_class = limit_per_class - train_per_class
-    # for lbl in range(101): # 101 classes:
-    #     lbl_idxs = np.where(y == lbl)[0]
-
-
-
-
-    #     # XXX TODO rm after debug
-    #     train_idxs += list(lbl_idxs)
-    #     test_idxs += list(lbl_idxs)
-
-
-
-
-
-    #     # train_idxs += list(lbl_idxs[:train_per_class])
-    #     # test_idxs += list(lbl_idxs[train_per_class:])
-
     train_idxs = np.where(y < ntrain_classes)[0]
     test_idxs = np.where(y >= ntrain_classes)[0]
     imgs_ids_train = [imgs[i] for i in train_idxs]
@@ -310,7 +288,6 @@ def _load_dummy_caltech_filter_3x3(order='hwc'):
         assert order == 'chw'
         filt = np.array(filt)[np.newaxis, ...]
         filt = np.tile(filt, (3, 1, 1))
-    # print(filt)
     return filt
 
 
@@ -371,6 +348,24 @@ def load_filters_sharpen_5x5(order='hwc'):
     x[2, 2] = -476
     filt = (x / -256.).astype(np.float32)
     return [_lift_grayscale_filt_to_rgb(filt, order=order)]
+
+
+def load_filters_gaussian(
+        order='hwc', shape=(5, 5), sigmas=(1, 2)):
+    filts = []
+    for sigma in sigmas:
+        filt = np.zeros(shape, dtype=np.float32)
+        coeff = 1. / (sigma * np.sqrt(2 * np.pi))
+        scale = 1. / (2 * sigma * sigma)
+        i0 = int(shape[0] - 1) // 2
+        j0 = int(shape[1] - 1) // 2
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                dist_sq = (i - i0)**2 + (j - j0)**2
+                filt[i, j] = np.exp(-dist_sq * scale)
+        filt *= coeff
+        filts.append(filt)
+    return [_lift_grayscale_filt_to_rgb(filt, order=order) for filt in filts]
 
 
 def _filters_list_to_mat(filters):
@@ -460,17 +455,26 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
                        limit_ntest=-1, validate=False, filt='sobel'):
     if filt == 'sobel':
         filters = load_filters_sobel_3x3(order=order)
-        filt_spatial_shape = (3, 3)
+        # filt_spatial_shape = (3, 3)
     elif filt == 'gauss3x3':
         filters = load_filters_gaussian_3x3(order=order)
-        filt_spatial_shape = (3, 3)
+        # filt_spatial_shape = (3, 3)
     elif filt == 'gauss5x5':
         filters = load_filters_gaussian_5x5(order=order)
-        filt_spatial_shape = (5, 5)
-    else:
-        assert filt == 'sharpen5x5'
+        # filt_spatial_shape = (5, 5)
+    elif filt == 'sharpen5x5':
         filters = load_filters_sharpen_5x5(order=order)
-        filt_spatial_shape = (5, 5)
+        # filt_spatial_shape = (5, 5)
+    else:
+        assert filt == 'dog5x5'
+        filters = load_filters_gaussian(order=order, shape=(5, 5))
+        # filt_spatial_shape = (5, 5)
+
+    if order == 'chw':
+        filt_spatial_shape = filters[0].shape[-2:]
+    else:
+        assert order == 'hwc'
+        filt_spatial_shape = filters[0].shape[:2]
 
     W = _filters_list_to_mat(filters)
     X_train, Y_train = _load_caltech_train(
@@ -490,18 +494,6 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
     # print("type(test_imgs)", type(test_imgs))
     print("len(test_imgs)", len(test_imgs))
 
-    # print("size of test imgs (not windows): ",
-    #       sum([img.nbytes for img in test_imgs]))
-
-
-    # # img = test_imgs[-1] # TODO rm after debug
-    # img0 = test_imgs[-1] # TODO rm after debug
-    # img1 = test_imgs[42] # TODO rm after debug
-
-    # okay, so for any particular image, it works great; but when we actually
-    # have more than one image, it works terribly
-
-
     _, test_ids = load_caltech_img_ids()
     # for i, _ in enumerate(test_imgs):
     for i, img in enumerate(test_imgs):
@@ -517,6 +509,7 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
         task = MatmulTask(X_train=X_train, Y_train=Y_train, W_train=W,
                           X_test=X_test, Y_test=Y_test, W_test=W,
                           name=name)
+        task.info['problem'] = filt
 
         # print(f"task {task.name} matrix hashes:")
         # import pprint
@@ -545,7 +538,7 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
 
 
 def test_caltech_loading():
-    imgs_train, imgs_test = load_caltech_imgs()
+    imgs_train, imgs_test = _load_caltech_test_imgs()
     filt = _load_dummy_caltech_filter_3x3()
     imgs = imgs_train
 

@@ -62,7 +62,7 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [2, 4, 8, 16, 32, 64]
+        # mvals = [2, 4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
@@ -72,7 +72,7 @@ def _hparams_for_method(method_id):
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        # mvals = [4] # TODO rm after debug
+        mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
         if method_id == methods.METHOD_MITHRAL:
@@ -179,14 +179,18 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
         metrics.update({k + '_diffs': v for k, v in metrics_raw.items()})
 
     if task.info:
-        lbls = task.info['lbls_test'].astype(np.int32)
+
         if task.info['problem'] == 'classify_linear':
+            lbls = task.info['lbls_test'].astype(np.int32)
             b = task.info['biases']
             logits_amm = Y_hat + b
             logits_orig = Y + b
             lbls_amm = np.argmax(logits_amm, axis=1).astype(np.int32)
             lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
+            metrics['acc_amm'] = np.mean(lbls_amm == lbls)
+            metrics['acc_orig'] = np.mean(lbls_orig == lbls)
         elif task.info['problem'] == '1nn':
+            lbls = task.info['lbls_test'].astype(np.int32)
             lbls_centroids = task.info['lbls_centroids']
             lbls_hat_1nn = []
             rbf_lbls_hat = []
@@ -226,8 +230,22 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
             if orig_acc_key in task.info:
                 metrics[orig_acc_key] = task.info[orig_acc_key]
 
-        metrics['acc_amm'] = np.mean(lbls_amm == lbls)
-        metrics['acc_orig'] = np.mean(lbls_orig == lbls)
+            metrics['acc_amm'] = np.mean(lbls_amm == lbls)
+            metrics['acc_orig'] = np.mean(lbls_orig == lbls)
+        elif task.info['problem'] == 'sobel':
+            assert Y.shape[1] == 2
+            grad_mags_true = np.sqrt((Y * Y).sum(axis=1))
+            grad_mags_hat = np.sqrt((Y_hat * Y_hat).sum(axis=1))
+            diffs = grad_mags_true - grad_mags_hat
+            metrics['grad_mags_nmse'] = (
+                (diffs * diffs).mean() / grad_mags_true.var())
+        elif task.info['problem'].lower().startswith('dog'):
+            # difference of gaussians
+            assert Y.shape[1] == 2
+            Z = Y[:, 0] - Y[:, 1]
+            Z_hat = Y_hat[:, 0] - Y_hat[:, 1]
+            diffs = Z - Z_hat
+            metrics['dog_nmse'] = (diffs * diffs).mean() / Z.var()
 
     return metrics
 
@@ -397,7 +415,8 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
 #                  limit_ntasks=5, compression_metrics=True)
 
 
-def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
+def main_caltech(methods=methods.USE_METHODS, saveas='caltech',
+                 limit_ntasks=-1, limit_ntrain=-1, filt='sobel'):
     # tasks = md.load_caltech_tasks()
     # tasks = md.load_caltech_tasks(limit_ntrain=100e3, limit_ntest=10e3) # TODO rm after debug
     # tasks = md.load_caltech_tasks(limit_ntrain=-1, limit_ntest=10e3) # TODO rm after debug
@@ -409,14 +428,14 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     # tasks = md.load_caltech_tasks(limit_ntrain=2e6)
     # tasks = md.load_caltech_tasks(limit_ntrain=2.5e6)
     # return _main(tasks=tasks, methods=methods, saveas=saveas,
-    limit_ntasks = -1
+    # limit_ntasks = -1
     # limit_ntasks = 10
     # filt = 'sharpen5x5'
     # filt = 'gauss5x5'
-    filt = 'sobel'
+    # filt = 'sobel'
     saveas = '{}_{}'.format(saveas, filt)
     # saveas = '{}_{}'.format(saveas, filt)
-    limit_ntrain = -1
+    # limit_ntrain = -1
     # limit_ntrain = 500e3
     task_func = functools.partial(
         md.load_caltech_tasks, filt=filt, limit_ntrain=limit_ntrain)
@@ -475,7 +494,9 @@ def main():
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
 
-    main_ucr(methods='HashJL', limit_ntasks=10)
+    # main_ucr(methods='HashJL', limit_ntasks=10)
+    main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
+    # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='sobel')
     # main_caltech(methods='SparsePCA')
 
     # use_methods = list(methods.USE_METHODS)
