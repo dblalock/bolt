@@ -23,7 +23,7 @@ def all_ucr_datasets():
 
 class UCRDataset(object):
 
-    def __init__(self, dataset_dir, sep='\t', precondition=True):
+    def __init__(self, dataset_dir, sep='\t', precondition=True, znorm=True):
         self.name = name_from_dir(dataset_dir)
         self.X_train, y_train = read_ucr_train_data(dataset_dir, sep=sep)
         self.X_test, y_test = read_ucr_test_data(dataset_dir, sep=sep)
@@ -58,8 +58,14 @@ class UCRDataset(object):
                     # print("new number of nans: ", np.isnan(X[:, d]).sum())
                     # print("new number of nans: ", np.isnan(col).sum())
 
-        if precondition:
-            # weaker than znormalizating since one offset and scale applied
+        if znorm:
+            self.X_train -= self.X_train.mean(axis=1, keepdims=True)
+            self.X_test -= self.X_test.mean(axis=1, keepdims=True)
+            eps = 1e-20
+            self.X_train *= 1 / (self.X_train.std(axis=1, keepdims=True) + eps)
+            self.X_test *= 1 / (self.X_test.std(axis=1, keepdims=True) + eps)
+        elif precondition:
+            # weaker than znormalization since one offset and scale applied
             # to all dims and all samples in both train and test sets; this
             # is basically just here because the values in MelbournePedestrian
             # are huge and screw up numerical algorithms

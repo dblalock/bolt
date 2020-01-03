@@ -682,7 +682,7 @@ def load_cifar_tasks():
 
 @_memory.cache
 def _load_ucr_tasks_for_dset(
-        dset_name, D=320, k=128, min_train_sz=-1, use_test_sz=-1, verbose=1):
+        dset_name, D=320, k=64, min_train_sz=-1, use_test_sz=-1, verbose=1):
 
     dset = ucr.UCRDataset(dset_name)
     if min_train_sz is None or min_train_sz < k:
@@ -750,7 +750,8 @@ def load_ucr_tasks(limit_ntasks=-1, **kwargs):
             all_tasks += tasks
         # else:
         #     print("got None instead of tasks for dset: ", dset_name)
-        if (limit_ntasks > 0) and (len(all_tasks) >= limit_ntasks):
+        if ((limit_ntasks is not None) and (limit_ntasks > 0) and
+                (len(all_tasks) >= limit_ntasks)):
             all_tasks = all_tasks[:limit_ntasks]
             break
     return all_tasks

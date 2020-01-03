@@ -891,10 +891,10 @@ def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
     # TODO precondition XtX based on largest value here?
     # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32) * (1./256 * len(X_enc))  # ridge
         # lamda = max(1, .001 * len(X_enc) / float(K * K))
-        # lamda = 1
+        lamda = 1
         # lamda = max(1, len(X_enc) / 1e6)
         # lamda = max(1, len(X_enc) / 1e5)
-        lamda = max(1, len(X_enc) / 1e4)
+        # lamda = max(1, len(X_enc) / 1e4)
         # lamda = max(1, len(X_enc) / float(K * K))
         # lamda = len(X_enc) / float(K)
         # print("computing and regularizing XtX using lambda = ", lamda)
@@ -1021,7 +1021,8 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
 
     # precompute XtX and XtY and create initial dense W
     XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
-    lamda = max(1, len(X_enc) / 1e4)
+    lamda = 1
+    # lamda = max(1, len(X_enc) / 1e4)
     # lamda = max(1, len(X_enc) / float(K * K))
     XtX += np.diag(np.ones(XtX.shape[0]) * lamda).astype(np.float32)  # ridge
     # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge

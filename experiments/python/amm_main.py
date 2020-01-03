@@ -40,10 +40,15 @@ def _hparams_for_method(method_id):
         # dvals = [2] # TODO rm after debug
         # dvals = [1] # TODO rm after debug
         if method_id == methods.METHOD_SPARSE_PCA:
-            alpha_vals = (.03125, .0625, .125, .25, .5, 1, 2, 4, 8)
+            # first one gets it to not return all zeros on caltech
+            alpha_vals = (1. / 16384, .03125, .0625, .125, .25, .5, 1, 2, 4, 8)
             # alpha_vals = (.0625, .125, .25, .5, 1, 2, 4, 8)
             # alpha_vals = (.0625, .125)
-            # alpha_vals = [.0625]
+            # alpha_vals = [.0625] # TODO rm
+            # alpha_vals = [.03125] # TODO rm
+            # alpha_vals = [1./1024] # TODO rm
+            # alpha_vals = [1./16384] # TODO rm
+            # alpha_vals = [0] # TODO rm
             # alpha_vals = (2, 4, 5)
             # alpha_vals = [.1]
             # alpha_vals = [1.]
@@ -56,7 +61,7 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [4, 8, 16, 32, 64]
+        mvals = [2, 4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
@@ -140,9 +145,9 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
     # r = ((Y_meannorm / ynorm) * (Y_hat_meannorm / yhat_norm)).sum()
     metrics = {'raw_mse': raw_mse, 'normalized_mse': normalized_mse,
                'corr': _cossim(Y - Y.mean(), Y_hat - Y_hat.mean()),
-               'cossim': _cossim(Y, Y_hat),
-               'bias': diffs.mean(), 'y_mean': Y.mean(),
-               'y_std': Y.std(), 'yhat_std': Y_hat.std()}
+               'cossim': _cossim(Y, Y_hat),  # 'bias': diffs.mean(),
+               'y_mean': Y.mean(), 'y_std': Y.std(),
+               'yhat_std': Y_hat.std(), 'yhat_mean': Y_hat.mean()}
     if compression_metrics:
 
         # Y_q = compress.quantize(Y, nbits=8)
@@ -207,8 +212,8 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
     if fixedB:
         est.set_B(task.W_test)
 
-    print("eval_amm validating task: ", task.name)
-    task.validate(train=False, test=True)
+    # print("eval_amm validating task: ", task.name)
+    # task.validate(train=False, test=True)
     # print(f"task {task.name} matrix hashes:")
     # pprint.pprint(task._hashes())
 
@@ -216,7 +221,8 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
     # print("X_test shape: ", task.X_test.shape)
     # print("W_test shape: ", task.W_test.shape)
     t = time.perf_counter()
-    Y_hat = est.predict(task.X_test.copy(), task.W_test.copy())
+    # Y_hat = est.predict(task.X_test.copy(), task.W_test.copy())
+    Y_hat = est.predict(task.X_test, task.W_test)
     # Y_hat = task.X_test @ task.W_test  # yep, zero error
     duration_secs = time.perf_counter() - t
 
@@ -226,8 +232,8 @@ def _eval_amm(task, est, fixedB=True, **metrics_kwargs):
     metrics.update(est.get_speed_metrics(
         task.X_test, task.W_test, fixedB=fixedB))
 
-    print("eval_amm re-validating task: ", task.name)
-    task.validate(train=False, test=True)
+    # print("eval_amm re-validating task: ", task.name)
+    # task.validate(train=False, test=True)
     # print(f"task {task.name} matrix hashes:")
     # pprint.pprint(task.hashes())
 
@@ -377,7 +383,7 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
     # tasks = md.load_caltech_tasks(limit_ntrain=2.5e6)
     # return _main(tasks=tasks, methods=methods, saveas=saveas,
     limit_ntasks = -1
-    # limit_ntasks = 3
+    # limit_ntasks = 10
     # filt = 'sharpen5x5'
     # filt = 'gauss5x5'
     filt = 'sobel'
@@ -394,11 +400,13 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech'):
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr'):
     limit_ntasks = None
+    # limit_ntasks = 10
+    # limit_ntasks = 13
     # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
     tasks_func = functools.partial(md.load_ucr_tasks, limit_ntasks=limit_ntasks)
     return _main(tasks_func=tasks_func, methods=methods, saveas=saveas,
                  ntasks=76, limit_ntasks=limit_ntasks,
-                 tasks_all_same_shape=True)
+                 tasks_all_same_shape=False)
 
 
 def main_cifar10(methods=methods.USE_METHODS, saveas='cifar10'):
@@ -438,11 +446,18 @@ def main():
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
 
+    # main_ucr(methods='SparsePCA')
+    # main_caltech(methods='SparsePCA')
+
+    use_methods = list(methods.USE_METHODS)
+    use_methods.remove(methods.METHOD_SPARSE_PCA)
+    # main_caltech(methods=methods.USE_METHODS)
+    main_ucr(methods=methods.USE_METHODS)
+
     # main_caltech(methods='Bolt')
-    main_caltech(methods='Bolt')
+    # main_caltech(methods='Bolt')
     # main_caltech(methods='Exact')
     # main_caltech(methods='PCA')
-    # main_caltech(methods=methods.USE_METHODS)
     # main_caltech(methods=['PCA', 'Bolt', 'Mithral', 'SparsePCA'])
     # main_ucr(methods=['PCA', 'Bolt', 'Mithral', 'SparsePCA'])
     # main_caltech(methods='HashJL')

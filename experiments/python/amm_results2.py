@@ -63,6 +63,15 @@ def melt_times(df, ntimes=5):
         df, observation_vars, var_name='timing_trial', value_name='time')
 
 
+def drop_cols_inplace(df, cols):
+    for col in AMM_DROP_COLS:
+        try:
+            df.drop([col], axis=1, inplace=True)
+        except KeyError:
+            pass
+    return df
+
+
 def encode_timings():
     TIMINGS_PATH = os.path.join(TIMING_RESULTS_DIR, 'encode-timing.csv')
     # ORIG_HEADERS = 'algo __ N D C ___ t0 _0 t1 _1 t2 _2 t3 _3 t4 _4'.split()
@@ -224,8 +233,13 @@ def _join_on_cols(df_left, left_cols, df_right, right_cols, verbose=0):
     return df
 
 
-def _join_with_mithral_times(df):
+def _join_with_mithral_times(df, timing_dtype='f32'):
     time_df = mithral_amm_timings()
+    if timing_dtype is not None:
+        time_df = time_df.loc[time_df['dtype'].str.strip() == timing_dtype]
+    # print("time_df with appropriate dtype:\n", time_df)
+    # import sys; sys.exit()
+
     # we also report times for subroutines within mithral; can't let it
     # use any of these
     # rename_dict = {'amm mithral sparselut': 'Mithral, L = ??',
@@ -233,9 +247,20 @@ def _join_with_mithral_times(df):
     rename_dict = {'amm mithral sparselut': 'Mithral',
                    'amm mithral nolut': 'Mithral'}
     time_df = rename_values_in_col(time_df, 'algo', rename_dict)
-    df = df.loc[df['method'].str.lower().str.startswith('mithral')]
+    is_mithral_pq = df['method'].str.lower().str.startswith('mithralpq')
+    is_any_mithral = df['method'].str.lower().str.startswith('mithral')
+    # is_mithral = is_any_mithral & (~is_mithral_pq)
+    df = df.loc[is_any_mithral]
+    df.loc[is_mithral_pq, 'lut_work_const'] = 1
     df = df.loc[df['lut_work_const'] != 4]  # no timing for this
-    df = df.loc[df['method'] != 'MithralPQ']  # no timing for this
+
+
+    #
+    # TODO rm these lines after we get the associated timing results
+    #
+    df = df.loc[df['lut_work_const'] != 1]
+    df = df.loc[df['ncodebooks'] > 2]
+
 
     # print("mithral df:\n", df)
     # print("mithral time df:\n", time_df.loc[time_df['dset'] == 'Cifar10'])
@@ -355,9 +380,12 @@ def _join_with_sparse_sketch_times(df):
 
     # here we have a bunch of hack stuff
     # print("df columns: ", df.columns)
-    # yvals = 1. - df['normalized_mse'].values  # corr coeff
+    # yvals = 1. - df['normalized_mse'].values
     xvals = df['time'].values
-    yvals = df['acc_amm'].values  # corr coeff
+    if 'acc_amm' in df.columns:
+        yvals = df['acc_amm'].values
+    else:
+        yvals = 1. - df['normalized_mse'].values
     idxs = extract_pareto_frontier_idxs(xvals, yvals)
     # print("xvals: ", xvals)
     # print("yvals: ", yvals)
@@ -374,8 +402,6 @@ def _join_with_sparse_sketch_times(df):
     df = df.iloc[idxs]
 
     return df
-
-
 
 
 def _clean_method_names_amm(df):
@@ -407,7 +433,11 @@ def _clean_metrics_amm(df):
     # df_exact = df.loc[df['method'] == 'Brute Force']
     df_exact = df.loc[df['method'] == 'Exact']
     # print("df_exact\n", df_exact)
-    assert df_exact.shape[0] == 1
+    if 'task_id' in df.columns:
+        nuniq_tasks = len(df['task_id'].unique())
+    else:
+        nuniq_tasks = 1  # cifar{10,100}
+    assert df_exact.shape[0] == nuniq_tasks
     base_time = float(df_exact.loc[0, 'time'])
     df['NormalizedTime'] = df['time'] / base_time
     df['Speedup'] = 1. / df['NormalizedTime']
@@ -415,15 +445,22 @@ def _clean_metrics_amm(df):
     return df
 
 
-def _join_with_times(df):
-    df_mithral = _join_with_mithral_times(df)
-    assert np.all(df_mithral['lutconst'] == df_mithral['lut_work_const'])
-    # df_tmp = df_mithral
-    # df_tmp = df_tmp['N D M C lutconst method algo t0 t1 t2 t3 t4'.split()]
+def _join_with_times(df, timing_dtype='f32'):
 
+    # df_mithral = df.loc[df['method'].str.startswith('Mithral')]
+    # df_mithral.to_csv('mithral-caltech-debug.csv')
+
+    df_mithral = _join_with_mithral_times(df, timing_dtype=timing_dtype)
+    # df_tmp = df_mithral
+    # df_tmp = df_tmp['N D M C ncodebooks lutconst lut_work_const method algo normalized_mse t0 t1'.split()]
     # # print("mithral rows:\n", df.loc[df['method'].str.startswith('mithral')])
-    # print("mithral rows after join:\n", df_tmp)
-    # # import sys; sys.exit()
+    # print("mithralpq rows after join:\n", df_tmp.loc[df_tmp['method'] == 'MithralPQ'])
+    # print("mithral rows after join:\n", df_tmp[:100])
+    # mismatch_mask = df_tmp['lutconst'] != df_tmp['lut_work_const']
+    # print("mithral mismatched rows:\n", df_tmp.loc[mismatch_mask])
+    # print(df_mithral['lutconst', 'lut_work_const'])
+    # import sys; sys.exit()
+    assert np.all(df_mithral['lutconst'] == df_mithral['lut_work_const'])
 
     df_bolt = _join_with_bolt_times(df)
     df_osnap = _join_with_osnap_times(df)
@@ -434,10 +471,9 @@ def _join_with_times(df):
     return pd.concat(dfs, axis=0, join='outer', sort=False)
 
 
-
-def _clean_amm_results_df(df):
+def _clean_amm_results_df(df, timing_dtype='f32'):
     # print("initial methods: ", df['method'].unique())
-    df = _join_with_times(df)
+    df = _join_with_times(df, timing_dtype=timing_dtype)
     # df['time'] = df['t_avg']
     # df = melt_times(df)
 
@@ -457,21 +493,24 @@ def _clean_amm_results_df(df):
 # @_memory.cache
 def cifar10_amm():
     df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar10.csv'))
-    df.drop(AMM_DROP_COLS + ['task_id'], axis=1, inplace=True)  # only 1 task
+    drop_cols_inplace(df, AMM_DROP_COLS + ['task_id'])  # only 1 task
     return _clean_amm_results_df(df)
 
 
 def cifar100_amm():
     df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar100.csv'))
-    df.drop(AMM_DROP_COLS + ['task_id'], axis=1, inplace=True)  # only 1 task
+    drop_cols_inplace(df, AMM_DROP_COLS + ['task_id'])  # only 1 task
     return _clean_amm_results_df(df)
 
 
-def ucr_amm():
-    pass
-
-
+@_memory.cache
 def caltech_amm():
+    df = pd.read_csv(os.path.join(RESULTS_DIR, 'caltech_sobel.csv'))
+    drop_cols_inplace(df, AMM_DROP_COLS)
+    return _clean_amm_results_df(df, timing_dtype='i8')
+
+
+def ucr_amm():
     pass
 
 
@@ -484,8 +523,9 @@ def main():
     # print(dense_amm_timings())
     # print(osnap_amm_timings())
     # print(sparse_amm_timings())
-    print(cifar10_amm())
+    # print(cifar10_amm())
     # print(cifar100_amm())
+    print(caltech_amm())
     # cifar10_amm()
 
 

@@ -394,6 +394,36 @@ my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
 
 # import sys; sys.exit()
 
+def lineplot(data, ax, x_metric, y_metric):
+    # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
+    # order = [m for m in order if m in data['Method'].unique()]
+    order = list(data['method'].unique())
+    # move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
+    # move_methods_to_front = ['Mithral', 'MithralPQ', 'Brute Force']
+    mithral_methods = [method for method in order
+                       if method.lower().startswith('mithral')][::-1]
+    move_methods_to_front = mithral_methods[:]
+    move_methods_to_front.append('Brute Force')
+    for elem in move_methods_to_front[:]:
+        if elem in order:
+            order.remove(elem)
+        else:
+            move_methods_to_front.remove(elem)
+    order = move_methods_to_front + sorted(order)
+
+    # have to specify markers or seaborn freaks out because it doesn't
+    # have enough of them
+    # filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
+    #                   'H', 'D', 'd', 'P', 'X')
+    # use_markers = ('*', '*', 's') + (
+    use_markers = ('D', 'D', 's') + (
+        'o', 'v', '^', '<', '>', '8', 'p', 'h', 'd', 'P', 'X', '*', 'D')
+    sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
+                style='method', style_order=order, hue_order=order,
+                markers=use_markers, dashes=False, ax=ax,
+                # palette=my_tab10)
+                palette=my_colors_list)
+
 
 # def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
 def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
@@ -405,38 +435,8 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # df10 = df10.loc[df10['method'] != 'OrthoGauss']
     # df100 = df100.loc[df100['method'] != 'OrthoGauss']
 
-    def lineplot(data, ax):
-        # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
-        # order = [m for m in order if m in data['Method'].unique()]
-        order = list(data['method'].unique())
-        # move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
-        # move_methods_to_front = ['Mithral', 'MithralPQ', 'Brute Force']
-        mithral_methods = [method for method in order
-                           if method.lower().startswith('mithral')][::-1]
-        move_methods_to_front = mithral_methods[:]
-        move_methods_to_front.append('Brute Force')
-        for elem in move_methods_to_front[:]:
-            if elem in order:
-                order.remove(elem)
-            else:
-                move_methods_to_front.remove(elem)
-        order = move_methods_to_front + sorted(order)
-
-        # have to specify markers or seaborn freaks out because it doesn't
-        # have enough of them
-        # filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
-        #                   'H', 'D', 'd', 'P', 'X')
-        # use_markers = ('*', '*', 's') + (
-        use_markers = ('D', 'D', 's') + (
-            'o', 'v', '^', '<', '>', '8', 'p', 'h', 'd', 'P', 'X', '*', 'D')
-        sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
-                    style='method', style_order=order, hue_order=order,
-                    markers=use_markers, dashes=False, ax=ax,
-                    # palette=my_tab10)
-                    palette=my_colors_list)
-
-    lineplot(df10, axes[0])
-    lineplot(df100, axes[1])
+    lineplot(df10, axes[0], x_metric=x_metric, y_metric=y_metric)
+    lineplot(df100, axes[1], x_metric=x_metric, y_metric=y_metric)
 
     # plt.suptitle('Sketch size vs Classification Accuracy')
     xlbl = _xlabel_for_xmetric(x_metric)
@@ -479,14 +479,52 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     save_fig('cifar_{}_{}'.format(x_metric, y_metric))
 
 
+def caltech_fig(x_metric='Speedup'):
+    y_metric='normalized_mse'
+    df = res.caltech_amm()
+    sb.set_context('poster')
+    fig, ax = plt.subplots(1, 1, figsize=(11, 6))
+    # axes = [ax]
+    is_mithral = df['method'].str.startswith('Mithral')
+    # is_exact = df['method'] == 'Brute Force'
+    # others_to_keep = df['method'].isin(['Brute Force', 'PCA', 'SparsePCA'])
+    others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
+    df = df.loc[is_mithral | others_to_keep]  # others suck too hard
+
+    df['not_mse'] = 1. - df['normalized_mse']
+    # df = df.loc[df['not_mse'] < 2]
+    lineplot(df, ax, x_metric=x_metric, y_metric='not_mse')
+
+    plt.suptitle('Approximating an Image Filter')
+    ax.set_xlabel(_xlabel_for_xmetric(x_metric))
+    ax.set_ylabel('1. - NMSE')
+
+    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = handles[1:], labels[1:]  # rm 'Method' title
+    ax.get_legend().remove()
+    plt.figlegend(handles, labels, loc='lower center', ncol=2)
+
+    # ax.semilogx()
+    # ax.semilogy()
+    # ax.set_xlim([.9, ax.get_xlim()[1]])
+    # ax.set_ylim([.2, 1.1])
+    plt.plot([1, 1], ax.get_ylim(), 'k--')
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=.91, bottom=.37)
+    # plt.subplots_adjust(top=.95, bottom=.1)
+    save_fig('caltech_{}_{}'.format(x_metric, y_metric))
+
+
 def main():
     # scan_speed_fig()
     # encode_speed_fig()
     # lut_speed_fig()
     # cifar_fig()
     # cifar_fig(x_metric='ops')
-    cifar_fig(x_metric='NormalizedTime')
-    cifar_fig(x_metric='Speedup')
+    # cifar_fig(x_metric='NormalizedTime')
+    # cifar_fig(x_metric='Speedup')
+    caltech_fig(x_metric='Speedup')
 
 
 if __name__ == '__main__':

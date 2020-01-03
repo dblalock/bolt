@@ -410,6 +410,8 @@ def _fitted_sparse_pca(X, d, unscaled_alpha, **kwargs):
     verbose = 1
     pca = SparsePCA(n_components=d, alpha=alpha, normalize_components=True,
                     method='lars', U_init=U, V_init=V, max_iter=10,
+                    ridge_alpha=max(1, len(X) * X.std() * 10),
+                    # ridge_alpha=1e8,
                     verbose=verbose, random_state=123)
     if verbose > 0:
         print("fitting sparse pca...")
@@ -417,11 +419,13 @@ def _fitted_sparse_pca(X, d, unscaled_alpha, **kwargs):
 
 
 class TrainedSparsePcaSketch(ApproxMatmul):
-    __slots__ = 'pca d alpha nnz A B'.split()
+    __slots__ = 'pca d alpha nnz can_optimize_transform A B'.split()
 
-    def __init__(self, d, alpha):
+    # def __init__(self, d, alpha, can_optimize_transform=True):
+    def __init__(self, d, alpha, can_optimize_transform=False):
         self.d = d
         self.alpha = alpha
+        self.can_optimize_transform = can_optimize_transform
         self.reset_for_new_task()
 
     def reset_for_new_task(self):
@@ -438,10 +442,21 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         self.nnz = np.sum(self.pca.components_ != 0)
 
     def set_A(self, A):
-        self.A = self.pca.transform(A)
+        if self.can_optimize_transform:
+            # uses ridge regression to get coeffs, instead of linear projection
+            # disabled by default because it produces garbage on caltech and
+            # is more expensive than just doing the matmul
+            self.A = self.pca.transform(A)
+            self.A += self.pca.mean_ @ self.pca.components_.T
+        else:
+            self.A = A @ self.pca.components_.T
 
     def set_B(self, B):
-        self.B = self.pca.transform(B.T).T
+        if self.can_optimize_transform:
+            self.B = self.pca.transform(B.T).T
+            self.B += (self.pca.mean_ @ self.pca.components_.T).reshape(-1, 1)
+        else:
+            self.B = (B.T @ self.pca.components_.T).T
 
     def __call__(self, A, B):
         assert A.shape[1] == B.shape[0]  # dims need to match
@@ -455,22 +470,40 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         fixedA = self.A is not None
         fixedB = self.B is not None
 
-        nmuls_naive = N * D * M
-        nmuls_ours = self.get_speed_metrics(
-            A, B, fixedA=fixedA, fixedB=fixedB)[KEY_NMULTIPLIES]
-        if nmuls_naive <= nmuls_ours:
-            raise InvalidParametersException(
-                "naive # of multiplies < sparse sketch # of multiplies: "
-                "{} < {}".format(nmuls_naive, nmuls_ours))
+        # nmuls_naive = N * D * M
+        # nmuls_ours = self.get_speed_metrics(
+        #     A, B, fixedA=fixedA, fixedB=fixedB)[KEY_NMULTIPLIES]
+        # if nmuls_naive <= nmuls_ours:
+        #     raise InvalidParametersException(
+        #         "naive # of multiplies < sparse sketch # of multiplies: "
+        #         "{} < {}".format(nmuls_naive, nmuls_ours))
 
         if not fixedA:
             self.set_A(A)
         if not fixedB:
             self.set_B(B)
+
+        # if N == 700:
+        # if False:
+            print("got to weird dset!")
+            # print("pca means: ", self.pca.mean_[::20])
+            # print("A means:", A.mean(axis=0)[::20])
+            # print("B means:", B.mean(axis=1)[::20])
+            print("pca means sum: ", self.pca.mean_.sum())
+            print("A means sum: ", A.mean(axis=0).sum())
+            print("B means sum: ", B.mean(axis=1).sum())
+            offsets = (self.pca.mean_ @ self.pca.components_.T)
+            print("offsets: ", offsets)
+            print("offsets sum: ", offsets.sum())
+            # C = (A @ B)
+            # print("true mean of output: ", C.mean())
+            # print("true std of output: ", C.std())
+
         return self.A @ self.B
 
     def get_params(self):
-        return {'d': self.d, 'alpha': self.alpha}
+        return {'d': self.d, 'alpha': self.alpha,
+                'canCheat': self.can_optimize_transform}
 
     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
         N, D = A.shape
