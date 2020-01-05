@@ -1016,6 +1016,7 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
     ncodebooks = X_enc.shape[1]
     M = Y.shape[1]
     nnz_per_centroid = min(M, int(nnz_per_centroid))
+    nnz_per_centroid = max(1, nnz_per_centroid)
     assert nnz_per_centroid >= int(np.ceil(M / ncodebooks))
     assert nnz_per_centroid <= M
 
@@ -1058,13 +1059,19 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
         keep_mask[c, start_idx:end_idx] = 1
 
         subvec_len = end_idx - start_idx
+        assert subvec_len >= 1
         keep_nidxs_extra = nnz_per_centroid - subvec_len
         scores = all_scores[c]
         scores[start_idx:end_idx] = 0
 
-        if uniform_sparsity:
+        if uniform_sparsity and keep_nidxs_extra > 0:
             # take as many other (best) nonzero idxs as we we're allowed to
+            assert len(scores) >= keep_nidxs_extra
             best_idxs = np.argsort(scores)[-keep_nidxs_extra:]
+            if len(best_idxs) != keep_nidxs_extra:
+                print("len(best_idxs)", len(best_idxs))
+                print("keep_nidxs_extra", keep_nidxs_extra)
+                assert len(best_idxs) == keep_nidxs_extra
             keep_mask[c, best_idxs] = True
 
     if not uniform_sparsity:
@@ -1090,7 +1097,12 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
     for c in range(ncodebooks):
         idxs = np.where(keep_mask[c] != 0)[0]
         if uniform_sparsity:
-            assert len(idxs) == nnz_per_centroid
+            if len(idxs) != nnz_per_centroid:
+                print("c: ", c)
+                print("len(idxs): ", len(idxs))
+                print("nnz_per_centroid: ", nnz_per_centroid)
+                print("keep_mask counts:", keep_mask.sum(axis=1))
+                assert len(idxs) == nnz_per_centroid
             ret_idxs[c] = idxs
         else:
             ret_idxs.append(idxs)
@@ -1196,7 +1208,16 @@ def _sparse_encoded_lstsq_backward_elim(X_enc, Y, nnz_blocks, K=16):
 def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
     ncodebooks = X_enc.shape[1]
     if nnz_blocks < 1:
-        nnz_per_centroid = Y.shape[1]
+        # nnz_per_centroid = Y.shape[1]
+        # default to returning dense centroids
+        W = encoded_lstsq(X_enc, Y, K=16)
+        ncodebooks = X_enc.shape[1]
+        M = Y.shape[1]
+        keep_codebook_idxs = np.empty((ncodebooks, M), dtype=np.int)
+        all_idxs = np.arange(M)
+        for c in range(ncodebooks):
+            keep_codebook_idxs[c] = all_idxs
+        return W, keep_codebook_idxs
     else:
         nnz_per_centroid = int(nnz_blocks * Y.shape[1] / ncodebooks)
 

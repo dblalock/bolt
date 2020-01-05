@@ -433,13 +433,25 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         self.B = None
 
     def fit(self, A, B, Y=None):  # Y = A @ B if not specified
-        _, M = B.shape
-        if M <= self.d:
+        D, M = B.shape
+        # if M <= self.d:
+        #     raise InvalidParametersException(
+        #         'M <= d: {} < {}'.format(M, self.d))
+        if D <= self.d:
             raise InvalidParametersException(
-                'M <= d: {} < {}'.format(M, self.d))
+                'D < d: {} < {}'.format(D, self.d))
 
         self.pca = _fitted_sparse_pca(A, d=self.d, unscaled_alpha=self.alpha)
         self.nnz = np.sum(self.pca.components_ != 0)
+        sparsity = np.mean(self.pca.components_ == 0)
+
+        if self.nnz < self.d:
+            raise InvalidParametersException(
+                "ignoring SparsePCA with nnz < d: "
+                "{} < {}".format(self.nnz, self.d))
+        if sparsity == 0.:
+            raise InvalidParametersException(
+                "ignoring SparsePCA with no zeros")
 
     def set_A(self, A):
         if self.can_optimize_transform:
@@ -470,13 +482,13 @@ class TrainedSparsePcaSketch(ApproxMatmul):
         fixedA = self.A is not None
         fixedB = self.B is not None
 
-        # nmuls_naive = N * D * M
-        # nmuls_ours = self.get_speed_metrics(
-        #     A, B, fixedA=fixedA, fixedB=fixedB)[KEY_NMULTIPLIES]
-        # if nmuls_naive <= nmuls_ours:
-        #     raise InvalidParametersException(
-        #         "naive # of multiplies < sparse sketch # of multiplies: "
-        #         "{} < {}".format(nmuls_naive, nmuls_ours))
+        nmuls_naive = N * D * M
+        nmuls_ours = self.get_speed_metrics(
+            A, B, fixedA=fixedA, fixedB=fixedB)[KEY_NMULTIPLIES]
+        if nmuls_naive <= nmuls_ours:
+            raise InvalidParametersException(
+                "naive # of multiplies < sparse sketch # of multiplies: "
+                "{} < {}".format(nmuls_naive, nmuls_ours))
 
         if not fixedA:
             self.set_A(A)

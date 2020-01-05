@@ -440,21 +440,21 @@ def _clean_metrics_amm(df):
     df['Speedup'] = 1. / df['NormalizedTime']
     df['1 - NMSE'] = 1. - df['normalized_mse']
     if 'Accuracy' in df.columns:
-        # df['Relative Accuracy'] = df['Accuracy'] / (df['acc_orig'] + 1e-20)
-        # # note that relative accuracy can actually be higher if errors
-        # # happen to compensate for incorrect classification sometimes
-        # print("max relative acc: ", df['Relative Accuracy'].values.max())
-        # # assert df['Relative Accuracy'].values.max() <= 1.000001
+        df['Relative Accuracy'] = df['Accuracy'] / (df['acc_orig'] + 1e-20)
+        # # # note that relative accuracy can actually be higher if errors
+        # # # happen to compensate for incorrect classification sometimes
+        # # print("max relative acc: ", df['Relative Accuracy'].values.max())
+        # # # assert df['Relative Accuracy'].values.max() <= 1.000001
 
-        # acc_orig field is supposed to capture this, but I messed it up for
-        # 1nn so this will also work
-        tid2acc = {}
-        exactdf = df.loc[df['method'] == 'Exact']
-        for tid in df['task_id'].unique():
-            subdf = exactdf.loc[exactdf['task_id'] == tid]
-            tid2acc[tid] = subdf['Accuracy'].values[0]
-        df['BaseAccuracy'] = [tid2acc[tid] for tid in df['task_id']]
-        df['Relative Accuracy'] = df['Accuracy'] / df['BaseAccuracy']
+        # # acc_orig field is supposed to capture this, but I messed it up for
+        # # 1nn so this will also work
+        # tid2acc = {}
+        # exactdf = df.loc[df['method'] == 'Exact']
+        # for tid in df['task_id'].unique():
+        #     subdf = exactdf.loc[exactdf['task_id'] == tid]
+        #     tid2acc[tid] = subdf['Accuracy'].values[0]
+        # df['BaseAccuracy'] = [tid2acc[tid] for tid in df['task_id']]
+        # df['Relative Accuracy'] = df['Accuracy'] / df['BaseAccuracy']
 
     return df
 
@@ -521,8 +521,8 @@ def caltech_amm():
 
 
 @_memory.cache
-def ucr_amm():
-    df = pd.read_csv(os.path.join(RESULTS_DIR, 'ucr.csv'))
+def ucr_amm(k=64):
+    df = pd.read_csv(os.path.join(RESULTS_DIR, 'ucr_k={}.csv'.format(k)))
     drop_cols_inplace(df, AMM_DROP_COLS)
     df['origN'] = df['N'].values
     df['N'] = 1000  # timing is for test size of 1000

@@ -32,10 +32,12 @@ def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
         # dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        # dvals = [1, 2, 4, 8, 16, 32, 64]
+        dvals = [1, 2, 4, 8, 16, 32]
         # dvals = [1, 2, 4, 8]
         # dvals = [32] # TODO rm after debug
         # dvals = [16] # TODO rm after debug
-        dvals = [8] # TODO rm after debug
+        # dvals = [8] # TODO rm after debug
         # dvals = [4] # TODO rm after debug
         # dvals = [3] # TODO rm after debug
         # dvals = [2] # TODO rm after debug
@@ -62,17 +64,17 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        # mvals = [2, 4, 8, 16, 32, 64]
+        mvals = [2, 4, 8, 16, 32, 64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [128] # TODO rm after debug
-        # mvals = [64] # TODO rim after debug
+        # mvals = [64] # TODO rm after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
-        mvals = [4] # TODO rm after debug
+        # mvals = [4] # TODO rm after debug
         # mvals = [1] # TODO rm after debug
 
         if method_id == methods.METHOD_MITHRAL:
@@ -349,10 +351,6 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                         and (task.X_train.std() == prev_X_std)
                         and (task.Y_train.std() == prev_Y_std))
 
-
-                    # can_reuse_est = False # TODO rm
-
-
                     if not can_reuse_est:
                         try:
                             est = _fitted_est_for_hparams(
@@ -444,11 +442,12 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech',
                  tasks_all_same_shape=True)
 
 
-def main_ucr(methods=methods.USE_METHODS, saveas='ucr', limit_ntasks=None):
+def main_ucr(methods=methods.USE_METHODS, saveas='ucr',
+             k=64, limit_ntasks=None):
     # limit_ntasks = 10
     # limit_ntasks = 13
     # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
-    k = 128
+    # k = 128
     tasks_func = functools.partial(
         md.load_ucr_tasks, limit_ntasks=limit_ntasks, k=k)
     saveas = '{}_k={}'.format(saveas, k)
@@ -495,14 +494,17 @@ def main():
     # main_caltech(methods='Hadamard')
 
     # main_ucr(methods='HashJL', limit_ntasks=10)
-    main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
+    # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='sobel')
     # main_caltech(methods='SparsePCA')
 
     # use_methods = list(methods.USE_METHODS)
     # use_methods.remove(methods.METHOD_SPARSE_PCA)
-    # # main_caltech(methods=methods.USE_METHODS)
-    # main_ucr(methods=methods.USE_METHODS)
+    # main_ucr(methods=methods.USE_METHODS, k=256)
+    # main_caltech(methods='Bolt', filt='dog5x5')
+    # main_caltech(methods=methods.USE_CALTECH_METHODS[2:], filt='dog5x5')
+    main_caltech(methods=methods.METHOD_SPARSE_PCA, filt='dog5x5')
+    # main_caltech(methods=methods.USE_CALTECH_METHODS[2:], filt='dog5x5', limit_ntrain=200e3)
 
     # main_caltech(methods='Bolt')
     # main_caltech(methods='Bolt')

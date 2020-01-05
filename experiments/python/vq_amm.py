@@ -274,10 +274,18 @@ class MithralMatmul(VQMatmul):
 
     def __init__(self, ncodebooks, lut_work_const=-1):
         self.lut_work_const = lut_work_const
+        if (lut_work_const is not None) and (lut_work_const > 0) and (
+                lut_work_const > ncodebooks):
+            raise amm.InvalidParametersException(
+                "lut_work_const > ncodebooks: {} > {}".format(
+                    lut_work_const, ncodebooks))
         super().__init__(ncodebooks=ncodebooks, ncentroids=16)
 
     # def _get_ncentroids(self):
     #     return 16
+
+    # def fit(self, A, B, Y=None):
+    #     super().fit(self, A, B, Y=Y)
 
     def _create_encoder(self, ncodebooks):
         return vq.MithralEncoder(

@@ -37,8 +37,8 @@ def extract_random_rows(X, how_many, remove_from_X=True):
     return X, rows
 
 
-# XXX: not clear whether this function is correct in general, but works for
-# 784D with the nzeros we get for 32 and 64 codebooks
+# XXX: not clear whether this function is correct in general, but
+# does always pass the asserts (which capture the invariants we want)
 def _insert_zeros(X, nzeros):
     N, D = X.shape
     D_new = D + nzeros
@@ -46,6 +46,8 @@ def _insert_zeros(X, nzeros):
     print("attempting to insert {} zeros into X of shape {}".format(nzeros, X.shape))
 
     step = int(D / (nzeros + 1)) - 1
+    step = max(1, step)
+    # print("using step: ", step)
 
     for i in range(nzeros):
         in_start = step * i
@@ -73,8 +75,19 @@ def _insert_zeros(X, nzeros):
         # X_new[:, out_end:out_end+remaining_len] = X[:, in_end:D]
         X_new[:, out_end:] = X[:, in_end:]
 
-    assert np.array_equal(X[:, 0], X_new[:, 0])
-    assert np.array_equal(X[:, -1], X_new[:, -1])
+    # print("first cols of old and new X:")
+    # print(X[:, 0])
+    # print(X_new[:, 0])
+    # print(X_new.shape)
+    # print((X_new.sum(axis=0) != 0).sum())
+    assert X.shape[0] == X_new.shape[0]
+    cols_nonzero = X_new.sum(axis=0) != 0
+    orig_cols_nonzero = X.sum(axis=0) != 0
+    assert cols_nonzero.sum() == orig_cols_nonzero.sum()
+    nzeros_added = (~cols_nonzero).sum() - (~orig_cols_nonzero).sum()
+    assert nzeros_added == nzeros
+    # assert np.array_equal(X[:, 0], X_new[:, 0])
+    # assert np.array_equal(X[:, -1], X_new[:, -1])
 
     return X_new
 
@@ -594,3 +607,12 @@ class MithralEncoder(MultiCodebookEncoder):
             return luts, offset, scale
 
         return luts, 0, 1
+
+
+def main():
+    X = np.ones((3, 75), dtype=np.int)
+    _insert_zeros(X, 53)
+
+
+if __name__ == '__main__':
+    main()

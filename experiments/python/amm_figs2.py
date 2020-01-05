@@ -582,7 +582,6 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     #     df['BaseAccuracy'] = [tid2acc[tid] for tid in df['task_id']]
     #     df['Relative Accuracy'] = df['Accuracy'] / df['BaseAccuracy']
 
-
     df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
     df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
     df = df.loc[df['method'] != 'Brute Force']

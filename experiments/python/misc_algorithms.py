@@ -38,8 +38,9 @@ def _class_balanced_sampling(X, labels, k):
     for i, lbl in enumerate(uniq_lbls):
         count = counts[i]
         target_frac = count / remaining_counts[i]
-        target_nsamples = int(nremaining_samples * target_frac)
+        target_nsamples = int(nremaining_samples * target_frac + .999)
         target_nsamples = max(1, target_nsamples)
+        target_nsamples = min(target_nsamples, count)
         nremaining_samples -= target_nsamples
 
         lbl_idxs = np.where(labels == lbl)[0]
@@ -49,7 +50,9 @@ def _class_balanced_sampling(X, labels, k):
         keep_idxs = lbl_idxs[use_idxs]
         C.append(X[keep_idxs])
         C_labels.append(np.full(target_nsamples, lbl, dtype=np.int32))
+    # if len(C).shape[0] < k:
     C = np.vstack(C).astype(np.float32)
+
     # print("k, C shape", k, C.shape)
     assert C.shape == (k, D)
     C_labels = np.hstack(C_labels)
