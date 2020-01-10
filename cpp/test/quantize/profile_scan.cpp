@@ -513,9 +513,9 @@ TEST_CASE("popcount scan timing", "[amm][scan][popcount][profile]") {
 
 TEST_CASE("vq scan timing", "[amm][scan][profile]") {
     static constexpr int nrows = 100 * 1000;
-    static constexpr int nout = 10;
+    static constexpr int nout = 12;
 
-    std::vector<int> all_nbytes {8, 16, 32, 64};
+    std::vector<int> all_nbytes {1, 2, 4, 8, 16, 32, 64};
     for (auto b : all_nbytes) {
         printf("------------------------ B = %d\n", b);
         _profile_scan(nrows, b, nout);

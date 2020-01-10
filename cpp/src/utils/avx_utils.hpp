@@ -76,7 +76,7 @@ inline __m256 fma(__m256 a, __m256 b, __m256 c) {
 }
 
 inline __m256i avg_epu8(__m256i a, __m256i b) {
-    __m256 res;
+    __m256i res = _mm256_undefined_si256();
     __asm__("vpavgb %[a], %[b], %[c]" : [c] "=x" (res) : [a] "x" (a), [b] "x" (b));
     return res;
 }
@@ -241,6 +241,8 @@ static inline __m256i load_4xf32_as_32xepi8_or_epu8(
     auto x3 = _mm256_mul_ps(_mm256_loadu_ps(x + 24), scales);
     return pack_ps_epi8_or_epu8<Signed, SameOrder>(x0, x1, x2, x3);
 }
+
+// ================================================================ f32 gemm
 
 // assumes N % 8 == 0, D % NReadCols == 0, M >= 2
 // gorgeous inner loop with <4, 3>: https://godbolt.org/z/lROnpg
@@ -458,6 +460,8 @@ static inline void sgemm_colmajor_narrow_padded(
 void sgemm_colmajor(const float* A, const float *B, int N, int D, int M,
                     float* out);
 
+
+// ================================================================ popcnt gemm
 
 // matmul with xor + popcount; inputs are matrices of bits, but pointers
 // are uint64s to make loading them up for popcnt easier; note that A is

@@ -429,6 +429,11 @@ void mithral_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                   int noutputs, const uint8_t* luts, uint8_t* dists_out)
 {
     mithral_scan<128, 2>(codes, nblocks, ncodebooks, noutputs, luts, dists_out);
+    // if (ncodebooks >= 4) {
+    //     mithral_scan<128, 2>(codes, nblocks, ncodebooks, noutputs, luts, dists_out);
+    // } else {
+    //     mithral_scan<128, 1>(codes, nblocks, ncodebooks, noutputs, luts, dists_out);
+    // }
 }
 
 // void mithral_scan_notile(const uint8_t* codes, int64_t nblocks, int ncodebooks,

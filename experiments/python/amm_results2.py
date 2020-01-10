@@ -212,24 +212,28 @@ def _extract_cols_into_list_of_tuples(df, cols):
     # print("ar: \n", ar)
     ar = np.atleast_2d(ar).astype(np.int)
     # return [tuple(row) for row in ar]
-    return [sum([(i + 1) * hash(val)
+    return [sum([hash(-12435 * i + 1) ^ hash(1234567 * val)
             for i, val in enumerate(row)]) for row in ar]
     # return [int(hash(tuple(row))) for row in ar]
 
 
 def _join_on_cols(df_left, left_cols, df_right, right_cols, verbose=0):
+    df_left = df_left.copy()
+    df_right = df_right.copy()
     df_left['__index__'] = _extract_cols_into_list_of_tuples(
         df_left, left_cols)
     df_right['__index__'] = _extract_cols_into_list_of_tuples(
         df_right, right_cols)
 
-    dup_cols = set(left_cols) & set(right_cols)
-    if verbose > 0:
-        print("_join_on_cols(); dropping duplicate cols from rhs: ", dup_cols)
-    df_right = df_right.drop(dup_cols, axis=1)
+    # dup_cols = set(left_cols) & set(right_cols)
+    # if verbose > 0:
+    #     print("_join_on_cols(); dropping duplicate cols from rhs: ", dup_cols)
+    # df_right = df_right.drop(dup_cols, axis=1)
 
-    df = df_left.merge(df_right, on='__index__', how='left')
+    df = df_left.merge(
+        df_right, on='__index__', how='left', suffixes=('', '_rhs'))
     df.drop(['__index__'], axis=1, inplace=True)
+    # df.sort_values(left_cols, axis=0, inplace=True)
     return df
 
 
@@ -237,39 +241,83 @@ def _join_with_mithral_times(df, timing_dtype='f32'):
     time_df = mithral_amm_timings()
     if timing_dtype is not None:
         time_df = time_df.loc[time_df['dtype'].str.strip() == timing_dtype]
+    df = df.loc[df['method'].str.lower().str.startswith('mithral')]
+    df['ncodebooks'] = df['ncodebooks'].astype(np.int)
+
+    # time_df.reset_index(inplace=True, drop=True)
+    # df.reset_index(inplace=True, drop=True)
     # print("time_df with appropriate dtype:\n", time_df)
     # import sys; sys.exit()
 
     # we also report times for subroutines within mithral; can't let it
-    # use any of these
+    # use any of these; just use rename_values_in_col to drop them and also
+    # get more intuitive debug output
     # rename_dict = {'amm mithral sparselut': 'Mithral, L = ??',
     #                'amm mithral nolut': 'Mithral, L = ∞'}
-    rename_dict = {'amm mithral sparselut': 'Mithral',
-                   'amm mithral nolut': 'Mithral'}
+    name_mithral_dense = 'mithralDense'  # only one we use; others arbitrary
+    rename_dict = {'amm mithral sparselut': 'mithralSparse',
+                   'amm mithral denselut': name_mithral_dense,
+                   'amm mithral nolut': 'mithralOffline'}
     time_df = rename_values_in_col(time_df, 'algo', rename_dict)
+
+    # give MithralPQ a valid lut const so the join will work (pq is equivalent
+    # to constant of 1)
     is_mithral_pq = df['method'].str.lower().str.startswith('mithralpq')
-    is_any_mithral = df['method'].str.lower().str.startswith('mithral')
-    # is_mithral = is_any_mithral & (~is_mithral_pq)
-    df = df.loc[is_any_mithral]
     df.loc[is_mithral_pq, 'lut_work_const'] = 1
-    df = df.loc[df['lut_work_const'] != 4]  # no timing for this
+    df_mpq = df.loc[is_mithral_pq].copy()
 
+    # there shouldn't be rows that violated this, but there are (probably
+    # from early runs that haven't been overwritten yet)
+    df = df.loc[df['lut_work_const'].values <= df['ncodebooks'].values]
 
-    #
-    # TODO rm these lines after we get the associated timing results
-    #
-    df = df.loc[df['lut_work_const'] != 1]
-    df = df.loc[df['ncodebooks'] > 2]
+    # now add in extra rows for mithral with no lut computation (which is
+    # assumed to use dense luts because no reason not to) vs mithral
+    # with dense lut computation as part of the timing
+    is_any_mithral = df['method'].str.lower().str.startswith('mithral')
+    is_mithral = is_any_mithral & (~is_mithral_pq)
+    is_dense = df['lut_work_const'] == -1
+    df_mithral_dense = df.loc[is_mithral & is_dense].copy()
+    dummy_lutconst = -2
+    df_mithral_dense['lut_work_const'] = dummy_lutconst
+    time_df['lutconst'].loc[
+        time_df['algo'] == name_mithral_dense] = dummy_lutconst
 
+    # add in version of mithralpq with offline lut computation
+    df_mpq = df.loc[df['method'].str.lower().str.startswith('mithralpq')]
+    df_mpq['lut_work_const'] = -1
 
-    # print("mithral df:\n", df)
-    # print("mithral time df:\n", time_df.loc[time_df['dset'] == 'Cifar10'])
-    # # import sys; sys.exit()
+    df = pd.concat([df, df_mithral_dense, df_mpq], axis=0)
 
     cols_df = 'N D M ncodebooks lut_work_const'.split()
     cols_time_df = 'N D M C lutconst'.split()
+
+    # print("df cols: ", df.columns)
+    # time_df.reset_index(inplace=True, drop=True)
+    # df.reset_index(inplace=True, drop=True)
+    df.sort_values(['method'] + cols_df, axis=0, inplace=True)
+    time_df.sort_values(cols_time_df, axis=0, inplace=True)
+
+
+
+    # df = df.loc[df['task_id'].str.contains('509')] # TODO rm
+
+
+
     ret = _join_on_cols(df, cols_df, time_df, cols_time_df)
-    np.all(ret['lutconst'] == ret['lut_work_const'])
+    # ret['lut_work_const'].loc[ret['lut_work_const'] == dummy_lutconst] = -1
+
+    # show_keys = 'method N D M C ncodebooks lutconst lut_work_const'.split()
+    # print("mithral df:\n", df['method N D M ncodebooks lut_work_const'.split()])
+    # # print("mithral time df:\n", time_df.loc[time_df['dset'] == 'Cifar10'])
+    # print("mithral time df:\n", time_df.loc[time_df['dset'] == 'Caltech3x3'])
+    # print("joined df:\n", ret[show_keys])
+    # # print("joined df:\n", ret)
+    # import sys; sys.exit()
+
+    # one of these fails if the join failed; check if you have redundant
+    # rows in either df or missing rows in the time df
+    assert np.all(ret['C'] == ret['ncodebooks'])
+    assert np.all(ret['lutconst'] == ret['lut_work_const'])
     return ret
 
 
@@ -404,12 +452,18 @@ def _join_with_sparse_sketch_times(df):
 def _clean_method_names_amm(df):
     key = 'method' if 'method' in df else 'algo'
     if 'lutconst' in df:
+        df.loc[df['lutconst'] == -2, key] = 'Mithral Dense'
+        is_lutconst_neg1 = df['lutconst'] == -1
+        is_mithral_pq = df['method'] == 'MithralPQ'
+        df.loc[is_lutconst_neg1 & is_mithral_pq, key] = 'MithralPQ'
+        df.loc[is_lutconst_neg1 & ~is_mithral_pq, key] = 'Mithral'
+        df.loc[df['lutconst'] == 1, key] = 'Mithral, L = 1'
         df.loc[df['lutconst'] == 2, key] = 'Mithral, L = 2'
         df.loc[df['lutconst'] == 4, key] = 'Mithral, L = 4'
-        mask = df['lutconst'] < 1
-        is_mithral_pq = df[key].str.lower().str.startswith('mithralpq')
-        mask &= ~is_mithral_pq
-        df[key][mask] = 'Mithral, L = ∞'
+        # mask = df['lutconst'] == 1
+        # is_mithral_pq = df[key].str.lower().str.startswith('mithralpq')
+        # mask &= ~is_mithral_pq
+        # df[key][mask] = 'Mithral, L = ∞'
     df[key].loc[df[key] == 'Exact'] = 'Brute Force'
 
     return df
@@ -514,20 +568,22 @@ def cifar100_amm():
 
 
 @_memory.cache
-def caltech_amm():
-    df = pd.read_csv(os.path.join(RESULTS_DIR, 'caltech_sobel.csv'))
+def caltech_amm(filt='sobel'):
+    """filt must be one of {'sobel','dog5x5'}"""
+    df = pd.read_csv(os.path.join(RESULTS_DIR, 'caltech_{}.csv'.format(filt)))
     drop_cols_inplace(df, AMM_DROP_COLS)
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
 @_memory.cache
 def ucr_amm(k=64):
+    """k must be one of {64,128,256}"""
     df = pd.read_csv(os.path.join(RESULTS_DIR, 'ucr_k={}.csv'.format(k)))
     drop_cols_inplace(df, AMM_DROP_COLS)
     df['origN'] = df['N'].values
     df['N'] = 1000  # timing is for test size of 1000
 
-    df['M'] = 128  # XXX rm after we redo the timing results
+    # df['M'] = 128  # XXX rm after we redo the timing results
 
     return _clean_amm_results_df(df)
 
@@ -543,8 +599,9 @@ def main():
     # print(sparse_amm_timings())
     # print(cifar10_amm())
     # print(cifar100_amm())
-    print(caltech_amm())
-    # print(ucr_amm())
+    print(caltech_amm(filt='sobel'))
+    # print(caltech_amm(filt='dog5x5'))
+    # print(ucr_amm(k=64))
     # cifar10_amm()
 
 

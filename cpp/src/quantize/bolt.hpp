@@ -353,6 +353,7 @@ void bolt_lut(const float* q, int len, const float* centroids, int ncodebooks,
         case 32: bolt_lut<16>(q, len, centroids, offsets, scaleby, out); break;
         case 64: bolt_lut<32>(q, len, centroids, offsets, scaleby, out); break;
         case 128: bolt_lut<64>(q, len, centroids, offsets, scaleby, out); break;
+        default: assert(false);  // unsupported ncodebooks
     }
 }
 template<int Reduction=Reductions::DistL2>
@@ -632,6 +633,8 @@ void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
                const uint8_t* luts, dist_t* dists_out)
 {
     switch(ncodebooks) {
+        case 2: bolt_scan<1, NoOverflow, SignedLUTs>(
+            codes, luts, dists_out, nblocks); break;
         case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
             codes, luts, dists_out, nblocks); break;
         case 8: bolt_scan<4, NoOverflow, SignedLUTs>(
@@ -644,61 +647,9 @@ void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
             codes, luts, dists_out, nblocks); break;
         case 128: bolt_scan<64, NoOverflow, SignedLUTs>(
             codes, luts, dists_out, nblocks); break;
+        default: assert(false);  // unsupported ncodebooks
     }
 }
-// // same as above but uint8 dists_out
-// template<bool NoOverflow=true, bool SignedLUTs=false>
-// void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-//                const uint8_t* luts, uint8_t* dists_out)
-// {
-//     switch(ncodebooks) {
-//         case 4: bolt_scan<2, NoOverflow, SignedLUTs>(
-//             codes, luts, dists_out, nblocks); break;
-//         case 8: bolt_scan<4, NoOverflow, SignedLUTs>(
-//             codes, luts, dists_out, nblocks); break;
-//         case 16: bolt_scan<8, NoOverflow, SignedLUTs>(
-//             codes, luts, dists_out, nblocks); break;
-//         case 32: bolt_scan<16, NoOverflow, SignedLUTs>(
-//             codes, luts, dists_out, nblocks); break;
-//         case 64: bolt_scan<32, NoOverflow, SignedLUTs>(
-//             codes, luts, dists_out, nblocks); break;
-//         case 128: bolt_scan<64, NoOverflow, SignedLUTs>(
-//             codes, luts, dists_out, nblocks); break;
-//     }
-// }
-
-// template<bool NoOverflow=true, bool SignedLUTs=false>
-// void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
-//                int noutputs, const uint8_t* luts, uint16_t* dists_out)
-// {
-//     auto lut_ptr = luts;
-//     auto lut_stride = ncodebooks * 16;
-//     auto out_ptr = dists_out;
-//     auto out_stride = nblocks * 32;
-//     for (int m = 0; m < noutputs; m++) {
-//         bolt_scan<NoOverflow, SignedLUTs>(
-//             codes, nblocks, ncodebooks, lut_ptr, out_ptr);
-//         lut_ptr += lut_stride;
-//         out_ptr += out_stride;
-//     }
-// }
-// // same as above but uint8 outputs
-// template<bool NoOverflow=true, bool SignedLUTs=false>
-// // void bolt_scan(const uint8_t* codes, int64_t nblocks,  int ncodebooks,
-// void bolt_scan_notile(const uint8_t* codes, int64_t nblocks,  int ncodebooks,
-//                int noutputs, const uint8_t* luts, uint8_t* dists_out)
-// {
-//     auto lut_ptr = luts;
-//     auto lut_stride = ncodebooks * 16;
-//     auto out_ptr = dists_out;
-//     auto out_stride = nblocks * 32;
-//     for (int m = 0; m < noutputs; m++) {
-//         bolt_scan<NoOverflow, SignedLUTs>(
-//             codes, nblocks, ncodebooks, lut_ptr, out_ptr);
-//         lut_ptr += lut_stride;
-//         out_ptr += out_stride;
-//     }
-// }
 
 template<bool NoOverflow=true, bool SignedLUTs=false, bool tile=true, class dist_t>
 void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
@@ -707,7 +658,7 @@ void bolt_scan(const uint8_t* codes, int64_t nblocks, int ncodebooks,
     static constexpr int block_nrows = 32;
     static constexpr int lut_sz = 16;
 
-    int chunk_nblocks = nblocks;
+    int chunk_nblocks = (int)nblocks;
     int chunk_nrows = chunk_nblocks * block_nrows; // no tiling
     if (tile) {
         static constexpr int target_chunk_nbytes = 24 * 1024;  // most of L1 cache

@@ -394,25 +394,38 @@ my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
 
 # import sys; sys.exit()
 
+DEFAULT_PLOT_METHODS = ('Mithral', 'MithralPQ', 'Brute Force', 'Bolt',
+                        'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
+                        'Rademacher', 'RandGauss', 'OrthoGauss')
 
-# def lineplot(data, ax, x_metric, y_metric):
-def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False):
+
+def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
+             # plot_methods=None):
+             plot_methods=DEFAULT_PLOT_METHODS):
     estimator = 'mean' if units is None else None
-    # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
-    # order = [m for m in order if m in data['Method'].unique()]
-    order = list(data['method'].unique())
-    # move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
-    # move_methods_to_front = ['Mithral', 'MithralPQ', 'Brute Force']
-    mithral_methods = [method for method in order
-                       if method.lower().startswith('mithral')][::-1]
-    move_methods_to_front = mithral_methods[:]
-    move_methods_to_front.append('Brute Force')
-    for elem in move_methods_to_front[:]:
-        if elem in order:
-            order.remove(elem)
-        else:
-            move_methods_to_front.remove(elem)
-    order = move_methods_to_front + sorted(order)
+    if plot_methods is not None:
+        data = data.loc[data['method'].isin(set(plot_methods))]
+        order = plot_methods
+    else:
+        # order = 'Ours Bolt Exact PQ SVD FD-AMM CD'.split()
+        # order = [m for m in order if m in data['Method'].unique()]
+        order = list(data['method'].unique())
+        # move_methods_to_front = ['Ours', 'OursPQ', 'Brute Force']
+        # move_methods_to_front = ['Mithral', 'MithralPQ', 'Brute Force']
+        mithral_methods = [method for method in order
+                           if method.lower().startswith('mithral')][::-1]
+        move_methods_to_front = mithral_methods[:]
+        move_methods_to_front.append('Brute Force')
+        for elem in move_methods_to_front[:]:
+            if elem in order:
+                order.remove(elem)
+            else:
+                move_methods_to_front.remove(elem)
+        order = move_methods_to_front + sorted(order)
+
+    # order = plot_methods
+
+    # order = list(data['method'].unique())
 
     # have to specify markers or seaborn freaks out because it doesn't
     # have enough of them
@@ -448,6 +461,12 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     df100 = res.cifar100_amm()
     sb.set_context('poster')
     fig, axes = plt.subplots(2, 1, figsize=(11, 13.5), sharex=True)
+
+    plot_methods = ['Mithral', 'MithralPQ', 'Brute Force', 'Bolt',
+                    'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
+                    'Rademacher', 'RandGauss', 'OrthoGauss']
+    # df10 = df10.loc[df10['method'].isin(set(plot_methods))]
+    # df100 = df100.loc[df100['method'].isin(set(plot_methods))]
 
     # df10 = df10.loc[df10['method'] != 'OrthoGauss']
     # df100 = df100.loc[df100['method'] != 'OrthoGauss']
@@ -497,51 +516,70 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
 
 
 def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
-    df = res.caltech_amm()
+    # df = res.caltech_amm()
+    # df = res.caltech_amm()
+    df0 = res.caltech_amm(filt='sobel')
+    df1 = res.caltech_amm(filt='dog5x5')
     # print("df cols: ", df.columns)
 
     sb.set_context('poster')
-    fig, ax = plt.subplots(1, 1, figsize=(11, 6))
+    # fig, ax = plt.subplots(1, 1, figsize=(11, 6))
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8))
     # axes = [ax]
-    is_mithral = df['method'].str.startswith('Mithral')
+    # is_mithral = df['method'].str.startswith('Mithral')
     # is_exact = df['method'] == 'Brute Force'
     # others_to_keep = df['method'].isin(['Brute Force', 'PCA', 'SparsePCA'])
-    others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
-    df = df.loc[is_mithral | others_to_keep]  # others suck too hard
+    # others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
+    # df = df.loc[is_mithral | others_to_keep]  # others suck too hard
 
-    df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
-    df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
+    # df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
+    # df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
 
-    # df = _clean_amm_results_df(df, timing_dtype='i8')
-    # print("df cols: ", df.columns)
+    # print("df uniq methods: ", df['method'].unique())
     # import sys; sys.exit()
 
-    # df['not_mse'] = 1. - df['normalized_mse']
-    # df = df.loc[df['not_mse'] < 2]
-    # print("df[1 - nmse]", df['1 - NMSE'].values)
+    # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA', 'OSNAP']
+    # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA', 'HashJL', 'OSNAP', 'FastJL']
+    keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA']
+    df0 = df0.loc[df0['method'].isin(keep_methods)]
+    df1 = df1.loc[df1['method'].isin(keep_methods)]
+
+    # print("df1:\n", df1.loc[(df1['method'] == 'MithralPQ') & df1['task_id'].str.contains('509')])
+    # import sys; sys.exit()
 
     # lineplot(df, ax, x_metric=x_metric, y_metric=y_metric, units=None)
-    lineplot(df, ax, x_metric=x_metric, y_metric=y_metric)
+    lineplot(df0, axes[0], x_metric=x_metric, y_metric=y_metric,
+             plot_methods=keep_methods)
+    lineplot(df1, axes[1], x_metric=x_metric, y_metric=y_metric,
+             plot_methods=keep_methods)
 
-    plt.suptitle('Approximating an Image Filter')
-    ax.set_xlabel(_xlabel_for_xmetric(x_metric))
-    ax.set_ylabel(y_metric)
-
-    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = axes[-1].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
-    ax.get_legend().remove()
-    plt.figlegend(handles, labels, loc='lower center', ncol=3)
+    # plt.figlegend(handles, labels, loc='lower center', ncol=2)
+    plt.figlegend(handles, labels, loc='lower center', ncol=4)
 
-    # ax.semilogx()
-    # ax.semilogy()
-    # ax.set_xlim([.9, ax.get_xlim()[1]])
-    # ax.set_ylim([.2, 1.1])
-    plt.plot([1, 1], ax.get_ylim(), 'k--')
+    # plt.suptitle('Approximating an Image Filter')
+    for ax in axes:
+        ax.set_xlabel(_xlabel_for_xmetric(x_metric), fontsize=20)
+        ax.set_ylabel(y_metric)
+        ax.get_legend().remove()
+        ax.set_ylim([-.01, 1.01])
+        ax.plot([1, 1], ax.get_ylim(), 'k--')
+    # for ax in axes[:-1]:
+    #     # remove x labels except for bottom axis
+    #     plt.setp(ax.get_xticklabels(), visible=False)
+    #     ax.get_xaxis().set_visible(False)
+    axes[0].set_title('Approximating a Sobel Filter')
+    axes[1].set_title('Approximating a Gaussian Filter')
 
+    # plt.subplots_adjust(top=.91, bottom=.37)
     plt.tight_layout()
-    plt.subplots_adjust(top=.91, bottom=.37)
+    # plt.subplots_adjust(bottom=.26, hspace=.72)  # with ncol=2
+    plt.subplots_adjust(bottom=.22, hspace=.7)  # with ncol=2
     # plt.subplots_adjust(top=.95, bottom=.1)
     save_fig('caltech_{}_{}'.format(x_metric, '1 - NMSE'))
+    # save_fig('caltech_sobel_{}_{}'.format(x_metric, '1 - NMSE'))
+    # save_fig('caltech_dog_{}_{}'.format(x_metric, '1 - NMSE'))
 
 
 # def ucr_fig(x_metric='Speedup', y_metric='Accuracy'):
@@ -628,8 +666,8 @@ def main():
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='NormalizedTime')
     # cifar_fig(x_metric='Speedup')
-    # caltech_fig()
-    ucr_fig()
+    caltech_fig()
+    # ucr_fig()
 
 
 if __name__ == '__main__':

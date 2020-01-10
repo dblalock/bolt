@@ -128,11 +128,14 @@ void pq_encode_8b(const float* X, int64_t nrows, int64_t ncols, int ncodebooks,
                   const float* centroids, uint8_t* out)
 {
     switch(ncodebooks) {
+        case 1: pq_encode_8b<1>(X, nrows, ncols, centroids, out); break;
+        case 2: pq_encode_8b<2>(X, nrows, ncols, centroids, out); break;
         case 4: pq_encode_8b<4>(X, nrows, ncols, centroids, out); break;
         case 8: pq_encode_8b<8>(X, nrows, ncols, centroids, out); break;
         case 16: pq_encode_8b<16>(X, nrows, ncols, centroids, out); break;
         case 32: pq_encode_8b<32>(X, nrows, ncols, centroids, out); break;
         case 64: pq_encode_8b<64>(X, nrows, ncols, centroids, out); break;
+        default: assert(false);  // unsupported ncodebooks
     }
 }
 
@@ -233,11 +236,14 @@ void pq_lut_8b(const float* Q, int nrows, int ncols, int ncodebooks,
                const float* centroids, dist_t* out)
 {
     switch(ncodebooks) {
+        case 1: pq_lut_8b<1>(Q, nrows, ncols, centroids, out); break;
+        case 2: pq_lut_8b<2>(Q, nrows, ncols, centroids, out); break;
         case 4: pq_lut_8b<4>(Q, nrows, ncols, centroids, out); break;
         case 8: pq_lut_8b<8>(Q, nrows, ncols, centroids, out); break;
         case 16: pq_lut_8b<16>(Q, nrows, ncols, centroids, out); break;
         case 32: pq_lut_8b<32>(Q, nrows, ncols, centroids, out); break;
         case 64: pq_lut_8b<64>(Q, nrows, ncols, centroids, out); break;
+        default: assert(false);  // unsupported ncodebooks
     }
 }
 
@@ -291,12 +297,14 @@ void pq_scan_8b(const uint8_t* codes, int nrows, int ncodebooks,
                 const dist_t* luts, dist_t* dists_out)
 {
     switch(ncodebooks) {
+        case 1: pq_scan_8b<1>(codes, luts, dists_out, nrows); break;
         case 2: pq_scan_8b<2>(codes, luts, dists_out, nrows); break;
         case 4: pq_scan_8b<4>(codes, luts, dists_out, nrows); break;
         case 8: pq_scan_8b<8>(codes, luts, dists_out, nrows); break;
         case 16: pq_scan_8b<16>(codes, luts, dists_out, nrows); break;
         case 32: pq_scan_8b<32>(codes, luts, dists_out, nrows); break;
         case 64: pq_scan_8b<64>(codes, luts, dists_out, nrows); break;
+        default: assert(false);  // unsupported ncodebooks
     }
 }
 
