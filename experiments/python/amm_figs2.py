@@ -19,6 +19,8 @@ from . import amm_results2 as res
 
 FIGS_SAVE_DIR = pl.Path('../figs/amm')
 USE_FONT = 'DejaVu Sans'
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.sans-serif'] = [USE_FONT]
 
 
 if not os.path.exists(FIGS_SAVE_DIR):
@@ -37,7 +39,7 @@ def _xlabel_for_xmetric(x_metric):
             'nlookups': 'Number of Lookups',
             'ops': 'Number of Operations',
             'Latency': 'Latency (ms)',
-            'Speedup': 'Speedup over Brute Force',
+            'Speedup': 'Speedup Over Brute Force',
             'NormalizedTime': 'Normalized Latency',
             'Throughput': 'Throughput (elements/s)'}[x_metric]
 
@@ -437,7 +439,7 @@ def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
     if scatter:
         # sb.violinplot(cut=0, saturation=1, linewidth=.001, scale='width', inner='box',
         # data['Speedup'] *= 1 + (np.random.randn(len(data['Speedup'])) / 100)
-        sb.scatterplot(alpha=.4, # seems to suck the least
+        sb.scatterplot(alpha=.25, # seems to suck the least
             data=data, x=x_metric, y=y_metric, hue='method',
             style='method', style_order=order, hue_order=order,
             markers=use_markers, estimator=estimator,
@@ -569,8 +571,8 @@ def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
     #     # remove x labels except for bottom axis
     #     plt.setp(ax.get_xticklabels(), visible=False)
     #     ax.get_xaxis().set_visible(False)
-    axes[0].set_title('Approximating a Sobel Filter')
-    axes[1].set_title('Approximating a Gaussian Filter')
+    axes[0].set_title('Approximating a Sobel Filter', y=1.02)
+    axes[1].set_title('Approximating a Gaussian Filter', y=1.02)
 
     # plt.subplots_adjust(top=.91, bottom=.37)
     plt.tight_layout()
@@ -583,11 +585,30 @@ def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
 
 
 # def ucr_fig(x_metric='Speedup', y_metric='Accuracy'):
+# def ucr_fig(x_metric='Speedup', y_metric='Change in Accuracy'):
 def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
-    df = res.ucr_amm()
+    # df = res.ucr_amm()
+    # df = res.ucr_amm(k=64)
+    # df = res.ucr_amm(k=128)
+    # df = res.ucr_amm(k=256)
+    df0 = res.ucr_amm(k=64)
+    df1 = res.ucr_amm(k=128)
+    df2 = res.ucr_amm(k=256)
     sb.set_context('poster')
-    fig, ax = plt.subplots(1, 1, figsize=(11, 8))
+    # fig, ax = plt.subplots(1, 1, figsize=(11, 8))
+    fig, axes = plt.subplots(3, 1, figsize=(12, 13), sharex=True)
     # axes = [ax]
+
+    # df = df.loc[df['task_id'].str.lower().str.contains('starlight')]
+    # df = df.loc[df['method'] == 'Mithral']
+    # # df = df.loc[df['method'] == 'MithralPQ']
+    # # df = df.loc[df['ncodebooks'] == 4]
+    # df = df['Accuracy acc_orig acc_orig_1nn ncodebooks method task_id'.split() + ['Relative Accuracy']]
+    # df.reset_index(inplace=True, drop=True)
+    # print(df)
+    # import sys; sys.exit()
+
+    # df['Change in Accuracy'] = df['Accuracy'] - df['acc-1nn-raw']
 
     # print("uniq N, D, M: ")
     # print(df['N'].unique())
@@ -620,40 +641,56 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     #     df['BaseAccuracy'] = [tid2acc[tid] for tid in df['task_id']]
     #     df['Relative Accuracy'] = df['Accuracy'] / df['BaseAccuracy']
 
-    df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
-    df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
-    df = df.loc[df['method'] != 'Brute Force']
+    # df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
+    # # df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
+    # df0 = df0.loc[df0['method'] != 'Brute Force']
+    # df1 = df1.loc[df1['method'] != 'Brute Force']
+    # df2 = df2.loc[df2['method'] != 'Brute Force']
 
-    is_mithral = df['method'].str.startswith('Mithral')
-    # # is_exact = df['method'] == 'Brute Force'
-    others_to_keep = df['method'].isin([
-        'Brute Force', 'PCA', 'SparsePCA', 'Bolt', 'HashJL', 'OSNAP'])
-    # others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
-    df = df.loc[is_mithral | others_to_keep]
+    # print(df.columns)
+    # import sys; sys.exit()
+
+    def clean_df(df):
+        df['Change in Accuracy'] = df['Accuracy'] - df['acc-1nn-raw']
+        # is_mithral = df['method'].str.startswith('Mithral')
+        is_mithral = df['method'] == 'Mithral'
+        # # is_exact = df['method'] == 'Brute Force'
+        others_to_keep = df['method'].isin([
+            'PCA', 'SparsePCA', 'Bolt', 'HashJL', 'OSNAP'])
+        # others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
+        return df.loc[is_mithral | others_to_keep]
+
+    df0 = clean_df(df0)
+    df1 = clean_df(df1)
+    df2 = clean_df(df2)
+
     # df = df.loc[df['method'] == 'Brute Force']
 
     # df['not_mse'] = 1. - df['normalized_mse']
     # df = df.loc[df['not_mse'] < 2]
-    lineplot(df, ax, x_metric=x_metric, y_metric=y_metric, scatter=True)
+    lineplot(df0, axes[0], x_metric=x_metric, y_metric=y_metric, scatter=True)
+    lineplot(df1, axes[1], x_metric=x_metric, y_metric=y_metric, scatter=True)
+    lineplot(df2, axes[2], x_metric=x_metric, y_metric=y_metric, scatter=True)
 
-    plt.suptitle('Approximating a Nearest-Neighbor Classifier')
-    ax.set_xlabel(_xlabel_for_xmetric(x_metric))
+    plt.suptitle('Approximating an RBF Kernel Classifier')
+    axes[-1].set_xlabel(_xlabel_for_xmetric(x_metric))
     # ax.set_ylabel('1. - NMSE')
-    ax.set_ylabel(y_metric)
 
-    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = axes[-1].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
-    ax.get_legend().remove()
     plt.figlegend(handles, labels, loc='lower center', ncol=3)
 
-    ax.semilogx()
-    # ax.semilogy()
-    ax.set_xlim([.9, ax.get_xlim()[1]])
+    for ax in axes:
+        ax.set_ylabel(y_metric)
+        ax.get_legend().remove()
+        ax.semilogx()
+        ax.set_xlim([.9, ax.get_xlim()[1]])
+
     # ax.set_ylim([.2, 1.1])
     # plt.plot([1, 1], ax.get_ylim(), 'k--')
 
     plt.tight_layout()
-    plt.subplots_adjust(top=.91, bottom=.37)
+    plt.subplots_adjust(top=.91, bottom=.25)
     # plt.subplots_adjust(top=.95, bottom=.1)
     save_fig('ucr_{}_{}'.format(x_metric, y_metric))
 
@@ -666,8 +703,8 @@ def main():
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='NormalizedTime')
     # cifar_fig(x_metric='Speedup')
-    caltech_fig()
-    # ucr_fig()
+    # caltech_fig()
+    ucr_fig()
 
 
 if __name__ == '__main__':

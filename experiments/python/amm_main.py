@@ -31,8 +31,8 @@ def _estimator_for_method_id(method_id, **method_hparams):
 def _hparams_for_method(method_id):
     if method_id in methods.SKETCH_METHODS:
         # dvals = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # d=1 undef on fd methods
-        dvals = [1, 2, 4, 8, 16, 32, 64, 128]
-        # dvals = [1, 2, 4, 8, 16, 32, 64]
+        # dvals = [1, 2, 4, 8, 16, 32, 64, 128]
+        dvals = [1, 2, 4, 8, 16, 32, 64]
         # dvals = [1, 2, 4, 8, 16, 32]
         # dvals = [1, 2, 4, 8]
         # dvals = [32] # TODO rm after debug
@@ -500,7 +500,9 @@ def main():
 
     # use_methods = list(methods.USE_METHODS)
     # use_methods.remove(methods.METHOD_SPARSE_PCA)
-    # main_ucr(methods=methods.USE_METHODS, k=256)
+    # main_ucr(methods=[methods.METHOD_BOLT, methods.METHOD_MITHRALPQ, methods.METHOD_MITHRAL], k=128)
+    main_ucr(methods=methods.FAST_SKETCH_METHODS, k=128)
+    # main_ucr(methods=methods.USE_METHODS, k=64)
     # main_caltech(methods='Bolt', filt='dog5x5')
     # main_caltech(methods=methods.USE_CALTECH_METHODS[2:], filt='dog5x5')
     # main_caltech(methods=methods.METHOD_SPARSE_PCA, filt='dog5x5')
@@ -521,7 +523,7 @@ def main():
     # main_caltech(methods=methods.DENSE_SKETCH_METHODS[1:])  # skip pca
     # main_caltech(methods='Bolt')
     # main_caltech(methods='Mithral')
-    main_caltech(methods='MithralPQ', filt='dog5x5')
+    # main_caltech(methods='MithralPQ', filt='dog5x5')
 
     # main_caltech(methods='SparsePCA')
     # main_caltech(methods=['Mithral', 'MithralPQ'])

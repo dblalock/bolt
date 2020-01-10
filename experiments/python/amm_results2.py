@@ -495,6 +495,9 @@ def _clean_metrics_amm(df):
     df['1 - NMSE'] = 1. - df['normalized_mse']
     if 'Accuracy' in df.columns:
         df['Relative Accuracy'] = df['Accuracy'] / (df['acc_orig'] + 1e-20)
+        # print("df.columns", df.columns)
+        # df['Change in Accuracy'] = df['Accuracy'] - df['acc-1nn-raw']
+        # if 'acc-1nn-raw' in df.columns:
         # # # note that relative accuracy can actually be higher if errors
         # # # happen to compensate for incorrect classification sometimes
         # # print("max relative acc: ", df['Relative Accuracy'].values.max())
@@ -554,37 +557,42 @@ def _clean_amm_results_df(df, timing_dtype='f32'):
     return df
 
 
-# @_memory.cache
-def cifar10_amm():
-    df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar10.csv'))
+@_memory.cache
+def _read_amm_csv(fname, **kwargs):
+    df = pd.read_csv(os.path.join(RESULTS_DIR, fname), **kwargs)
     drop_cols_inplace(df, AMM_DROP_COLS)
+    return df
+
+
+def cifar10_amm():
+    # df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar10.csv'))
+    # drop_cols_inplace(df, AMM_DROP_COLS)
+    df = _read_amm_csv('cifar10.csv')
     return _clean_amm_results_df(df)
 
 
 def cifar100_amm():
-    df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar100.csv'))
-    drop_cols_inplace(df, AMM_DROP_COLS)
+    # df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar100.csv'))
+    # drop_cols_inplace(df, AMM_DROP_COLS)
+    df = _read_amm_csv('cifar100.csv')
     return _clean_amm_results_df(df)
 
 
 @_memory.cache
 def caltech_amm(filt='sobel'):
     """filt must be one of {'sobel','dog5x5'}"""
-    df = pd.read_csv(os.path.join(RESULTS_DIR, 'caltech_{}.csv'.format(filt)))
-    drop_cols_inplace(df, AMM_DROP_COLS)
+    # df = pd.read_csv(os.path.join(RESULTS_DIR, ))
+    # drop_cols_inplace(df, AMM_DROP_COLS)
+    df = _read_amm_csv('caltech_{}.csv'.format(filt))
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
-@_memory.cache
+# @_memory.cache
 def ucr_amm(k=64):
     """k must be one of {64,128,256}"""
-    df = pd.read_csv(os.path.join(RESULTS_DIR, 'ucr_k={}.csv'.format(k)))
-    drop_cols_inplace(df, AMM_DROP_COLS)
+    df = _read_amm_csv('ucr_k={}.csv'.format(k))
     df['origN'] = df['N'].values
     df['N'] = 1000  # timing is for test size of 1000
-
-    # df['M'] = 128  # XXX rm after we redo the timing results
-
     return _clean_amm_results_df(df)
 
 
