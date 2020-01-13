@@ -44,6 +44,12 @@ def _xlabel_for_xmetric(x_metric):
             'Throughput': 'Throughput (elements/s)'}[x_metric]
 
 
+def _ylabel_for_xmetric(y_metric):
+    if y_metric == 'Relative Accuracy':
+        return 'Normalized\nAccuracy'
+    return y_metric
+
+
 def add_ylabels_on_right(axes, fmt, vals):
     for i, ax in enumerate(axes):
         lbl = fmt.format(vals[i])

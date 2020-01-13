@@ -558,8 +558,8 @@ def _clean_amm_results_df(df, timing_dtype='f32'):
 
 
 @_memory.cache
-def _read_amm_csv(fname, **kwargs):
-    df = pd.read_csv(os.path.join(RESULTS_DIR, fname), **kwargs)
+def _read_amm_csv(csv_basename, **kwargs):
+    df = pd.read_csv(os.path.join(RESULTS_DIR, csv_basename), **kwargs)
     drop_cols_inplace(df, AMM_DROP_COLS)
     return df
 
@@ -587,12 +587,12 @@ def caltech_amm(filt='sobel'):
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
-# @_memory.cache
+@_memory.cache
 def ucr_amm(k=64):
-    """k must be one of {64,128,256}"""
+    """k must be one of {64, 128, 256}"""
     df = _read_amm_csv('ucr_k={}.csv'.format(k))
     df['origN'] = df['N'].values
-    df['N'] = 1000  # timing is for test size of 1000
+    df['N'] = 1000  # timing is for test set size of 1000
     return _clean_amm_results_df(df)
 
 
