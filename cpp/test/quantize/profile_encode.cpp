@@ -18,11 +18,14 @@
     #include "amm_common.hpp"
 #endif
 
-void _profile_encode(int N, int D, int ncodebooks) {
+// void _profile_encode(int N, int D, int ncodebooks) {
+void _profile_encode(int N, int D, int nbytes) {
     static constexpr int nsplits_per_codebook = 4;
     static constexpr int group_id_nbits = 4;
     static constexpr int max_ngroups = 1 << group_id_nbits;
+    int ncodebooks = 2 * nbytes;
     int total_nsplits = ncodebooks * nsplits_per_codebook;
+    int ncodebooks_pq = nbytes;
 
     // shared
     ColMatrix<float> X(N, D); X.setRandom();
@@ -47,25 +50,25 @@ void _profile_encode(int N, int D, int ncodebooks) {
 
     std::string msg;
     auto fmt_as_cppstring = string_with_format(
-        "%%-22s, N D C:, %7d, %3d, %2d,\t", N, D, ncodebooks);
+        "%%-22s, N D C B:, %7d, %3d, %%3d, %2d,\t", N, D, nbytes);
     auto fmt = fmt_as_cppstring.c_str();
 
     // ------------------------ mithral
-    msg = string_with_format(fmt, "mithral encode 4b f32");
+    msg = string_with_format(fmt, "mithral encode f32", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         mithral_encode(
             X.data(), N, D, splitdims.data(), all_splitvals.data(),
             scales.data(), offsets.data(), ncodebooks, out.data()));
 
-    msg = string_with_format(fmt, "mithral encode 4b i8");
+    msg = string_with_format(fmt, "mithral encode i8", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         mithral_encode(
             X_i8.data(), N, D, splitdims.data(), all_splitvals.data(),
             ncodebooks, out.data()));
 
-    msg = string_with_format(fmt, "mithral encode i16");
+    msg = string_with_format(fmt, "mithral encode i16", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         mithral_encode(
@@ -78,16 +81,15 @@ void _profile_encode(int N, int D, int ncodebooks) {
     // ------------------------ bolt
     ColMatrix<float> centroids(16, D); centroids.setRandom();
 
-    msg = string_with_format(fmt, "bolt encode");
+    msg = string_with_format(fmt, "bolt encode", ncodebooks);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         bolt_encode(X.data(), N, D, ncodebooks, centroids.data(), out.data()));
 
     // ------------------------ pq
     ColMatrix<float> centroids256(256, D); centroids256.setRandom();
-    // ColMatrix<float> out_f32(N, ncodebooks); out_f32.setRandom();
 
-    msg = string_with_format(fmt, "pq encode");
+    msg = string_with_format(fmt, "pq encode", ncodebooks_pq);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         pq_encode_8b(X.data(), N, D, ncodebooks,
@@ -96,7 +98,7 @@ void _profile_encode(int N, int D, int ncodebooks) {
     // ------------------------ opq
     ColMatrix<float> R(D, D); R.setRandom();
     RowMatrix<float> X_tmp(N, D);
-    msg = string_with_format(fmt, "opq encode");
+    msg = string_with_format(fmt, "opq encode", ncodebooks_pq);
     REPEATED_PROFILE_DIST_COMPUTATION(kNreps, msg, kNtrials,
         out.data(), out.size(),
         opq_encode_8b(X, ncodebooks, centroids256.data(),
@@ -106,16 +108,16 @@ void _profile_encode(int N, int D, int ncodebooks) {
 TEST_CASE("vq encode timing", "[amm][encode][profile]") {
     static constexpr int nrows = 1 << 14;
 
-    printf("algo, _0, N, D, C, "
-           "_1, latency0, _2, latency1, _3, latency2, _4\n");
-    
+    // NOTE: python code needs header to not be included in the csv file
+    printf("algo, _0, N, D, C, B, "
+           "_1, latency0, _2, latency1, _3, latency2, _4, "
+           "latency3, _5, latency4, _6\n");
+
     std::vector<int> all_ncols = {32, 64, 128, 256, 512, 1024};
-//    std::vector<int> all_ncols = {512, 1024};
-    std::vector<int> all_ncodebooks = {16, 32, 64};
+    std::vector<int> all_nbytes = {8, 16, 32};
     for (auto ncols : all_ncols) {
-        for (auto c : all_ncodebooks) {
-            // fails at OPQ 102400, 512, 16; pq works...
-            _profile_encode(nrows, ncols, c);
+        for (auto b : all_nbytes) {
+            _profile_encode(nrows, ncols, b);
         }
     }
 }

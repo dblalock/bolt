@@ -74,10 +74,10 @@ def drop_cols_inplace(df, cols):
 
 def encode_timings():
     TIMINGS_PATH = os.path.join(TIMING_RESULTS_DIR, 'encode-timing.csv')
-    # ORIG_HEADERS = 'algo __ N D C ___ t0 _0 t1 _1 t2 _2 t3 _3 t4 _4'.split()
-    # USE_HEADERS = 'algo N D C t0 t1 t2 t3 t4'.split()
-    ORIG_HEADERS = 'algo __ N D C ___ t0 _0 t1 _1 t2 _2'.split()
-    USE_HEADERS = 'algo N D C t0 t1 t2'.split()
+    ORIG_HEADERS = 'algo __ N D C B ___ t0 _0 t1 _1 t2 _2 t3 _3 t4 _4'.split()
+    USE_HEADERS = 'algo N D C B t0 t1 t2 t3 t4'.split()
+    # ORIG_HEADERS = 'algo __ N D C ___ t0 _0 t1 _1 t2 _2'.split()
+    # USE_HEADERS = 'algo N D C t0 t1 t2'.split()
 
     df = _read_csv_with_garbage(TIMINGS_PATH, names=ORIG_HEADERS, header=None)
     df = df[USE_HEADERS]

@@ -122,12 +122,12 @@ def scan_speed_fig(save=True):
     axes[0].set_title('Speed of f() Functions for Different Encoding Sizes',
                       y=1.04, family=USE_FONT, fontsize=18)
 
-    # get and set them again so we can make the first one bold; can't make
-    # it bold beforehand because need a tick lbl object, not a string
-    xlabels = list(axes[-1].get_xticklabels())
-    xlabels[0].set_weight('bold')
-    # axes[-1].set_xticklabels(xlabels, rotation=60, ha='right')
-    axes[-1].set_xticklabels(xlabels)
+    # # get and set them again so we can make the first one bold; can't make
+    # # it bold beforehand because need a tick lbl object, not a string
+    # xlabels = list(axes[-1].get_xticklabels())
+    # xlabels[0].set_weight('bold')
+    # # axes[-1].set_xticklabels(xlabels, rotation=60, ha='right')
+    # axes[-1].set_xticklabels(xlabels)
 
     axes[-1].tick_params(axis='x', which='major', pad=4)
     axes[-1].set_xlabel("", labelpad=-30)
@@ -149,19 +149,38 @@ def encode_speed_fig(save=True):
     # ================================ data cleaning
     df = res.encode_timings()
 
+    # print(df)
+    # # # print(df['B'])
+    # # # print(df['C'])
+    # import sys; sys.exit()
+
     name_map = collections.OrderedDict()
-    name_map['mithral encode 4b i8'] = 'Mithral i8'
+    # name_map['mithral encode i8'] = r'$\bf{Mithral}$ $\bf{i8}$')
+    # name_map['mithral encode i8'] = r'$\bf{Mithral}$ $\bf{i8}$')
+    name_map['mithral encode i8'] = 'Mithral i8'
+    # name_map['mithral encode i16'] = 'Mithral i16'  # no i16 in plot
+    name_map['mithral encode f32'] = 'Mithral f32'
     name_map['bolt encode'] = 'Bolt'
-    name_map['mithral encode 4b i16'] = 'Mithral i16'
     name_map['pq encode'] = 'PQ'
-    name_map['mithral encode 4b f32'] = 'Mithral f32'
     name_map['opq encode'] = 'OPQ'
     df = res.rename_values_in_col(df, 'algo', name_map)
-    df = res.melt_times(df, ntimes=3)  # TODO rerun with ntrials=5
+    df = res.melt_times(df, ntimes=5)
 
-    df['thruput'] = df['N'] * df['D'] / df['time']
+    # df['thruput'] = df['N'] * df['D'] / df['time']
+    df['thruput'] = df['N'] / (df['time'] * .001)  # rows/sec
     # df['thruput'] /= 1e6  # just use units of billions; times are in ms
-    df['B'] = df['C'] / 2
+    # full_byte_per_codebook = df['algo'].isin(['PQ', 'OPQ'])
+    # df['B'] = df['C'].values / 2
+
+    # # cvals = df['C'].loc[full_byte_per_codebook]
+    # df['B'].loc[full_byte_per_codebook] = df['C'].loc[full_byte_per_codebook]
+    # df['B'] = df['B'].astype(np.int)
+
+    # # print("df.cols: ", df.columns)
+    # print(df)
+    # # # print(df['B'])
+    # # # print(df['C'])
+    # import sys; sys.exit()
 
     # ================================ fig creation
 
@@ -175,13 +194,23 @@ def encode_speed_fig(save=True):
     fig, axes = plt.subplots(len(use_nbytes), 1, figsize=(6, 8), sharey=True)
     for i, nbytes in enumerate(use_nbytes):
         data = df.loc[df['B'] == nbytes]
+
+        # print("df.cols: ", df.columns)
+        # print(data)
+        # # # print(df['B'])
+        # # # print(df['C'])
+        # import sys; sys.exit()
+
         order = name_map.values()
         dashes = {name: ([] if name.lower().startswith('mithral') else
                          mpl.rcParams['lines.dashed_pattern'])
                   for name in order}
+        # sb.lineplot(data=data, x='D', y='thruput', hue='algo',
         sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='timing_trial',
                     ax=axes[i], ci='sd', estimator=None, hue_order=order,
                     style='algo', style_order=order, dashes=dashes)
+
+        # import sys; sys.exit()
 
     # ------------------------ axis cleanup
     axes[0].set_title('Speed of g() Functions\nfor Different Encoding Sizes',
@@ -190,6 +219,7 @@ def encode_speed_fig(save=True):
     handles, labels = axes[0].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm df column name
     plt.figlegend(handles, labels, loc='lower center', ncol=3, fontsize=13)
+    # plt.figlegend(handles, labels, loc='lower center', ncol=2, fontsize=13)
 
     for ax in axes:
         # ax.semilogx()
@@ -199,7 +229,8 @@ def encode_speed_fig(save=True):
         # ax.set_ylabel('Scalars Encoded/s\n(Billions)',
         # ax.set_ylabel('Scalars Encoded\nper Second (Billions)',
         # ax.set_ylabel('Scalars Encoded\nper Second',
-        ax.set_ylabel('Scalars Encoded/s',
+        # ax.set_ylabel('Scalars Encoded/s',
+        ax.set_ylabel('Rows Encoded/s',
                       family=USE_FONT, fontsize=14)
     for ax in axes[:-1]:
         # remove x labels except for bottom axis
@@ -228,6 +259,8 @@ def lut_speed_fig(save=True):
     df = res.lut_timings()
 
     name_map = collections.OrderedDict()
+    # name_map['mithral lut dense'] = '$\bf{Mithral}$'
+    # name_map['mithral lut sparse'] = '$\bf{Mithral}$'
     name_map['mithral lut dense'] = 'Mithral'
     name_map['mithral lut sparse'] = 'Mithral'
     name_map['bolt lut'] = 'Bolt'
@@ -303,7 +336,7 @@ def lut_speed_fig(save=True):
     for i, nbytes in enumerate(use_nbytes):
         data = df.loc[df['B'] == nbytes]
         ax = axes[i]
-        print(f"------------------------ {nbytes}B")
+        # print(f"------------------------ {nbytes}B")
         # manual version
         # for algo in order:
         #     subdf = data.loc[df['algo'] == algo]
@@ -687,7 +720,7 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     plt.figlegend(handles, labels, loc='lower center', ncol=3)
 
     for ax in axes:
-        ax.set_ylabel(y_metric)
+        ax.set_ylabel(_ylabel_for_xmetric(y_metric))
         ax.get_legend().remove()
         ax.semilogx()
         ax.set_xlim([.9, ax.get_xlim()[1]])
@@ -696,21 +729,21 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     # plt.plot([1, 1], ax.get_ylim(), 'k--')
 
     plt.tight_layout()
-    plt.subplots_adjust(top=.91, bottom=.25)
+    plt.subplots_adjust(top=.94, bottom=.25)
     # plt.subplots_adjust(top=.95, bottom=.1)
     save_fig('ucr_{}_{}'.format(x_metric, y_metric))
 
 
 def main():
     # scan_speed_fig()
-    # encode_speed_fig()
+    encode_speed_fig()
     # lut_speed_fig()
     # cifar_fig()
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='NormalizedTime')
     # cifar_fig(x_metric='Speedup')
     # caltech_fig()
-    ucr_fig()
+    # ucr_fig()
 
 
 if __name__ == '__main__':
