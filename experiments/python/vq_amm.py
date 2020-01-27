@@ -243,31 +243,31 @@ class PQPermMultiSplits(PQMatmul):
 
 # ================================================================ Mithral
 
-class MithralPQ(PQMatmul):
+# class MithralPQ(PQMatmul):
 
-    # def _get_ncentroids(self):
-    #     return 16
+#     # def _get_ncentroids(self):
+#     #     return 16
 
-    def __init__(self, ncodebooks):
-        super().__init__(ncodebooks=ncodebooks, ncentroids=16)
+#     def __init__(self, ncodebooks):
+#         super().__init__(ncodebooks=ncodebooks, ncentroids=16)
 
-    def _create_encoder(self, ncodebooks):
-        return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
-                            encode_algo='multisplits',
-                            quantize_lut=True,
-                            upcast_every=16,  # fine as long as using mean
-                            accumulate_how='mean')
+#     def _create_encoder(self, ncodebooks):
+#         return vq.PQEncoder(ncodebooks=ncodebooks, ncentroids=self.ncentroids,
+#                             encode_algo='multisplits',
+#                             quantize_lut=True,
+#                             upcast_every=16,  # fine as long as using mean
+#                             accumulate_how='mean')
 
-    def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
-        N, D = A.shape
-        D, M = B.shape
-        # data encoding and LUT costs
-        nmuls = 0
-        nmuls += 0 if fixedA else N * D  # offset + scale before quantize
-        nmuls += 0 if fixedB else M * self.ncentroids * D
-        # lookups given encoded data + luts
-        nlookups = N * M * self.ncodebooks
-        return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
+#     def get_speed_metrics(self, A, B, fixedA=False, fixedB=False):
+#         N, D = A.shape
+#         D, M = B.shape
+#         # data encoding and LUT costs
+#         nmuls = 0
+#         nmuls += 0 if fixedA else N * D  # offset + scale before quantize
+#         nmuls += 0 if fixedB else M * self.ncentroids * D
+#         # lookups given encoded data + luts
+#         nlookups = N * M * self.ncodebooks
+#         return {amm.KEY_NMULTIPLIES: nmuls, KEY_NLOOKUPS: nlookups}
 
 
 class MithralMatmul(VQMatmul):
@@ -318,3 +318,9 @@ class MithralMatmul(VQMatmul):
             self.set_B(B)
         return self.enc.dists_enc(self.A_enc, self.luts,
                                   offset=self.offset, scale=self.scale)
+
+
+class MithralPQ(MithralMatmul):
+
+    def __init__(self, ncodebooks):
+        super().__init__(ncodebooks=ncodebooks, lut_work_const=1)

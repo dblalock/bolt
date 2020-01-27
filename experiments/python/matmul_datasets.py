@@ -409,6 +409,16 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
     #     dot_prods = np.sum(windows * broadcast_filt, axis=(2, 3, 4))
     #     Y[:, i] = dot_prods.reshape(len(X))
 
+
+
+    # # TODO rm
+    # from .vquantizers import ensure_num_cols_multiple_of
+    # X = ensure_num_cols_multiple_of(X, 64)
+    # W = ensure_num_cols_multiple_of(W.T, 64).T
+
+
+
+
     return X, X @ W
 
 
@@ -486,13 +496,13 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
 
     test_imgs = _load_caltech_test_imgs()
 
-    print("caltech tasks stats:")
-    print("X train shape: ", X_train.shape)
-    print("X train nbytes: ", X_train.nbytes)
-    print("Y train shape: ", Y_train.shape)
-    print("Y train nbytes: ", Y_train.nbytes)
-    # print("type(test_imgs)", type(test_imgs))
-    print("len(test_imgs)", len(test_imgs))
+    # print("caltech tasks stats:")
+    # print("X train shape: ", X_train.shape)
+    # print("X train nbytes: ", X_train.nbytes)
+    # print("Y train shape: ", Y_train.shape)
+    # print("Y train nbytes: ", Y_train.nbytes)
+    # # print("type(test_imgs)", type(test_imgs))
+    # print("len(test_imgs)", len(test_imgs))
 
     _, test_ids = load_caltech_img_ids()
     # for i, _ in enumerate(test_imgs):

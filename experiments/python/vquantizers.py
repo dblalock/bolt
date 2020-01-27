@@ -43,7 +43,7 @@ def _insert_zeros(X, nzeros):
     N, D = X.shape
     D_new = D + nzeros
     X_new = np.zeros((N, D_new), dtype=X.dtype)
-    print("attempting to insert {} zeros into X of shape {}".format(nzeros, X.shape))
+    # print("attempting to insert {} zeros into X of shape {}".format(nzeros, X.shape))
 
     step = int(D / (nzeros + 1)) - 1
     step = max(1, step)
@@ -83,6 +83,9 @@ def _insert_zeros(X, nzeros):
     assert X.shape[0] == X_new.shape[0]
     cols_nonzero = X_new.sum(axis=0) != 0
     orig_cols_nonzero = X.sum(axis=0) != 0
+    # new_cols_nonzero = cols_nonzero & (~orig_cols_nonzero)
+    # print("zero cols: ", np.where(~cols_nonzero)[0])
+
     assert cols_nonzero.sum() == orig_cols_nonzero.sum()
     nzeros_added = (~cols_nonzero).sum() - (~orig_cols_nonzero).sum()
     assert nzeros_added == nzeros
@@ -155,8 +158,8 @@ class MultiCodebookEncoder(abc.ABC):
         self.ncentroids = ncentroids
         self.quantize_lut = quantize_lut
         self.upcast_every = upcast_every if upcast_every >= 1 else 1
+        self.upcast_every = min(self.ncodebooks, self.upcast_every)
         assert self.upcast_every in (1, 2, 4, 8, 16, 32, 64, 128, 256)
-        self.upcast_every = min(self.ncodebooks, upcast_every)
         self.accumulate_how = accumulate_how
 
         self.code_bits = int(np.log2(self.ncentroids))
@@ -400,10 +403,18 @@ class PQEncoder(MultiCodebookEncoder):
 
         if self.centroids is None:
             if self.encode_algo in ('splits', 'multisplits'):
+                assert self.encode_algo != 'splits'  # TODO rm
                 self.splits_lists, self.centroids = \
                     clusterize.learn_splits_in_subspaces(
                         X, subvect_len=self.subvect_len,
                         nsplits_per_subs=self.code_bits, algo=self.encode_algo)
+                # print("centroids shape: ", self.centroids.shape)
+
+                # # TODO rm
+                # # yep, yields identical errs as mithral with pq_perm_algo='end'
+                # self.splits_lists, self.centroids = clusterize.learn_mithral(
+                #     X, ncodebooks=self.ncodebooks)
+                # print("centroids shape: ", self.centroids.shape)
             else:
                 self.centroids = _learn_centroids(
                     X, self.ncentroids, self.ncodebooks, self.subvect_len)
@@ -433,7 +444,7 @@ class PQEncoder(MultiCodebookEncoder):
             Q = Q[:, self.perm]
 
         luts = np.zeros((Q.shape[0], self.ncodebooks, self.ncentroids))
-        print("Q shape: ", Q.shape)
+        # print("Q shape: ", Q.shape)
         for i, q in enumerate(Q):
             lut = _fit_pq_lut(q, centroids=self.centroids,
                               elemwise_dist_func=self.elemwise_dist_func)
@@ -574,9 +585,12 @@ class MithralEncoder(MultiCodebookEncoder):
     def __init__(self, ncodebooks, lut_work_const=-1):
         super().__init__(
             ncodebooks=ncodebooks, ncentroids=16,
-            quantize_lut=True, upcast_every=128,
-            # quantize_lut=True, upcast_every=16,
+            # quantize_lut=True, upcast_every=64,
+            # quantize_lut=True, upcast_every=32,
+            quantize_lut=True, upcast_every=16,
             # quantize_lut=True, upcast_every=8,
+            # quantize_lut=True, upcast_every=4,
+            # quantize_lut=True, upcast_every=2,
             # quantize_lut=True, upcast_every=1,
             accumulate_how='mean')
         self.lut_work_const = lut_work_const

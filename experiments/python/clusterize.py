@@ -626,10 +626,15 @@ def learn_multisplits_orig(X, nsplits, log2_max_vals_per_split=4,
     return splits, loss
 
 
+@_memory.cache
 def learn_multisplits(
         X, nsplits=4, return_centroids=True, return_buckets=False,
         # learn_quantize_params=False,
-        learn_quantize_params='int16', X_orig=None, try_ndims=1,
+        # learn_quantize_params='int16', X_orig=None, try_ndims=1,
+        # learn_quantize_params='int16', X_orig=None, try_ndims=2,
+        learn_quantize_params='int16', X_orig=None, try_ndims=4,
+        # learn_quantize_params='int16', X_orig=None, try_ndims=8,
+        # learn_quantize_params='int16', X_orig=None, try_ndims=16,
         # learn_quantize_params=True,
         # verbose=3):
         # verbose=2):
@@ -651,6 +656,7 @@ def learn_multisplits(
         print("================================")
         # print("learn_multisplits(): initial loss: ", total_loss)
         print("learn_multisplits(): initial loss:   ", total_loss)
+        # print("learn_multisplits(): trying ndims:   ", min(D, try_ndims))
 
     splits = []
     col_losses = np.zeros(D, dtype=np.float32)  # TODO rm?
@@ -658,11 +664,6 @@ def learn_multisplits(
         if verbose > 1:
             print("------------------------ finding split #:", s)
 
-        # try_ndims = 32
-        # try_ndims = 16
-        # try_ndims = 8
-        # try_ndims = 4
-        # try_ndims = 1
         # dim_heuristic = 'eigenvec'
         # dim_heuristic = 'bucket_eigenvecs'
         dim_heuristic = 'bucket_sse'
@@ -886,12 +887,23 @@ def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
     # yscales = np.linalg.norm(Y, axis=0)
     # Y /= yscales
 
+    # return np.zeros((X_enc.shape[1] * K, Y.shape[1]))  # all zeros
+
     if XtX is None:
         XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
-    # TODO precondition XtX based on largest value here?
-    # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32) * (1./256 * len(X_enc))  # ridge
-        # lamda = max(1, .001 * len(X_enc) / float(K * K))
-        lamda = 1
+        lamda = 1  # TODO cross-validate to get lamda
+
+        # N = X_enc.shape[0]
+        # # lamda = N / (K * K)
+        # # lamda = N * np.var(Y - Y.mean(axis=0)) / (K * K)
+        # # lamda = N * np.var(Y - Y.mean(axis=0)) / K
+        # lamda = N * np.var(Y) / K
+        # # lamda = N * 1e4  # should shrink coeffs to almost 0
+        # # alpha = unscaled_alpha * np.var(X - X.mean(axis=0)) * N / D
+
+        # lamda = max(1, lamda)
+        # print("using lamda = ", lamda)
+
         # lamda = max(1, len(X_enc) / 1e6)
         # lamda = max(1, len(X_enc) / 1e5)
         # lamda = max(1, len(X_enc) / 1e4)
@@ -1012,7 +1024,7 @@ def _sparse_encoded_lstsq_gomp(X_enc, Y, nnz_blocks, K=16):
 # each codebook has const number of nonzero idxs
 def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
                                   # uniform_sparsity=False):  # never better
-                                  uniform_sparsity=True):
+                                  uniform_sparsity=True, pq_perm_algo='start'):
     ncodebooks = X_enc.shape[1]
     M = Y.shape[1]
     nnz_per_centroid = min(M, int(nnz_per_centroid))
@@ -1022,7 +1034,15 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
 
     # precompute XtX and XtY and create initial dense W
     XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
+
     lamda = 1
+    # # alpha = unscaled_alpha * np.var(X - X.mean(axis=0)) * N / D
+    # # lamda = np.sqrt(ncodebooks)
+    # N = XtX.shape[0]
+    # lamda = N / (K * K)
+    # lamda = max(1, lamda)
+    # print("using lamda = ", lamda)
+
     # lamda = max(1, len(X_enc) / 1e4)
     # lamda = max(1, len(X_enc) / float(K * K))
     XtX += np.diag(np.ones(XtX.shape[0]) * lamda).astype(np.float32)  # ridge
@@ -1048,7 +1068,8 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
         Yc = _XtY_encoded(Xc, Wc, K=K)  # N x M
         all_scores[c] = np.linalg.norm(Yc, axis=0)
 
-    pq_idxs = _pq_codebook_start_end_idxs(M, ncodebooks)
+    # pq_idxs = _pq_codebook_start_end_idxs(M, ncodebooks)
+    pq_idxs = _pq_codebook_start_end_idxs(Y, ncodebooks, algo=pq_perm_algo)
 
     # now pick which cols to keep in each codebook
     keep_mask = np.zeros((ncodebooks, M), dtype=np.bool)
@@ -1205,7 +1226,7 @@ def _sparse_encoded_lstsq_backward_elim(X_enc, Y, nnz_blocks, K=16):
     return W, keep_codebook_idxs  # CK x M, M x nnz
 
 
-def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
+def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1, **kwargs):
     ncodebooks = X_enc.shape[1]
     if nnz_blocks < 1:
         # nnz_per_centroid = Y.shape[1]
@@ -1229,21 +1250,32 @@ def sparse_encoded_lstsq(X_enc, Y, K=16, nnz_blocks=-1):
 
     # print("nnz_per_centroid: ", nnz_per_centroid)
     return _sparse_encoded_lstsq_elim_v2(
-        X_enc, Y, nnz_per_centroid=nnz_per_centroid, K=K)
+        X_enc, Y, nnz_per_centroid=nnz_per_centroid, K=K, **kwargs)
 
 
-def _pq_codebook_start_end_idxs(D, ncodebooks):
-    D = int(D)
+# def _pq_codebook_start_end_idxs(D, ncodebooks):
+def _pq_codebook_start_end_idxs(X, ncodebooks, algo='start'):
+    assert algo in ('start', 'end')  # TODO do something smarter here
+
+    # D = int(D)
+    _, D = X.shape
     ncodebooks = int(ncodebooks)
     assert D >= ncodebooks
+
     idxs = np.empty((ncodebooks, 2), dtype=np.int)
     full_subvec_len = D // ncodebooks
     start_idx = 0
     for c in range(ncodebooks):
         subvec_len = full_subvec_len
-        if c < (D % ncodebooks):
-            subvec_len += 1
+        if algo == 'start':     # wider codebooks at the start
+            if c < (D % ncodebooks):
+                subvec_len += 1
+        elif algo == 'end':     # wider codebooks at the end
+            if (ncodebooks - c - 1) < (D % ncodebooks):
+                subvec_len += 1
         end_idx = min(D, start_idx + subvec_len)
+        # print("c, start_idx, end_idx: ", c, start_idx, end_idx)
+        # print("start_idx, end_idx: ", c, start_idx, end_idx)
         idxs[c, 0] = start_idx
         idxs[c, 1] = end_idx
 
@@ -1255,26 +1287,22 @@ def _pq_codebook_start_end_idxs(D, ncodebooks):
 
 
 @_memory.cache
-def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
-                  lut_work_const=-1, **kwargs):
+def _learn_mithral_initialization(X, ncodebooks,
+                                  pq_perm_algo='start', **kwargs):
     N, D = X.shape
     ncentroids_per_codebook = 16
 
     X = X.astype(np.float32)
     X_res = X.copy()
     X_orig = X
-    X_hat = np.zeros_like(X_res)
 
     all_centroids = np.zeros(
         (ncodebooks, ncentroids_per_codebook, D), dtype=np.float32)
     all_splits = []
-    # full_subvec_len = int(D // ncodebooks)
-    pq_idxs = _pq_codebook_start_end_idxs(D, ncodebooks)
+    pq_idxs = _pq_codebook_start_end_idxs(X, ncodebooks, algo=pq_perm_algo)
     subvec_len = int(np.ceil(D / ncodebooks))  # for non-pq heuristics
 
     nonzeros_heuristic = 'pq'
-    # nonzeros_heuristic = 'pca'
-    # nonzeros_heuristic = 'disjoint_pca'
 
     # ------------------------ 0th iteration; initialize all codebooks
     all_splits = []
@@ -1311,24 +1339,54 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
             if len(buck.point_ids):
                 centroid[:] = 0
                 centroid[idxs] = buck.col_means()
-                # centroid /= 2 # TODO rm
-                X_hat[buck.point_ids] = centroid
+                X_res[buck.point_ids] -= centroid
                 # update centroid here in case we want to regularize it somehow
                 all_centroids[c, b] = centroid
-        X_res -= X_hat
 
-        print("X_res mse / X mse: ",
-              (X_res * X_res).mean() / (X_orig * X_orig).mean())
-        # print("X_res[:, idxs] var / X[:, idxs] var: ",
-        #       X_res[:, idxs].var() / X_orig[:, idxs].var())
+        # print("X_res mse / X mse: ",
+        #       (X_res * X_res).mean() / (X_orig * X_orig).mean())
 
-    # print("min, median, max, std, of all centroids before lstsq:\n",
-    #       all_centroids.min(), np.median(all_centroids),
-    #       all_centroids.max(), all_centroids.std())
+    return X_res, all_splits, all_centroids, all_buckets
+
+
+@_memory.cache
+def learn_mithral(X, ncodebooks, return_buckets=False,
+                  lut_work_const=-1, **kwargs):
+    N, D = X.shape
+    ncentroids_per_codebook = 16
+    X_orig = X.astype(np.float32)
+
+    X_res0, all_splits0, all_centroids0, all_buckets0 = \
+        _learn_mithral_initialization(X, ncodebooks, pq_perm_algo='start')
+
+    mse_orig = (X_orig * X_orig).mean()
+    mse0 = (X_res0 * X_res0).mean()
+    print("X_res mse / X mse: ", mse0 / mse_orig)
+
+    used_perm_algo = 'start'
+    if False:
+        # choose between having wider codebooks at the start vs the end (if
+        # there might be a meaningful difference)
+        X_res1, all_splits1, all_centroids1, all_buckets1 = \
+            _learn_mithral_initialization(X, ncodebooks, pq_perm_algo='end')
+        mse1 = (X_res1 * X_res1).mean()
+
+        if mse0 <= mse1:
+            X_res, all_splits, all_centroids, all_buckets = (
+                X_res0, all_splits0, all_centroids0, all_buckets0)
+        else:
+            X_res, all_splits, all_centroids, all_buckets = (
+                X_res1, all_splits1, all_centroids1, all_buckets1)
+            used_perm_algo = 'end'
+
+        print("X_res1 mse / X mse: ", mse1 / mse_orig)
+    else:
+        X_res, all_splits, all_centroids, all_buckets = (
+            X_res0, all_splits0, all_centroids0, all_buckets0)
 
     # optimize centroids discriminatively conditioned on assignments
     X_enc = mithral_encode(X, all_splits)
-    # if False: # TODO rm
+
     if lut_work_const != 1:  # if it's 1, equivalent to just doing PQ
         #
         # shrink W towards 0
@@ -1347,9 +1405,10 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
             W = encoded_lstsq(X_enc, X_res)
         else:
             W, _ = sparse_encoded_lstsq(
-                    X_enc, X_res, nnz_blocks=lut_work_const)
+                    X_enc, X_res, nnz_blocks=lut_work_const,
+                    pq_perm_algo=used_perm_algo)
 
-        all_centroids_delta = W.reshape(ncodebooks, 16, D)
+        all_centroids_delta = W.reshape(ncodebooks, ncentroids_per_codebook, D)
         all_centroids += all_centroids_delta
 
         # check how much improvement we got
@@ -1358,8 +1417,8 @@ def learn_mithral(X, ncodebooks, niters=1, return_buckets=False,
         # X_res = X_orig - X_hat
         # X_hat = np.zeros_like(X)
         # print("X res var / X var after lstsq: ", X_res.var() / X_orig.var())
-        print("X_res mse / X mse after lstsq: ",
-              (X_res * X_res).mean() / (X_orig * X_orig).mean())
+        mse_res = (X_res * X_res).mean()
+        print("X_res mse / X mse after lstsq: ", mse_res / mse_orig)
         # print("std of all centroids: ", all_centroids.std())
         # print("min, median, max, std, of all centroids after lstsq:\n",
         #       all_centroids.min(), np.median(all_centroids),
@@ -1845,7 +1904,7 @@ def centroids_from_splits(X, splits):
 
 @_memory.cache
 def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
-                              return_centroids=True, algo='splits',
+                              return_centroids=True, algo='multisplits',
                               verbose=2):
     N, D = X.shape
 
@@ -1901,6 +1960,7 @@ def learn_splits_in_subspaces(X, subvect_len, nsplits_per_subs,
     if verbose > 0:
         print("-- learn_splits_in_subspaces: new / orig mse: {:.3g}".format(
             tot_sse / tot_sse_using_mean))
+        # print("tot_sse_using_mean: ", tot_sse_using_mean)
     if return_centroids:
         return splits_lists, centroids
     return splits_lists
@@ -1920,8 +1980,6 @@ def encode_using_splits(X, subvect_len, splits_lists, split_type='single'):
             X_enc[:, m] = assignments_from_multisplits(X_subs, splits_lists[m])
 
     return np.ascontiguousarray(X_enc)
-
-
 
 
 def _plot_stuff_on_trace():

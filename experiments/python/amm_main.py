@@ -65,6 +65,7 @@ def _hparams_for_method(method_id):
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
         mvals = [2, 4, 8, 16, 32, 64]
+        # mvals = [64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
@@ -308,7 +309,8 @@ def _fitted_est_for_hparams(method_id, hparams_dict, X_train, W_train,
 
 # def _main(tasks, methods=['SVD'], saveas=None, ntasks=None,
 def _main(tasks_func, methods=None, saveas=None, ntasks=None,
-          verbose=3, limit_ntasks=-1, compression_metrics=False,
+          verbose=1, limit_ntasks=-1, compression_metrics=False, # TODO uncomment below
+          # verbose=3, limit_ntasks=-1, compression_metrics=False,
           tasks_all_same_shape=False):
     methods = methods.DEFAULT_METHODS if methods is None else methods
     if isinstance(methods, str):
@@ -318,7 +320,7 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
     independent_vars = _get_all_independent_vars()
 
     for method_id in methods:
-        if verbose > 1:
+        if verbose > 0:
             print("running method: ", method_id)
         ntrials = _ntrials_for_method(method_id=method_id, ntasks=ntasks)
         # for hparams_dict in _hparams_for_method(method_id)[2:]: # TODO rm
@@ -335,7 +337,7 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                 for i, task in enumerate(tasks_func()):
                     if i + 1 > limit_ntasks:
                         raise StopIteration()
-                    if verbose > 0:
+                    if verbose > 1:
                         print("-------- running task: {} ({}/{})".format(
                             task.name, i + 1, ntasks))
                         task.validate_shapes()  # fail fast if task is ill-formed
@@ -388,6 +390,8 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                             metrics.update(est.get_params())
                             print("got metrics: ")
                             pprint.pprint(metrics)
+                            # pprint.pprint({k: metrics[k] for k in 'method task_id normalized_mse'.split()})
+                            # print("{:.5f}".format(metrics['normalized_mse'])) # TODO uncomment above
                             metrics_dicts.append(metrics)
                     except amm.InvalidParametersException as e:
                         if verbose > 2:
@@ -488,12 +492,21 @@ def main():
     # main_cifar100(methods=methods.USE_METHODS)
     # main_cifar10(methods=methods.USE_METHODS)
     # main_caltech(methods=methods.USE_METHODS)
-    # main_caltech(methods=['Mithral'])
-    # main_cifar10(methods='Mithral')
+    # main_caltech(methods=['Mithral', 'MithralPQ'], limit_ntrain=200e3, limit_ntasks=10, filt='dog5x5')
+    # main_caltech(methods=['Mithral', 'MithralPQ'], limit_ntrain=1e6, limit_ntasks=20, filt='dog5x5')
+    # main_caltech(methods='Mithral', limit_ntrain=1e6, limit_ntasks=20, filt='dog5x5')
+    # main_caltech(methods='Mithral', limit_ntrain=1e6, limit_ntasks=20, filt='dog5x5')
+    main_cifar10(methods=['Mithral', 'MithralPQ'])
+    main_cifar100(methods=['Mithral', 'MithralPQ'])
+    # main_cifar10(methods='MithralPQ')
+    # main_cifar100(methods='MithralPQ')
+    # main_caltech(methods='MithralPQ', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
+    # main_caltech(methods='Mithral', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
+    # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
 
-    # main_ucr(methods='HashJL', limit_ntasks=10)
+    # main_ucr(methods='MithralPQ', limit_ntasks=5)
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='sobel')
     # main_caltech(methods='SparsePCA')
@@ -501,7 +514,7 @@ def main():
     # use_methods = list(methods.USE_METHODS)
     # use_methods.remove(methods.METHOD_SPARSE_PCA)
     # main_ucr(methods=[methods.METHOD_BOLT, methods.METHOD_MITHRALPQ, methods.METHOD_MITHRAL], k=128)
-    main_ucr(methods=methods.FAST_SKETCH_METHODS, k=128)
+    # main_ucr(methods=methods.FAST_SKETCH_METHODS, k=128)
     # main_ucr(methods=methods.USE_METHODS, k=64)
     # main_caltech(methods='Bolt', filt='dog5x5')
     # main_caltech(methods=methods.USE_CALTECH_METHODS[2:], filt='dog5x5')

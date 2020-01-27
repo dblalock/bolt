@@ -72,6 +72,47 @@ def drop_cols_inplace(df, cols):
     return df
 
 
+def frac_above_thresh(df, xvar, yvar, methodvar, unitvar, ythresh):
+    """
+    (method, xvar) -> [0, 1]
+
+    Assumes you have a tidy dataframe where method, xvar, yvar, and unit are
+    each a col.
+    """
+    df = df.copy()
+    # df['frac_above_thresh'] = (df[yvar] > ythresh).astype(np.float)
+
+    # (method, xvar, [(unit, yvar)]) -> bool
+    df['frac_above_thresh'] = (df[yvar] > ythresh).astype(np.float)
+
+    # independent_vars = [methodvar, unitvar, xvar]
+    independent_vars = [methodvar, xvar]
+    # return df.groupby(independent_vars)['is_above_thresh'].transform('mean')
+
+    # last part converts from groupby back to regular df EDIT: no it doesn't
+    # return df.groupby(independent_vars)['frac_above_thresh'].mean().apply(pd.Series)
+
+    # return df.groupby(independent_vars)['is_above_thresh'].mean()
+    df = df.groupby(independent_vars)['frac_above_thresh'].mean()
+    # this is the magic line; turn multi-index levels into regular cols, with
+    # multi-index value broadcast all the corresponding rows;
+    # WOW this took a long time to figure out...
+    df = df.reset_index(level=independent_vars)
+    return df
+
+
+    # tmp = df.groupby(independent_vars)['frac_above_thresh'].mean()
+    # tmp = df.groupby(independent_vars)['frac_above_thresh'].transform('mean')
+    # print("tmp:\n", tmp)
+    # df['frac_above_thresh'] = tmp
+    # return df
+
+    # return df.groupby(independent_vars)[independent_vars + ['frac_above_thresh']]
+    # ret = df.groupby([methodvar, unitvar, xvar])['__above_thresh__']
+    # ret.drop(['__above_thresh__'], axis=1, inplace=True)
+    # return ret
+
+
 def encode_timings():
     TIMINGS_PATH = os.path.join(TIMING_RESULTS_DIR, 'encode-timing.csv')
     ORIG_HEADERS = 'algo __ N D C B ___ t0 _0 t1 _1 t2 _2 t3 _3 t4 _4'.split()
@@ -382,17 +423,10 @@ def extract_pareto_frontier_idxs(xvals, yvals):
     return keep_idxs
 
 
-def _join_with_sparse_sketch_times(df):
+def _join_with_sparse_sketch_times(df, sparse_pareto=True):
     time_df = sparse_amm_timings()
     df = df.loc[df['method'].str.lower().str.startswith('sparse')]
     df['d'] = df['d'].astype(np.int)
-
-
-    # # TODO rm after debug
-    # time_keys = 't0 t1 t2 t3 t4'.split()
-    # for k in time_keys:
-    #     df[k] = 100. * (1. - df['sparsity'])
-
 
     new_rows = []
     for _, row in df.iterrows():
@@ -425,6 +459,9 @@ def _join_with_sparse_sketch_times(df):
         new_rows.append(row)
     # return pd.DataFrame.from_records(new_rows)
     df = pd.DataFrame.from_records(new_rows)
+
+    if not sparse_pareto:
+        return df
 
     # # for dset in df['']
 
@@ -516,7 +553,7 @@ def _clean_metrics_amm(df):
     return df
 
 
-def _join_with_times(df, timing_dtype='f32'):
+def _join_with_times(df, timing_dtype='f32', sparse_pareto=True):
 
     # df_mithral = df.loc[df['method'].str.startswith('Mithral')]
     # df_mithral.to_csv('mithral-caltech-debug.csv')
@@ -540,14 +577,15 @@ def _join_with_times(df, timing_dtype='f32'):
     df_osnap = _join_with_osnap_times(df)
     df_brute = _join_with_brute_force_times(df)
     df_sketch = _join_with_dense_sketch_times(df)
-    df_sparse = _join_with_sparse_sketch_times(df)
+    df_sparse = _join_with_sparse_sketch_times(df, sparse_pareto=sparse_pareto)
     dfs = [df_mithral, df_bolt, df_osnap, df_brute, df_sketch, df_sparse]
     return pd.concat(dfs, axis=0, join='outer', sort=False)
 
 
-def _clean_amm_results_df(df, timing_dtype='f32'):
+def _clean_amm_results_df(df, timing_dtype='f32', sparse_pareto=True):
     # print("initial methods: ", df['method'].unique())
-    df = _join_with_times(df, timing_dtype=timing_dtype)
+    df = _join_with_times(
+        df, timing_dtype=timing_dtype, sparse_pareto=sparse_pareto)
     # df['time'] = df['t_avg']
     # df = melt_times(df)
 
@@ -558,8 +596,8 @@ def _clean_amm_results_df(df, timing_dtype='f32'):
 
 
 @_memory.cache
-def _read_amm_csv(csv_basename, **kwargs):
-    df = pd.read_csv(os.path.join(RESULTS_DIR, csv_basename), **kwargs)
+def _read_amm_csv(basename, **kwargs):
+    df = pd.read_csv(os.path.join(RESULTS_DIR, basename), **kwargs)
     drop_cols_inplace(df, AMM_DROP_COLS)
     return df
 
@@ -581,19 +619,17 @@ def cifar100_amm():
 @_memory.cache
 def caltech_amm(filt='sobel'):
     """filt must be one of {'sobel','dog5x5'}"""
-    # df = pd.read_csv(os.path.join(RESULTS_DIR, ))
-    # drop_cols_inplace(df, AMM_DROP_COLS)
     df = _read_amm_csv('caltech_{}.csv'.format(filt))
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
 @_memory.cache
-def ucr_amm(k=64):
+def ucr_amm(k=128):
     """k must be one of {64, 128, 256}"""
     df = _read_amm_csv('ucr_k={}.csv'.format(k))
     df['origN'] = df['N'].values
-    df['N'] = 1000  # timing is for test set size of 1000
-    return _clean_amm_results_df(df)
+    df['N'] = 1000  # timing is for a test set size of 1000
+    return _clean_amm_results_df(df, sparse_pareto=False)
 
 
 def main():

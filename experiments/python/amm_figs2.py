@@ -464,6 +464,8 @@ def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
                 move_methods_to_front.remove(elem)
         order = move_methods_to_front + sorted(order)
 
+    order = [method for method in order if method in data['method'].unique()]
+
     # order = plot_methods
 
     # order = list(data['method'].unique())
@@ -490,10 +492,14 @@ def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
         #     palette=my_colors_list, ax=ax)
         return
     sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
+                # style='method', style_order=order[::-1], hue_order=order[::-1],
                 style='method', style_order=order, hue_order=order,
                 ci='sd', markers=use_markers, estimator=estimator,
                 # units=units, estimator=estimator, markers=use_markers,
                 dashes=False, palette=my_colors_list, ax=ax)
+    lines = ax.get_lines()
+    for i, line in enumerate(lines):
+        line.set_zorder(10 - i)
 
 
 # def cifar_fig(save=False, x_metric='Throughput', y_metric='Accuracy'):
@@ -534,8 +540,13 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # plt.figlegend(handles, labels, loc='center right', ncol=1)
     for ax in axes.ravel():
         ax.get_legend().remove()
-    axes[0].set_ylim([.09, .96])
-    axes[1].set_ylim([.009, .73])
+    if y_metric == 'Accuracy':
+        axes[0].set_ylim([.09, .96])
+        axes[1].set_ylim([.009, .73])
+    elif y_metric == '1 - NMSE':
+        axes[0].set_ylim([0, 1.02])
+        axes[1].set_ylim([0, 1.02])
+
     # axes[1].get_legend().remove()
     # axes[1].get_legend().remove()
 
@@ -734,16 +745,101 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     save_fig('ucr_{}_{}'.format(x_metric, y_metric))
 
 
+def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy'):
+    # df0 = res.ucr_amm(k=64)
+    # df1 = res.ucr_amm(k=128)
+    # df2 = res.ucr_amm(k=256)
+    df = res.ucr_amm(k=128)
+    sb.set_context('poster')
+    fig, axes = plt.subplots(3, 1, figsize=(12, 13), sharex=True)
+
+    def clean_df(df):
+        df['Change in Accuracy'] = df['Accuracy'] - df['acc-1nn-raw']
+        return df
+
+        # # is_mithral = df['method'].str.startswith('Mithral')
+        # is_mithral = df['method'] == 'Mithral'
+        # # # is_exact = df['method'] == 'Brute Force'
+        # others_to_keep = df['method'].isin([
+        #     'PCA', 'SparsePCA', 'Bolt', 'HashJL', 'OSNAP'])
+        # # others_to_keep = df['method'].isin(['PCA', 'SparsePCA'])
+        # return df.loc[is_mithral | others_to_keep]
+
+    def frac_above_thresh(df, thresh):
+        return res.frac_above_thresh(
+            df, x_metric, y_metric, 'method', 'task_id', thresh)
+
+    df = clean_df(df)
+    # df0['frac_above_thresh'] = frac_above_thresh(df, .5)
+
+    # df = df.loc[df['method'] == 'SparsePCA']
+    # print(df.groupby('task_id')['Speedup'].count())
+    # import sys; sys.exit()
+
+    y_frac_thresholds = [.5, .75, .95]
+    df0 = frac_above_thresh(df, y_frac_thresholds[0])
+    df1 = frac_above_thresh(df, y_frac_thresholds[1])
+    df2 = frac_above_thresh(df, y_frac_thresholds[2])
+
+    # # print(df0['frac_above_thresh'])
+    # print(df0)
+    # # for row in df0.iterrows():
+    # #     print(row)
+    # # print(df0.unstack(0))
+    # print("df cols: ", df.columns)
+    # print("df0 cols: ", df0.columns)
+    # print("uniq methods: ", df['method'].unique())
+
+    # df = df.loc[df['method'] == 'Brute Force']
+
+    # df['not_mse'] = 1. - df['normalized_mse']
+    # df = df.loc[df['not_mse'] < 2]
+    ycol = 'frac_above_thresh'
+    lineplot(df0, axes[0], x_metric=x_metric, y_metric=ycol, scatter=False)
+    lineplot(df1, axes[1], x_metric=x_metric, y_metric=ycol, scatter=False)
+    lineplot(df2, axes[2], x_metric=x_metric, y_metric=ycol, scatter=False)
+
+    plt.suptitle('Approximating an RBF Kernel Classifier')
+    axes[-1].set_xlabel(_xlabel_for_xmetric(x_metric))
+    # ax.set_ylabel('1. - NMSE')
+
+    handles, labels = axes[-1].get_legend_handles_labels()
+    handles, labels = handles[1:], labels[1:]  # rm 'Method' title
+    plt.figlegend(handles, labels, loc='lower center', ncol=3)
+
+    for i, ax in enumerate(axes):
+        # ax.set_ylabel(_ylabel_for_xmetric(y_metric))
+        # ax.set_ylabel("Fraction of Datasets\nWith Relative Acc > "
+        #               f"{y_frac_thresholds[i]}")
+        # ax.set_ylabel(f"Fraction with Relative\nAccuracy> {y_frac_thresholds[i]}")
+        ax.set_ylabel(f"Fraction > {y_frac_thresholds[i]}")
+        ax.get_legend().remove()
+        ax.semilogx()
+        ax.set_xlim([.9, ax.get_xlim()[1]])
+
+    # ax.set_ylim([.2, 1.1])
+    # plt.plot([1, 1], ax.get_ylim(), 'k--')
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=.94, bottom=.25)
+    # plt.subplots_adjust(top=.95, bottom=.1)
+    save_fig('ucr2_{}_{}'.format(x_metric, y_metric))
+
+
 def main():
     # scan_speed_fig()
-    encode_speed_fig()
+    # encode_speed_fig()
     # lut_speed_fig()
     # cifar_fig()
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='NormalizedTime')
     # cifar_fig(x_metric='Speedup')
-    # caltech_fig()
+    cifar_fig()
+    # cifar_fig(y_metric='1 - NMSE')
+    # caltech_fig(y_metric='1 - NMSE')
     # ucr_fig()
+    # ucr_fig2()
+    # ucr_fig2(y_metric='1 - NMSE')
 
 
 if __name__ == '__main__':
