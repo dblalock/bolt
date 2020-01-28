@@ -529,7 +529,7 @@ TEST_CASE("vq scan timing with all mithral variants",
     static constexpr int nrows = 100 * 1000;
     static constexpr int nout = 12; // multiple of all tile sizes tested
 
-    std::vector<int> all_nbytes {8, 16, 32, 64};
+    std::vector<int> all_nbytes {4, 8, 16, 32, 64};
     for (auto b : all_nbytes) {
         printf("------------------------ B = %d\n", b);
         _profile_scan_all(nrows, b, nout);
