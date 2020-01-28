@@ -263,16 +263,44 @@ def load_ecg_tasks(*args, **kwargs):
 
 
 @_memory.cache
-def load_caltech_img_ids(ntrain_classes=50, limit_per_class=10):
+def load_caltech_img_ids(ntrain_classes=50, limit_per_class_train=10,
+                         limit_per_class_test=10, verbose=1):
+    limit_per_class = max(limit_per_class_train, limit_per_class_test)
     (imgs, y), label2name = caltech.load_caltech101_ids(
         limit_per_class=limit_per_class)
 
     # split by class; more relaxed than assuming you have examples from
     # the same dataset/class you're later going to apply your filter to
-    train_idxs = np.where(y < ntrain_classes)[0]
-    test_idxs = np.where(y >= ntrain_classes)[0]
-    imgs_ids_train = [imgs[i] for i in train_idxs]
-    imgs_ids_test = [imgs[i] for i in test_idxs]
+
+    imgs_ids_train = []
+    imgs_ids_test = []
+
+    if verbose > 0:
+        print("limiting ntrain per class to ", limit_per_class_train)
+        print("limiting ntest per class to ", limit_per_class_test)
+
+    # keep fewer idxs for train or test if requested
+    if limit_per_class_train > 0:
+        train_idxs = np.where(y < ntrain_classes)[0]
+        if limit_per_class_train < limit_per_class:
+            y_train = y[train_idxs]
+            keep_idxs = []
+            for c in np.unique(y_train):
+                c_idxs = np.where(y_train == c)[0][:limit_per_class_train]
+                keep_idxs += list(c_idxs)
+            train_idxs = train_idxs[np.array(keep_idxs)]
+        imgs_ids_train = [imgs[i] for i in train_idxs]
+
+    if limit_per_class_test > 0:
+        test_idxs = np.where(y >= ntrain_classes)[0]
+        if limit_per_class_test < limit_per_class:
+            y_test = y[test_idxs]
+            keep_idxs = []
+            for c in np.unique(y_test):
+                c_idxs = np.where(y_test == c)[0][:limit_per_class_test]
+                keep_idxs += list(c_idxs)
+            test_idxs = test_idxs[np.array(keep_idxs)]
+        imgs_ids_test = [imgs[i] for i in test_idxs]
 
     return imgs_ids_train, imgs_ids_test
 
@@ -409,35 +437,34 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
     #     dot_prods = np.sum(windows * broadcast_filt, axis=(2, 3, 4))
     #     Y[:, i] = dot_prods.reshape(len(X))
 
-
-
     # # TODO rm
     # from .vquantizers import ensure_num_cols_multiple_of
     # X = ensure_num_cols_multiple_of(X, 64)
     # W = ensure_num_cols_multiple_of(W.T, 64).T
 
-
-
-
     return X, X @ W
 
 
 @_memory.cache  # cache raw images to avoid IO, but dynamically produce windows
-def _load_caltech_train_imgs():
-    train_ids, _ = load_caltech_img_ids()
-    return [caltech.load_caltech_img(img_id) for img_id in train_ids]
+def _load_caltech_train_imgs(limit_per_class=10):
+    train_ids, _ = load_caltech_img_ids(
+        limit_per_class_train=limit_per_class, limit_per_class_test=0)
+    return [caltech.load_caltech_img(img_id) for img_id in train_ids], train_ids
 
 
 @_memory.cache  # cache raw images to avoid IO, but dynamically produce windows
-def _load_caltech_test_imgs():
-    _, test_ids = load_caltech_img_ids()
-    return [caltech.load_caltech_img(img_id) for img_id in test_ids]
+def _load_caltech_test_imgs(limit_per_class=10):
+    _, test_ids = load_caltech_img_ids(
+        limit_per_class_train=0, limit_per_class_test=limit_per_class)
+    return [caltech.load_caltech_img(img_id) for img_id in test_ids], test_ids
 
 
 # def _load_caltech_train(filters, filt_spatial_shape):
 # def _load_caltech_train(W, filt_spatial_shape, strides=(3, 3)):
-def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2), order='chw'):
-    train_imgs = _load_caltech_train_imgs()
+# def _load_caltech_train(W, filt_spatial_shape, strides=(1, 1), order='chw',
+def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2), order='chw',
+                        limit_ntrain=-1, limit_per_class=10):
+    train_imgs, _ = _load_caltech_train_imgs(limit_per_class=limit_per_class)
 
     #
     # uncomment to plot imgs to make sure this is working
@@ -456,13 +483,23 @@ def _load_caltech_train(W, filt_spatial_shape, strides=(2, 2), order='chw'):
     Xs, Ys = list(zip(*train_mats))
     X_train = np.vstack(Xs)
     Y_train = np.vstack(Ys)
+
+    if limit_ntrain is not None and limit_ntrain > 0:
+        limit_ntrain = int(limit_ntrain)
+        # X_train = X_train[:limit_ntrain]
+        # Y_train = Y_train[:limit_ntrain]
+        X_train = X_train[-limit_ntrain:]
+        Y_train = Y_train[-limit_ntrain:]
+
     print("caltech training shape: ", X_train.shape, Y_train.shape)
 
     return X_train, Y_train
 
 
 def load_caltech_tasks(order='chw', limit_ntrain=-1,
-                       limit_ntest=-1, validate=False, filt='sobel'):
+                       limit_ntest=-1, validate=False, filt='sobel',
+                       limit_per_class_train=1,
+                       limit_per_class_test=10):
     if filt == 'sobel':
         filters = load_filters_sobel_3x3(order=order)
         # filt_spatial_shape = (3, 3)
@@ -488,13 +525,11 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
 
     W = _filters_list_to_mat(filters)
     X_train, Y_train = _load_caltech_train(
-            W=W, filt_spatial_shape=filt_spatial_shape, order=order)
-    if limit_ntrain is not None and limit_ntrain > 0:
-        limit_ntrain = int(limit_ntrain)
-        X_train = X_train[:limit_ntrain]
-        Y_train = Y_train[:limit_ntrain]
+            W=W, filt_spatial_shape=filt_spatial_shape, order=order,
+            limit_ntrain=limit_ntrain, limit_per_class=limit_per_class_train)
 
-    test_imgs = _load_caltech_test_imgs()
+    test_imgs, test_ids = _load_caltech_test_imgs(
+        limit_per_class=limit_per_class_test)
 
     # print("caltech tasks stats:")
     # print("X train shape: ", X_train.shape)
@@ -504,7 +539,7 @@ def load_caltech_tasks(order='chw', limit_ntrain=-1,
     # # print("type(test_imgs)", type(test_imgs))
     # print("len(test_imgs)", len(test_imgs))
 
-    _, test_ids = load_caltech_img_ids()
+    # _, test_ids = load_caltech_img_ids(limit_per_class)
     # for i, _ in enumerate(test_imgs):
     for i, img in enumerate(test_imgs):
         # if i < 2: # TODO rm after debug
@@ -616,7 +651,7 @@ def load_cifar10_tasks():
     # print(lbls_train[:100])
     # print("acc: ", acc)
 
-    info = {'problem': 'classify_linear', 'biases': b,
+    info = {'problem': 'softmax', 'biases': b,
             'lbls_train': lbls_train, 'lbls_test': lbls_test}
 
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
@@ -670,7 +705,7 @@ def load_cifar100_tasks():
     # print(lbls_train[:100].ravel())
     # print("acc: ", acc)
 
-    info = {'problem': 'classify_linear', 'biases': b,
+    info = {'problem': 'softmax', 'biases': b,
             'lbls_train': lbls_train, 'lbls_test': lbls_test}
 
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
@@ -683,9 +718,26 @@ def load_cifar_tasks():
 
 # ================================================================ ucr
 
+def _learn_neighbor_compression_W_info(X, lbls, k):
+    centroids, lbls_centroids = algo.stochastic_neighbor_compression(
+        X, lbls, k)
+    extra_info = {'lbls_centroids': lbls_centroids}
+    return centroids.T, extra_info
+
+
+def _learn_softmax_W_info(X, lbls):
+    est = linear_model.LogisticRegression(
+        # raise max iters from 100 to avoid convergence messages
+        fit_intercept=False, solver='lbfgs', max_iter=200)
+    est.fit(X, lbls)
+    nclasses, _ = est.coef_.shape
+    return est.coef_.T, {'biases': np.zeros_like(nclasses, dtype=np.float32)}
+
+
 @_memory.cache
-def _load_ucr_tasks_for_dset(
-        dset_name, D=320, k=64, min_train_sz=-1, use_test_sz=-1, verbose=1):
+def _load_ucr_task_for_dset(
+        dset_name, D=320, k=128, min_train_sz=-1, use_test_sz=-1,
+        problem='rbf', verbose=1):
 
     dset = ucr.UCRDataset(dset_name)
     if min_train_sz is None or min_train_sz < k:
@@ -721,25 +773,21 @@ def _load_ucr_tasks_for_dset(
     X_train = signal.resample(X_train, D, axis=1).astype(np.float32)
     X_test = signal.resample(X_test, D, axis=1).astype(np.float32)
 
-    print(f"compressing training set for dset: {dset.name}")
-    # centroids, lbls_centroids = algo.neighbor_compression(
-    centroids, lbls_centroids = algo.stochastic_neighbor_compression(
-        X_train, dset.y_train, k)
+    info = {'problem': problem, 'lbls_train': dset.y_train,
+            'lbls_test': dset.y_test}
+    if problem in ('1nn', 'rbf'):
+        print(f"compressing training set for dset: {dset.name}")
+        W, extra_info = _learn_neighbor_compression_W_info(
+            X_train, dset.y_train, k)
+    elif problem == 'softmax':
+        W, extra_info = _learn_softmax_W_info(
+            X_train, dset.y_train)
+    else:
+        raise ValueError(f"Unrecognized problem '{problem}'")
 
-    info = {'problem': '1nn', 'lbls_train': dset.y_train,
-            'lbls_test': dset.y_test, 'lbls_centroids': lbls_centroids}
-
-    W = centroids.T
     Y_train = X_train @ W
     Y_test = X_test @ W
-
-    # centroid_idxs = np.argmax(Y_train, axis=1)
-    # lbls_hat = lbls_centroids[centroid_idxs]
-    # print("initial train acc: ", np.mean(lbls_hat == dset.y_train))
-    # centroid_idxs = np.argmax(Y_test, axis=1)
-    # lbls_hat = lbls_centroids[centroid_idxs]
-    # print("initial test acc: ", np.mean(lbls_hat == dset.y_test))
-    # import sys; sys.exit()
+    info.update(extra_info)
 
     return [MatmulTask(X_train, Y_train, X_test, Y_test, W,
                        name=f'ucr {dset.name} k={k}', info=info)]
@@ -752,7 +800,7 @@ def load_ucr_tasks(limit_ntasks=-1, k=128, **kwargs):
 
     for dset_name in ucr.all_ucr_dataset_dirs():
         orig_acc = name2acc[os.path.basename(dset_name)]
-        tasks = _load_ucr_tasks_for_dset(dset_name, k=k, **kwargs)
+        tasks = _load_ucr_task_for_dset(dset_name, k=k, **kwargs)
         if tasks is not None:
             for task in tasks:
                 task.info['acc-1nn-raw'] = orig_acc

@@ -6,6 +6,7 @@ from functools import reduce
 
 import numba
 from sklearn.decomposition import PCA
+from sklearn import linear_model
 
 from . import subspaces as subs
 
@@ -883,11 +884,23 @@ def _densify_X_enc(X_enc, K=16):
     return out
 
 
+def _fit_ridge_enc(X_enc=None, Y=None, K=16, lamda=1, X_bin=None):
+    if X_bin is None:
+        X_bin = _densify_X_enc(X_enc, K=K)
+    est = linear_model.ridge.Ridge(fit_intercept=False, alpha=lamda)
+    est.fit(X_bin, Y)
+    return est.coef_.T
+
+
 def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
     # yscales = np.linalg.norm(Y, axis=0)
     # Y /= yscales
 
     # return np.zeros((X_enc.shape[1] * K, Y.shape[1]))  # all zeros
+
+    # lamda = 1
+    return _fit_ridge_enc(X_enc, Y, K=K, lamda=1)
+
 
     if XtX is None:
         XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
@@ -895,14 +908,18 @@ def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
 
         # N = X_enc.shape[0]
         # # lamda = N / (K * K)
-        # # lamda = N * np.var(Y - Y.mean(axis=0)) / (K * K)
+        # Y_bar = Y - Y.mean(axis=0)
+        # lamda = N * np.var(Y - Y.mean(axis=0)) / (K * K)
         # # lamda = N * np.var(Y - Y.mean(axis=0)) / K
         # lamda = N * np.var(Y) / K
+        # lamda = N * np.var(Y) / (K * K)
         # # lamda = N * 1e4  # should shrink coeffs to almost 0
         # # alpha = unscaled_alpha * np.var(X - X.mean(axis=0)) * N / D
+        # lamda = N / (1e5)  # sorta works
+        # lamda = N / (1e4) # sorta works
 
-        # lamda = max(1, lamda)
-        # print("using lamda = ", lamda)
+        lamda = max(1, lamda)
+        print("using lamda = ", lamda)
 
         # lamda = max(1, len(X_enc) / 1e6)
         # lamda = max(1, len(X_enc) / 1e5)
@@ -915,16 +932,62 @@ def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
     if XtY is None:
         XtY = _XtY_encoded(X_enc, Y, K=K)
 
+    XtX = XtX.astype(np.float64)
+    XtY = XtY.astype(np.float64)
+
     # preconditioning to avoid numerical issues (seemingly unnecessary, but
     # might as well do it)
     # scale = 1. / np.std(XtX)
     if precondition:
-        scale = 1. / len(X_enc)
-        # print("scaling XtX and XtY by ", scale)
+
+        # # pretend cols of X were scaled differently
+        # xscales = np.linalg.norm(XtX, axis=0) + 1e-20
+        # mulby = (1. / xscales)
+        # XtX *= mulby * mulby
+        # XtY *= mulby.reshape(-1, 1)
+
+        # yscales = np.linalg.norm(XtY, axis=1) + 1e-20
+        # yscales = np.linalg.norm(XtY, axis=0) + 1e-20
+        # yscales = yscales.reshape(-1, 1)
+
+        # xscales = np.mean(np.linalg.norm(XtX, axis=0))
+        # xscales = 7
+        # xscales = 1
+
+        # XtY *= (1. / yscales)
+        # XtY *= (1. / yscales.reshape(-1, 1))
+
+        # scale = 1. / len(X_enc)
+        scale = 1. / np.linalg.norm(XtX, axis=0).max()
         XtX = XtX * scale
         XtY = XtY * scale
 
-    W = np.linalg.solve(XtX, XtY)
+    # W = np.linalg.solve(XtX, XtY)
+    W, _, _, _ = np.linalg.lstsq(XtX, XtY, rcond=None) # doesn't fix it
+
+
+    # W, _, _, _ = np.linalg.lstsq(X_bin, Y, rcond=None)
+
+
+    # import torch
+    # import torch.nn.functional as F
+    # import torch.optim as optim
+
+    # def _to_np(A):
+    #     return A.cpu().detach().numpy()
+
+    # niters = 10
+    # for it in range(niters):
+
+
+    # if precondition:
+    #     pass
+    #     # W *= xscales
+    #     # W *= xscales.reshape(-1, 1)
+    #     # W /= xscales.reshape(-1, 1)
+    #     # W *= yscales.ravel()
+    #     # W *= yscales
+
     # W *= yscales  # undo preconditioning
 
     # import matplotlib.pyplot as plt
@@ -1135,15 +1198,25 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
         Wc[:, zero_idxs] = 0
         W_sparse[start_idx:end_idx] = Wc
 
+    X_bin = _densify_X_enc(X_enc, K=K)
+
+    # use_ridge = False
+    use_ridge = True
+
     # now refit W_sparse to each output col; right now it's just the original
     # W with a bunch of entries zeroed
     for m in range(M):
         w = W_sparse[:, m]
         xty = XtY[:, m]
         keep_idxs = np.where(w != 0)[0]
-        use_XtX = XtX[keep_idxs][:, keep_idxs]
-        use_xty = xty[keep_idxs]
-        w_subs = np.linalg.solve(use_XtX, use_xty)
+
+        if use_ridge:
+            X_bin_subs = X_bin[:, keep_idxs]
+            w_subs = _fit_ridge_enc(X_bin=X_bin_subs, Y=Y[:, m])
+        else:
+            use_XtX = XtX[keep_idxs][:, keep_idxs]
+            use_xty = xty[keep_idxs]
+            w_subs = np.linalg.solve(use_XtX, use_xty)
         w[:] = 0
         w[keep_idxs] = w_subs
         W_sparse[:, m] = w
@@ -1349,7 +1422,7 @@ def _learn_mithral_initialization(X, ncodebooks,
     return X_res, all_splits, all_centroids, all_buckets
 
 
-@_memory.cache
+# @_memory.cache
 def learn_mithral(X, ncodebooks, return_buckets=False,
                   lut_work_const=-1, **kwargs):
     N, D = X.shape

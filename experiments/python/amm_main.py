@@ -64,14 +64,14 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        mvals = [2, 4, 8, 16, 32, 64]
+        # mvals = [2, 4, 8, 16, 32, 64]
         # mvals = [64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [128] # TODO rm after debug
-        # mvals = [64] # TODO rm after debug
+        mvals = [64] # TODO rm after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
@@ -182,8 +182,9 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
         metrics.update({k + '_diffs': v for k, v in metrics_raw.items()})
 
     if task.info:
-
-        if task.info['problem'] == 'classify_linear':
+        problem = task.info['problem']
+        metrics['problem'] = problem
+        if problem == 'softmax':
             lbls = task.info['lbls_test'].astype(np.int32)
             b = task.info['biases']
             logits_amm = Y_hat + b
@@ -192,7 +193,8 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
             lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
             metrics['acc_amm'] = np.mean(lbls_amm == lbls)
             metrics['acc_orig'] = np.mean(lbls_orig == lbls)
-        elif task.info['problem'] == '1nn':
+
+        elif problem in ('1nn', 'rbf'):
             lbls = task.info['lbls_test'].astype(np.int32)
             lbls_centroids = task.info['lbls_centroids']
             lbls_hat_1nn = []
@@ -227,7 +229,11 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
             metrics['acc_orig_1nn'] = np.mean(lbls_orig_1nn == lbls)
             metrics['acc_amm_rbf'] = np.mean(rbf_lbls_amm == lbls)
             metrics['acc_orig_rbf'] = np.mean(rbf_lbls_orig == lbls)
-            lbls_amm, lbls_orig = rbf_lbls_amm, rbf_lbls_orig  # default choice
+
+            if problem == '1nn':
+                lbls_amm, lbls_orig = rbf_lbls_amm, rbf_lbls_orig
+            elif problem == 'rbf':
+                lbls_amm, lbls_orig = rbf_lbls_amm, rbf_lbls_orig
 
             orig_acc_key = 'acc-1nn-raw'
             if orig_acc_key in task.info:
@@ -235,14 +241,14 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
 
             metrics['acc_amm'] = np.mean(lbls_amm == lbls)
             metrics['acc_orig'] = np.mean(lbls_orig == lbls)
-        elif task.info['problem'] == 'sobel':
+        elif problem == 'sobel':
             assert Y.shape[1] == 2
             grad_mags_true = np.sqrt((Y * Y).sum(axis=1))
             grad_mags_hat = np.sqrt((Y_hat * Y_hat).sum(axis=1))
             diffs = grad_mags_true - grad_mags_hat
             metrics['grad_mags_nmse'] = (
                 (diffs * diffs).mean() / grad_mags_true.var())
-        elif task.info['problem'].lower().startswith('dog'):
+        elif problem.lower().startswith('dog'):
             # difference of gaussians
             assert Y.shape[1] == 2
             Z = Y[:, 0] - Y[:, 1]
@@ -388,10 +394,10 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                             metrics['task_id'] = task.name
                             # metrics.update(hparams_dict)
                             metrics.update(est.get_params())
-                            print("got metrics: ")
-                            pprint.pprint(metrics)
+                            # print("got metrics: ")
+                            # pprint.pprint(metrics)
                             # pprint.pprint({k: metrics[k] for k in 'method task_id normalized_mse'.split()})
-                            # print("{:.5f}".format(metrics['normalized_mse'])) # TODO uncomment above
+                            print("{:.5f}".format(metrics['normalized_mse'])) # TODO uncomment above
                             metrics_dicts.append(metrics)
                     except amm.InvalidParametersException as e:
                         if verbose > 2:
@@ -447,14 +453,14 @@ def main_caltech(methods=methods.USE_METHODS, saveas='caltech',
 
 
 def main_ucr(methods=methods.USE_METHODS, saveas='ucr',
-             k=64, limit_ntasks=None):
+             k=128, limit_ntasks=None, problem='rbf'):
     # limit_ntasks = 10
     # limit_ntasks = 13
     # tasks = md.load_ucr_tasks(limit_ntasks=limit_ntasks)
     # k = 128
     tasks_func = functools.partial(
-        md.load_ucr_tasks, limit_ntasks=limit_ntasks, k=k)
-    saveas = '{}_k={}'.format(saveas, k)
+        md.load_ucr_tasks, limit_ntasks=limit_ntasks, k=k, problem=problem)
+    saveas = '{}_k={}_problem={}'.format(saveas, k, problem)
     return _main(tasks_func=tasks_func, methods=methods, saveas=saveas,
                  ntasks=76, limit_ntasks=limit_ntasks,
                  tasks_all_same_shape=False)
@@ -480,136 +486,44 @@ def main_all(methods=methods.USE_METHODS):
 
 
 def main():
-    # main_cifar10(methods='SparsePCA')
-    # main_cifar10(methods='PCA')
-    # main_cifar100(methods='PCA')
-    # main_cifar10(methods=methods.DENSE_SKETCH_METHODS)
-    # main_cifar100(methods=methods.DENSE_SKETCH_METHODS)
-    # main_cifar10(methods='HashJL')
-    # main_cifar10(methods='OSNAP')
-    # main_cifar100(methods='HashJL')
-    # main_cifar100(methods='OSNAP')
-    # main_cifar100(methods=methods.USE_METHODS)
-    # main_cifar10(methods=methods.USE_METHODS)
-    # main_caltech(methods=methods.USE_METHODS)
-    # main_caltech(methods=['Mithral', 'MithralPQ'], limit_ntrain=200e3, limit_ntasks=10, filt='dog5x5')
-    # main_caltech(methods=['Mithral', 'MithralPQ'], limit_ntrain=1e6, limit_ntasks=20, filt='dog5x5')
-    # main_caltech(methods='Mithral', limit_ntrain=1e6, limit_ntasks=20, filt='dog5x5')
-    # main_caltech(methods='Mithral', limit_ntrain=1e6, limit_ntasks=20, filt='dog5x5')
-    main_cifar10(methods=['Mithral', 'MithralPQ'])
-    main_cifar100(methods=['Mithral', 'MithralPQ'])
-    # main_cifar10(methods='MithralPQ')
-    # main_cifar100(methods='MithralPQ')
-    # main_caltech(methods='MithralPQ', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
-    # main_caltech(methods='Mithral', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
     # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
+    # main_cifar10(methods='MithralPQ')
+    # main_cifar100(methods='MithralPQ')
+    # main_ucr(methods='MithralPQ', k=64, limit_ntasks=5, problem='rbf')
+    # main_ucr(methods='Bolt', k=64, limit_ntasks=5, problem='softmax')
+
+    # main_cifar10(methods=['Mithral', 'MithralPQ'])
+    # main_cifar100(methods=['Mithral', 'MithralPQ'])
+    # main_ucr(methods=['Mithral', 'MithralPQ'], k=128)
+
+    # main_caltech('Mithral', filt='sobel', limit_ntrain=1e6, limit_ntasks=10)
+    # lim = 500e3
+    # lim = 2e6
+    # lim = -1
+    lim = 4e6
+    # lim = 5e6
+    # main_caltech('Mithral', filt='sobel', limit_ntrain=lim, limit_ntasks=10)
+    # main_caltech('MithralPQ', filt='sobel', limit_ntrain=lim, limit_ntasks=10)
+    main_caltech('Mithral', filt='dog5x5', limit_ntrain=lim, limit_ntasks=10)
+    main_caltech('MithralPQ', filt='dog5x5', limit_ntrain=lim, limit_ntasks=10)
+    # main_caltech('OldMithralPQ', filt='sobel', limit_ntrain=lim, limit_ntasks=10)
+
+    # main_caltech(methods=['Mithral', 'MithralPQ'], filt='sobel')
+    # main_caltech(methods=['Mithral', 'MithralPQ'], filt='dog5x5')
 
     # main_ucr(methods='MithralPQ', limit_ntasks=5)
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='sobel')
     # main_caltech(methods='SparsePCA')
 
+    # #
+    # # TODO run this
+    # #
     # use_methods = list(methods.USE_METHODS)
     # use_methods.remove(methods.METHOD_SPARSE_PCA)
-    # main_ucr(methods=[methods.METHOD_BOLT, methods.METHOD_MITHRALPQ, methods.METHOD_MITHRAL], k=128)
-    # main_ucr(methods=methods.FAST_SKETCH_METHODS, k=128)
-    # main_ucr(methods=methods.USE_METHODS, k=64)
-    # main_caltech(methods='Bolt', filt='dog5x5')
-    # main_caltech(methods=methods.USE_CALTECH_METHODS[2:], filt='dog5x5')
-    # main_caltech(methods=methods.METHOD_SPARSE_PCA, filt='dog5x5')
-    # main_caltech(methods=methods.METHOD_SPARSE_PCA, filt='sobel')
-    # main_caltech(methods=methods.USE_CALTECH_METHODS[2:], filt='dog5x5', limit_ntrain=200e3)
-
-    # main_caltech(methods='Bolt')
-    # main_caltech(methods='Bolt')
-    # main_caltech(methods='Exact')
-    # main_caltech(methods='PCA')
-    # main_caltech(methods=['PCA', 'Bolt', 'Mithral', 'SparsePCA'])
-    # main_ucr(methods=['PCA', 'Bolt', 'Mithral', 'SparsePCA'])
-    # main_caltech(methods='HashJL')
-    # main_caltech(methods='RandGauss')
-    # main_caltech(methods='Rademacher')
-    # main_caltech(methods='OrthoGauss')
-    # main_caltech(methods=['FastJL', 'HashJL', 'OSNAP'])
-    # main_caltech(methods=methods.DENSE_SKETCH_METHODS[1:])  # skip pca
-    # main_caltech(methods='Bolt')
-    # main_caltech(methods='Mithral')
-    # main_caltech(methods='MithralPQ', filt='dog5x5')
-
-    # main_caltech(methods='SparsePCA')
-    # main_caltech(methods=['Mithral', 'MithralPQ'])
-    # main_cifar10(methods=methods.SLOW_SKETCH_METHODS)
-    # main_cifar100(methods=methods.SLOW_SKETCH_METHODS)
-    # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
-    # main_cifar10(methods=['Mithral', 'MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
-    # main_cifar10(methods=['MithralPQ', 'Bolt'])
-    # main_cifar100(methods=['MithralPQ', 'Bolt'])
-    # main_cifar100(methods=['MithralPQ', 'Bolt', 'Exact', 'PCA', 'FastJL', 'HashJL', 'OSNAP'])
-    # main_cifar10(methods=['Bolt', 'Exact'])
-    # main_cifar10(methods=['MithralPQ', 'Bolt+MultiSplits', 'Bolt', 'Exact'])
-    # main_cifar10(methods=['MithralPQ', 'Exact'])
-    # main_cifar10(methods='Mithral')
-    # main_cifar10(methods='Bolt')
-    # main_cifar10(methods=['SparsePCA', 'PCA'])
-    # main_cifar100(methods=['SparsePCA', 'PCA'])
-    # main_cifar10(methods='MithralPQ')
-    # main_cifar100(methods='Mithral')
-    # main_cifar100(methods='MithralPQ')
-    # main_cifar100(methods=['Mithral', 'MithralPQ', 'Bolt'])
-    # main_cifar10(methods=['PCA', 'Exact'])
-    # main_cifar10(methods=['PCA', 'FastJL', 'HashJL', 'OSNAP', 'Exact'])
-    # main_cifar100(methods=['PCA', 'Exact'])
-    # main_cifar10(methods=['Bolt+MultiSplits', 'Bolt', 'Exact'])
-    # main_cifar10(methods=['Bolt+MultiSplits', 'Bolt'])
-    # main_cifar10(methods='Bolt+MultiSplits')
-    # main_ecg(methods=['Bolt', 'Exact'])
-    # main_ecg(methods='Exact')
-    # main_cifar10(methods=['OPQ', 'Exact'])
-    # main_cifar100(methods=['PQ', 'Exact'])
-    # main_cifar10(methods=VQ_METHODS)
-    # main_cifar100(methods=VQ_METHODS)
-    # main_cifar10(methods=BOLT_METHODS)
-    # main_cifar10(methods=['Bolt_CovTopk'])
-    # main_cifar10(methods=['GEHTBoltMatmul_CovSamp'])
-    # main_cifar10(methods=['GEHTBoltMatmul_CorrSamp'])
-    # main_cifar10(methods=['GEHTBoltMatmul_CorrTopk'])
-    # main_cifar100(methods=['GEHTBoltMatmul_CovTopk'])
-    # main_cifar100(methods=['Bolt', 'Bolt+Perm'])
-    # main_cifar10(methods=['Bolt', 'Exact'])
-    # main_cifar10(methods=['Bolt'])
-    # main_cifar10(methods=['BoltSplits', 'Bolt', 'PQSplits', 'PQ'])
-    # main_cifar10(methods=['PQ+Ours', 'PQ'])
-    # main_cifar10(methods=['PQ+MultiSplits', 'PQ+Perm+MultiSplits', 'PQ+Perm', 'PQ', 'Bolt'])  # noqa
-    # main_cifar10(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
-    # main_cifar100(methods=['Bolt+MultiSplits', 'Bolt+Perm+MultiSplits', 'Bolt'])  # noqa
-    # main_cifar10(methods=['BoltSplits'])
-    # main_cifar100(methods=['BoltSplits'])
-    # main_cifar100(methods=['Bolt', 'BoltSplits'])
-    # main_cifar10()
-    # main_cifar100()
-    # main_ecg()
-    # main_caltech()
-    # main_ecg(methods=['Bolt+Perm', 'Bolt+CorrPerm', 'Bolt'])
-    # main_ecg(methods=['PQ', 'Bolt', 'Exact'])
-    # main_ecg(methods=['Bolt', 'Exact'])
-    # main_ecg(methods=['Bolt', 'PQ', 'Exact'])
-    # main_caltech(methods=['Bolt', 'PQ', 'Exact'])
-    # main_cifar10(methods='Exact')
-    # main_ecg(methods='Exact')
-    # main_ecg(methods='Bolt')
-    # main_ecg(methods='Mithral')
-    # main_ecg(methods=['Bolt', 'Exact'])
-    # main_ecg(methods=['Bolt', 'Bolt+Perm'])
-    # main_caltech(methods=['Bolt+Perm', 'Bolt'])
-    # main_caltech(methods=['Exact', 'Bolt'])
-    # main_ucr(methods=['Exact', 'Bolt'])
-    # main_ucr(methods=['Exact'])
-    # main_ucr(methods=['SparsePCA', 'PCA'])
-
-    # imgs = md._load_caltech_train_imgs()
-    # imgs = md._load_caltech_test_imgs()
+    # main_ucr(methods=use_methods, k=128, problem='softmax')
 
 
 if __name__ == '__main__':
