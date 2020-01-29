@@ -64,14 +64,14 @@ def _hparams_for_method(method_id):
 
     if method_id in methods.VQ_METHODS:
         # mvals = [1, 2, 4, 8, 16, 32, 64]
-        # mvals = [2, 4, 8, 16, 32, 64]
+        mvals = [2, 4, 8, 16, 32, 64]
         # mvals = [64]
         # mvals = [1, 2, 4, 8, 16]
         # mvals = [1, 2, 4, 8]
         # mvals = [8, 16] # TODO rm after debug
         # mvals = [8, 16, 64] # TODO rm after debug
         # mvals = [128] # TODO rm after debug
-        mvals = [64] # TODO rm after debug
+        # mvals = [64] # TODO rm after debug
         # mvals = [32] # TODO rm after debug
         # mvals = [16] # TODO rm after debug
         # mvals = [8] # TODO rm after debug
@@ -394,10 +394,10 @@ def _main(tasks_func, methods=None, saveas=None, ntasks=None,
                             metrics['task_id'] = task.name
                             # metrics.update(hparams_dict)
                             metrics.update(est.get_params())
-                            # print("got metrics: ")
-                            # pprint.pprint(metrics)
+                            print("got metrics: ")
+                            pprint.pprint(metrics)
                             # pprint.pprint({k: metrics[k] for k in 'method task_id normalized_mse'.split()})
-                            print("{:.5f}".format(metrics['normalized_mse'])) # TODO uncomment above
+                            # print("{:.5f}".format(metrics['normalized_mse'])) # TODO uncomment above
                             metrics_dicts.append(metrics)
                     except amm.InvalidParametersException as e:
                         if verbose > 2:
@@ -494,36 +494,36 @@ def main():
     # main_ucr(methods='MithralPQ', k=64, limit_ntasks=5, problem='rbf')
     # main_ucr(methods='Bolt', k=64, limit_ntasks=5, problem='softmax')
 
+    # rerun mithral stuff with fixed numerical issues
     # main_cifar10(methods=['Mithral', 'MithralPQ'])
     # main_cifar100(methods=['Mithral', 'MithralPQ'])
-    # main_ucr(methods=['Mithral', 'MithralPQ'], k=128)
+    main_ucr(methods=['Mithral', 'MithralPQ'], k=128, problem='rbf')
+    # main_caltech(methods=['Mithral', 'MithralPQ'], filt='sobel')
+    # main_caltech(methods=['Mithral', 'MithralPQ'], filt='dog5x5')
+
+    # #
+    # # TODO ideally run this too to put in appendix
+    # #
+    # use_methods = list(methods.USE_METHODS)
+    # use_methods.remove(methods.METHOD_SPARSE_PCA)
+    # main_ucr(methods=use_methods, k=128, problem='softmax')
 
     # main_caltech('Mithral', filt='sobel', limit_ntrain=1e6, limit_ntasks=10)
     # lim = 500e3
     # lim = 2e6
     # lim = -1
-    lim = 4e6
+    # lim = 4e6
     # lim = 5e6
     # main_caltech('Mithral', filt='sobel', limit_ntrain=lim, limit_ntasks=10)
     # main_caltech('MithralPQ', filt='sobel', limit_ntrain=lim, limit_ntasks=10)
-    main_caltech('Mithral', filt='dog5x5', limit_ntrain=lim, limit_ntasks=10)
-    main_caltech('MithralPQ', filt='dog5x5', limit_ntrain=lim, limit_ntasks=10)
+    # main_caltech('Mithral', filt='dog5x5', limit_ntrain=lim, limit_ntasks=10)
+    # main_caltech('MithralPQ', filt='dog5x5', limit_ntrain=lim, limit_ntasks=10)
     # main_caltech('OldMithralPQ', filt='sobel', limit_ntrain=lim, limit_ntasks=10)
-
-    # main_caltech(methods=['Mithral', 'MithralPQ'], filt='sobel')
-    # main_caltech(methods=['Mithral', 'MithralPQ'], filt='dog5x5')
 
     # main_ucr(methods='MithralPQ', limit_ntasks=5)
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='dog5x5')
     # main_caltech(methods='Bolt', limit_ntasks=10, limit_ntrain=500e3, filt='sobel')
     # main_caltech(methods='SparsePCA')
-
-    # #
-    # # TODO run this
-    # #
-    # use_methods = list(methods.USE_METHODS)
-    # use_methods.remove(methods.METHOD_SPARSE_PCA)
-    # main_ucr(methods=use_methods, k=128, problem='softmax')
 
 
 if __name__ == '__main__':

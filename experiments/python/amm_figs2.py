@@ -745,13 +745,21 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     save_fig('ucr_{}_{}'.format(x_metric, y_metric))
 
 
-def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy'):
+def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy',
+             # problem='softmax'):
+             problem='rbf'):
     # df0 = res.ucr_amm(k=64)
     # df1 = res.ucr_amm(k=128)
     # df2 = res.ucr_amm(k=256)
-    df = res.ucr_amm(k=128)
+    df = res.ucr_amm(k=128, problem=problem)
     sb.set_context('poster')
     fig, axes = plt.subplots(3, 1, figsize=(12, 13), sharex=True)
+
+    # df = res.ucr_amm(k=128, problem='rbf')
+    # df_bolt = df.loc[df['method'] == 'Bolt']
+    # print("number of uniq bolt speedups:")
+    # print(df_bolt['Speedup'].unique().size)
+    # import sys; sys.exit()
 
     def clean_df(df):
         df['Change in Accuracy'] = df['Accuracy'] - df['acc-1nn-raw']
@@ -771,6 +779,11 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy'):
 
     df = clean_df(df)
     # df0['frac_above_thresh'] = frac_above_thresh(df, .5)
+
+    # df_bolt = df.loc[df['method'] == 'Bolt']
+    # print("number of uniq bolt speedups:")
+    # print(df_bolt['Speedup'].unique().size)
+    # import sys; sys.exit()
 
     # df = df.loc[df['method'] == 'SparsePCA']
     # print(df.groupby('task_id')['Speedup'].count())
@@ -799,7 +812,8 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy'):
     lineplot(df1, axes[1], x_metric=x_metric, y_metric=ycol, scatter=False)
     lineplot(df2, axes[2], x_metric=x_metric, y_metric=ycol, scatter=False)
 
-    plt.suptitle('Approximating an RBF Kernel Classifier')
+    kind = 'a Softmax' if problem == 'softmax' else 'an RBF Kernel'
+    plt.suptitle(f'Approximating {kind} Classifier')
     axes[-1].set_xlabel(_xlabel_for_xmetric(x_metric))
     # ax.set_ylabel('1. - NMSE')
 
@@ -823,23 +837,19 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy'):
     plt.tight_layout()
     plt.subplots_adjust(top=.94, bottom=.25)
     # plt.subplots_adjust(top=.95, bottom=.1)
-    save_fig('ucr2_{}_{}'.format(x_metric, y_metric))
+    save_fig('ucr2_{}_{}_{}'.format(x_metric, y_metric, problem))
 
 
 def main():
     # scan_speed_fig()
     # encode_speed_fig()
     # lut_speed_fig()
-    # cifar_fig()
-    # cifar_fig(x_metric='ops')
-    # cifar_fig(x_metric='NormalizedTime')
-    # cifar_fig(x_metric='Speedup')
+    # ucr_fig()
     # cifar_fig()
     # cifar_fig(y_metric='1 - NMSE')
-    caltech_fig(y_metric='1 - NMSE')
-    # ucr_fig()
+    # caltech_fig(y_metric='1 - NMSE')
     # ucr_fig2()
-    # ucr_fig2(y_metric='1 - NMSE')
+    ucr_fig2(y_metric='1 - NMSE')
 
 
 if __name__ == '__main__':

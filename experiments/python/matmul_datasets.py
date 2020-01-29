@@ -412,7 +412,6 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
     else:
         assert order == 'chw'
         assert img.shape[2] == 3  # assumes img in hwc order
-        # print("using order: ", order)
         X_subs_list = []
         filt_spatial_sz = np.prod(filt_spatial_shape)
         for c in range(3):
@@ -425,22 +424,7 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
     assert X.max() <= 255
     assert X.min() >= 0
 
-    # compute each column of w matrix
     W = _filters_list_to_mat(filters_list) if W is None else W
-    # filters need to all be the same shape
-    # shapes = [filt.shape for filt in filters_list]
-    # assert all([shape == shapes[0] for shape in shapes])
-
-    # Y = np.zeros((X.shape[0], len(filters_list)), dtype=np.float32)
-    # for i, filt in enumerate(filters_list):
-    #     broadcast_filt = filt.reshape(1, 1, *filt.shape)
-    #     dot_prods = np.sum(windows * broadcast_filt, axis=(2, 3, 4))
-    #     Y[:, i] = dot_prods.reshape(len(X))
-
-    # # TODO rm
-    # from .vquantizers import ensure_num_cols_multiple_of
-    # X = ensure_num_cols_multiple_of(X, 64)
-    # W = ensure_num_cols_multiple_of(W.T, 64).T
 
     return X, X @ W
 
@@ -449,14 +433,16 @@ def caltech_x_y_for_img(img, filt_spatial_shape, filters_list=None, W=None,
 def _load_caltech_train_imgs(limit_per_class=10):
     train_ids, _ = load_caltech_img_ids(
         limit_per_class_train=limit_per_class, limit_per_class_test=0)
-    return [caltech.load_caltech_img(img_id) for img_id in train_ids], train_ids
+    imgs = [caltech.load_caltech_img(img_id) for img_id in train_ids]
+    return imgs, train_ids
 
 
 @_memory.cache  # cache raw images to avoid IO, but dynamically produce windows
 def _load_caltech_test_imgs(limit_per_class=10):
     _, test_ids = load_caltech_img_ids(
         limit_per_class_train=0, limit_per_class_test=limit_per_class)
-    return [caltech.load_caltech_img(img_id) for img_id in test_ids], test_ids
+    imgs = [caltech.load_caltech_img(img_id) for img_id in test_ids]
+    return imgs, test_ids
 
 
 # def _load_caltech_train(filters, filt_spatial_shape):

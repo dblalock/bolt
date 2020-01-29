@@ -892,15 +892,11 @@ def _fit_ridge_enc(X_enc=None, Y=None, K=16, lamda=1, X_bin=None):
     return est.coef_.T
 
 
-def encoded_lstsq(X_enc, Y, K=16, XtX=None, XtY=None, precondition=True):
-    # yscales = np.linalg.norm(Y, axis=0)
-    # Y /= yscales
+def encoded_lstsq(X_enc=None, X_bin=None, Y=None, K=16, XtX=None, XtY=None,
+                  precondition=True, stable_ridge=True):
 
-    # return np.zeros((X_enc.shape[1] * K, Y.shape[1]))  # all zeros
-
-    # lamda = 1
-    return _fit_ridge_enc(X_enc, Y, K=K, lamda=1)
-
+    if stable_ridge:
+        return _fit_ridge_enc(X_enc=X_enc, Y=Y, X_bin=X_bin, K=K, lamda=1)
 
     if XtX is None:
         XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
@@ -1087,7 +1083,8 @@ def _sparse_encoded_lstsq_gomp(X_enc, Y, nnz_blocks, K=16):
 # each codebook has const number of nonzero idxs
 def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
                                   # uniform_sparsity=False):  # never better
-                                  uniform_sparsity=True, pq_perm_algo='start'):
+                                  uniform_sparsity=True, pq_perm_algo='start',
+                                  stable_ridge=True):
     ncodebooks = X_enc.shape[1]
     M = Y.shape[1]
     nnz_per_centroid = min(M, int(nnz_per_centroid))
@@ -1095,30 +1092,37 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
     assert nnz_per_centroid >= int(np.ceil(M / ncodebooks))
     assert nnz_per_centroid <= M
 
-    # precompute XtX and XtY and create initial dense W
-    XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
+    X_bin = _densify_X_enc(X_enc, K=K)
 
-    lamda = 1
-    # # alpha = unscaled_alpha * np.var(X - X.mean(axis=0)) * N / D
-    # # lamda = np.sqrt(ncodebooks)
-    # N = XtX.shape[0]
-    # lamda = N / (K * K)
-    # lamda = max(1, lamda)
-    # print("using lamda = ", lamda)
+    if not stable_ridge:
+        # precompute XtX and XtY and create initial dense W
+        XtX = _XtX_encoded(X_enc, K=K).astype(np.float32)
 
-    # lamda = max(1, len(X_enc) / 1e4)
-    # lamda = max(1, len(X_enc) / float(K * K))
-    XtX += np.diag(np.ones(XtX.shape[0]) * lamda).astype(np.float32)  # ridge
-    # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
-    XtY = _XtY_encoded(X_enc, Y, K=K)
+        lamda = 1
+        # # alpha = unscaled_alpha * np.var(X - X.mean(axis=0)) * N / D
+        # # lamda = np.sqrt(ncodebooks)
+        # N = XtX.shape[0]
+        # lamda = N / (K * K)
+        # lamda = max(1, lamda)
+        # print("using lamda = ", lamda)
 
-    scale = 1. / len(X_enc)
-    XtX = XtX * scale
-    XtY = XtY * scale
+        # lamda = max(1, len(X_enc) / 1e4)
+        # lamda = max(1, len(X_enc) / float(K * K))
+        XtX += np.diag(np.ones(XtX.shape[0]) * lamda).astype(np.float32)  # ridge
+        # XtX += np.diag(np.ones(XtX.shape[0])).astype(np.float32)  # ridge
+        XtY = _XtY_encoded(X_enc, Y, K=K)
 
-    W = encoded_lstsq(X_enc, Y, XtX=XtX, XtY=XtY, precondition=False)  # KC x M
+        # scale = 1. / len(X_enc)
+        scale = 1. / np.linalg.norm(XtX, axis=0).max()
+        XtX = XtX * scale
+        XtY = XtY * scale
 
-    XtX = np.asfarray(XtX)  # since we'll be slicing columns
+        W = encoded_lstsq(X_bin=X_bin, Y=Y, XtX=XtX, XtY=XtY, precondition=False,
+                          stable_ridge=stable_ridge)  # KC x M
+
+        XtX = np.asfarray(XtX)  # since we'll be slicing columns
+    else:  # stable_ridge is True
+        W = encoded_lstsq(X_bin=X_bin, Y=Y, stable_ridge=stable_ridge)
 
     # score all blocks of W
     all_scores = np.empty((ncodebooks, M), dtype=np.float)  # C x M
@@ -1198,22 +1202,17 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
         Wc[:, zero_idxs] = 0
         W_sparse[start_idx:end_idx] = Wc
 
-    X_bin = _densify_X_enc(X_enc, K=K)
-
-    # use_ridge = False
-    use_ridge = True
-
     # now refit W_sparse to each output col; right now it's just the original
     # W with a bunch of entries zeroed
     for m in range(M):
         w = W_sparse[:, m]
-        xty = XtY[:, m]
         keep_idxs = np.where(w != 0)[0]
 
-        if use_ridge:
+        if stable_ridge:
             X_bin_subs = X_bin[:, keep_idxs]
             w_subs = _fit_ridge_enc(X_bin=X_bin_subs, Y=Y[:, m])
         else:
+            xty = XtY[:, m]
             use_XtX = XtX[keep_idxs][:, keep_idxs]
             use_xty = xty[keep_idxs]
             w_subs = np.linalg.solve(use_XtX, use_xty)
@@ -1221,7 +1220,7 @@ def _sparse_encoded_lstsq_elim_v2(X_enc, Y, nnz_per_centroid, K=16,
         w[keep_idxs] = w_subs
         W_sparse[:, m] = w
 
-    nnzs = [len(idxs) for idxs in ret_idxs]
+    # nnzs = [len(idxs) for idxs in ret_idxs]
     # print("nnzs: ", nnzs)
 
     # print(f"returning {ret_idxs.shape[1]} nonzeros per centroid...")
@@ -1422,7 +1421,7 @@ def _learn_mithral_initialization(X, ncodebooks,
     return X_res, all_splits, all_centroids, all_buckets
 
 
-# @_memory.cache
+@_memory.cache
 def learn_mithral(X, ncodebooks, return_buckets=False,
                   lut_work_const=-1, **kwargs):
     N, D = X.shape
@@ -1475,7 +1474,7 @@ def learn_mithral(X, ncodebooks, return_buckets=False,
         #
         if lut_work_const < 0:
             print("fitting dense lstsq to X_res")
-            W = encoded_lstsq(X_enc, X_res)
+            W = encoded_lstsq(X_enc=X_enc, Y=X_res)
         else:
             W, _ = sparse_encoded_lstsq(
                     X_enc, X_res, nnz_blocks=lut_work_const,
@@ -1486,13 +1485,8 @@ def learn_mithral(X, ncodebooks, return_buckets=False,
 
         # check how much improvement we got
         X_res -= _XW_encoded(X_enc, W)  # if we fit to X_res
-        # X_hat = _XW_encoded(X_enc, W)
-        # X_res = X_orig - X_hat
-        # X_hat = np.zeros_like(X)
-        # print("X res var / X var after lstsq: ", X_res.var() / X_orig.var())
         mse_res = (X_res * X_res).mean()
         print("X_res mse / X mse after lstsq: ", mse_res / mse_orig)
-        # print("std of all centroids: ", all_centroids.std())
         # print("min, median, max, std, of all centroids after lstsq:\n",
         #       all_centroids.min(), np.median(all_centroids),
         #       all_centroids.max(), all_centroids.std())

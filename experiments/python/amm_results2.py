@@ -2,11 +2,9 @@
 
 from __future__ import print_function
 
-import collections
 import os
 import numpy as np
 import pandas as pd
-import pprint
 from io import StringIO
 
 from . import amm_methods as methods
@@ -168,6 +166,10 @@ def bolt_amm_timings():
     df = df[USE_HEADERS]
     df['fixedB'] = df['algo'].str.strip().str.endswith('noenc')
     df.drop('algo', axis=1, inplace=True)
+    df = df.loc[df['fixedB']]
+
+    # print("bolt df:\n", df)
+    # import sys; sys.exit()
 
     return df
 
@@ -338,12 +340,6 @@ def _join_with_mithral_times(df, timing_dtype='f32'):
     df.sort_values(['method'] + cols_df, axis=0, inplace=True)
     time_df.sort_values(cols_time_df, axis=0, inplace=True)
 
-
-
-    # df = df.loc[df['task_id'].str.contains('509')] # TODO rm
-
-
-
     ret = _join_on_cols(df, cols_df, time_df, cols_time_df)
     # ret['lut_work_const'].loc[ret['lut_work_const'] == dummy_lutconst] = -1
 
@@ -376,6 +372,7 @@ def _join_with_osnap_times(df):
         [methods.METHOD_OSNAP, methods.METHOD_HASHJL])]
     df['s'] = 1
     df['s'].loc[df['method'] == methods.METHOD_OSNAP] = 4
+    # print("osnap df shape: ", df.shape)
     df['d'] = df['d'].astype(np.int)
 
     # print("time_df:\n", time_df[time_df['dset'] == 'Cifar10'])
@@ -515,6 +512,10 @@ def _clean_metrics_amm(df):
     df['muls'] = df['muls'].fillna(0)
     mask = ~df['nlookups'].isna()
     df['ops'] = df['muls']
+    # print("debugging df[ops]: ")
+    # # print(type(df['ops']))
+    # # print(type(df['ops']))
+    # print(type(df['nlookups']))
     df['ops'].loc[mask] += df['nlookups'].loc[mask]
 
     # df['nor']
@@ -555,6 +556,30 @@ def _clean_metrics_amm(df):
 
 def _join_with_times(df, timing_dtype='f32', sparse_pareto=True):
 
+    df_bolt = _join_with_bolt_times(df)
+
+    # # print("df bolt:\n", df_bolt)
+    # df_tmp = df_bolt['N D M C ncodebooks method normalized_mse t0 t1 t2 t3 t4 task_id'.split()]
+    # df_tmp = df_tmp.loc[df_tmp['task_id'].isin(['ucr Yoga k=128', 'ucr Wafer k=128'])]
+
+    # df_tmp['time'] = (df_tmp['t0'] + df_tmp['t1'] + df_tmp['t2'] + df_tmp['t3'] + df_tmp['t4']) / 5.
+
+    # print("df tmp:\n", df_tmp)
+    # print("df tmp times:\n", df_tmp[['C', 'time', 'task_id']])
+
+    # # tids = df_tmp['task_id'].unique()
+
+    # # # yep, exactly 6 results per dset
+    # # counts = df_tmp.groupby('task_id')['task_id'].count()
+    # # print("task counts: ", counts)
+
+    # import sys; sys.exit()
+
+    # print("df bolt:\n", df_bolt)  # looks good
+    # import sys; sys.exit()
+
+    # assert np.all(df_mithral['lutconst'] == df_mithral['lut_work_const'])
+
     # df_mithral = df.loc[df['method'].str.startswith('Mithral')]
     # df_mithral.to_csv('mithral-caltech-debug.csv')
 
@@ -573,12 +598,12 @@ def _join_with_times(df, timing_dtype='f32', sparse_pareto=True):
     # failed
     assert np.all(df_mithral['lutconst'] == df_mithral['lut_work_const'])
 
-    df_bolt = _join_with_bolt_times(df)
     df_osnap = _join_with_osnap_times(df)
     df_brute = _join_with_brute_force_times(df)
     df_sketch = _join_with_dense_sketch_times(df)
     df_sparse = _join_with_sparse_sketch_times(df, sparse_pareto=sparse_pareto)
     dfs = [df_mithral, df_bolt, df_osnap, df_brute, df_sketch, df_sparse]
+
     return pd.concat(dfs, axis=0, join='outer', sort=False)
 
 
@@ -596,8 +621,8 @@ def _clean_amm_results_df(df, timing_dtype='f32', sparse_pareto=True):
 
 
 @_memory.cache
-def _read_amm_csv(basename, **kwargs):
-    df = pd.read_csv(os.path.join(RESULTS_DIR, basename), **kwargs)
+def _read_amm_csv(fname, **kwargs):
+    df = pd.read_csv(os.path.join(RESULTS_DIR, fname), **kwargs)
     drop_cols_inplace(df, AMM_DROP_COLS)
     return df
 
@@ -624,11 +649,13 @@ def caltech_amm(filt='sobel'):
 
 
 @_memory.cache
-def ucr_amm(k=128):
+def ucr_amm(k=128, problem='rbf'):
     """k must be one of {64, 128, 256}"""
-    df = _read_amm_csv('ucr_k={}.csv'.format(k))
+    df = _read_amm_csv('ucr_k={}_problem={}.csv'.format(k, problem))
     df['origN'] = df['N'].values
     df['N'] = 1000  # timing is for a test set size of 1000
+    if problem == 'softmax':
+        df['M'] = k  # to get meaningful timing vs acc comparison
     return _clean_amm_results_df(df, sparse_pareto=False)
 
 
@@ -643,9 +670,24 @@ def main():
     # print(sparse_amm_timings())
     # print(cifar10_amm())
     # print(cifar100_amm())
-    print(caltech_amm(filt='sobel'))
+    # print(caltech_amm(filt='sobel'))
     # print(caltech_amm(filt='dog5x5'))
     # print(ucr_amm(k=64))
+    df = ucr_amm(k=128, problem='rbf')
+
+    df_bolt = df.loc[df['method'] == 'Bolt']
+    print("number of uniq bolt speedups:")
+    print(df_bolt['Speedup'].unique().size)
+    import sys; sys.exit()
+
+    df = df.loc[df['method'] == 'Bolt']
+    print("bolt dset counts")
+    print(df.groupby('task_id')['task_id'].count())
+    # print("bolt speedup per dset counts")
+    # print(df.groupby('task_id')['Speedup'].unique().count())
+    print("number of uniq speedups:")
+    print(df['Speedup'].unique().size)
+
     # cifar10_amm()
 
 
