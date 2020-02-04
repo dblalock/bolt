@@ -34,11 +34,13 @@ def _read_csv_with_garbage(path, **kwargs):
 
 
 def rename_values_in_col(df, col, name_map, drop_others=True):
+    name_map = {k.strip().lower(): v for k, v in name_map.items()}
     vals = [name_map.get(name.strip().lower(), "") for name in df[col]]
     valid_vals = set(name_map.values())
     # print("valid_vals: ", valid_vals)
     valid_mask = np.array([val in valid_vals for val in vals])
     # print("valid mask: ", valid_mask)
+    df = df.copy()
     df[col] = vals
     if drop_others:
         df = df.loc[valid_mask]
@@ -486,19 +488,32 @@ def _join_with_sparse_sketch_times(df, sparse_pareto=True):
 def _clean_method_names_amm(df):
     key = 'method' if 'method' in df else 'algo'
     if 'lutconst' in df:
-        df.loc[df['lutconst'] == -2, key] = 'Mithral Dense'
+
+        df.loc[df['lutconst'] == -2, key] = 'MADDNESS Dense'
         is_lutconst_neg1 = df['lutconst'] == -1
         is_mithral_pq = df['method'] == 'MithralPQ'
-        df.loc[is_lutconst_neg1 & is_mithral_pq, key] = 'MithralPQ'
-        df.loc[is_lutconst_neg1 & ~is_mithral_pq, key] = 'Mithral'
-        df.loc[df['lutconst'] == 1, key] = 'Mithral, L = 1'
-        df.loc[df['lutconst'] == 2, key] = 'Mithral, L = 2'
-        df.loc[df['lutconst'] == 4, key] = 'Mithral, L = 4'
+        df.loc[is_lutconst_neg1 & is_mithral_pq, key] = 'MADDNESS-PQ'
+        df.loc[is_lutconst_neg1 & ~is_mithral_pq, key] = 'MADDNESS'
+        df.loc[df['lutconst'] == 1, key] = 'MADDNESS, L = 1'
+        df.loc[df['lutconst'] == 2, key] = 'MADDNESS, L = 2'
+        df.loc[df['lutconst'] == 4, key] = 'MADDNESS, L = 4'
+
+        # df.loc[df['lutconst'] == -2, key] = 'Mithral Dense'
+        # is_lutconst_neg1 = df['lutconst'] == -1
+        # is_mithral_pq = df['method'] == 'MithralPQ'
+        # df.loc[is_lutconst_neg1 & is_mithral_pq, key] = 'MithralPQ'
+        # df.loc[is_lutconst_neg1 & ~is_mithral_pq, key] = 'Mithral'
+        # df.loc[df['lutconst'] == 1, key] = 'Mithral, L = 1'
+        # df.loc[df['lutconst'] == 2, key] = 'Mithral, L = 2'
+        # df.loc[df['lutconst'] == 4, key] = 'Mithral, L = 4'
+
         # mask = df['lutconst'] == 1
         # is_mithral_pq = df[key].str.lower().str.startswith('mithralpq')
         # mask &= ~is_mithral_pq
         # df[key][mask] = 'Mithral, L = ∞'
-    df[key].loc[df[key] == 'Exact'] = 'Brute Force'
+    # df[key].loc[df[key] == 'Exact'] = 'Brute Force'
+
+    df[key].loc[df[key] == 'Exact'] = 'Exact'
 
     return df
 
@@ -645,6 +660,7 @@ def cifar100_amm():
 def caltech_amm(filt='sobel'):
     """filt must be one of {'sobel','dog5x5'}"""
     df = _read_amm_csv('caltech_{}.csv'.format(filt))
+
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
@@ -656,6 +672,7 @@ def ucr_amm(k=128, problem='rbf'):
     df['N'] = 1000  # timing is for a test set size of 1000
     if problem == 'softmax':
         df['M'] = k  # to get meaningful timing vs acc comparison
+
     return _clean_amm_results_df(df, sparse_pareto=False)
 
 
@@ -673,22 +690,26 @@ def main():
     # print(caltech_amm(filt='sobel'))
     # print(caltech_amm(filt='dog5x5'))
     # print(ucr_amm(k=64))
-    df = ucr_amm(k=128, problem='rbf')
+    # df = ucr_amm(k=128, problem='rbf')
 
-    df_bolt = df.loc[df['method'] == 'Bolt']
-    print("number of uniq bolt speedups:")
-    print(df_bolt['Speedup'].unique().size)
-    import sys; sys.exit()
+    # df_bolt = df.loc[df['method'] == 'Bolt']
+    # print("number of uniq bolt speedups:")
+    # print(df_bolt['Speedup'].unique().size)
+    # import sys; sys.exit()
 
-    df = df.loc[df['method'] == 'Bolt']
-    print("bolt dset counts")
-    print(df.groupby('task_id')['task_id'].count())
-    # print("bolt speedup per dset counts")
-    # print(df.groupby('task_id')['Speedup'].unique().count())
-    print("number of uniq speedups:")
-    print(df['Speedup'].unique().size)
+    # df = df.loc[df['method'] == 'Bolt']
+    # print("bolt dset counts")
+    # print(df.groupby('task_id')['task_id'].count())
+    # # print("bolt speedup per dset counts")
+    # # print(df.groupby('task_id')['Speedup'].unique().count())
+    # print("number of uniq speedups:")
+    # print(df['Speedup'].unique().size)
 
-    # cifar10_amm()
+    df = cifar10_amm()
+    # df = cifar100_amm()
+    df = df.loc[df['method'].isin(['Brute Force', 'Mithral', 'SparsePCA'])]
+    df = df.sort_values(['method', 'Speedup'], axis=0)
+    print(df['method Speedup Accuracy'.split()])
 
 
 if __name__ == '__main__':

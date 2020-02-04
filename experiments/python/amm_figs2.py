@@ -28,8 +28,10 @@ if not os.path.exists(FIGS_SAVE_DIR):
 
 
 def save_fig(name):
-    plt.savefig(os.path.join(FIGS_SAVE_DIR, name + '.png'),
-                dpi=300, bbox_inches='tight')
+    # plt.savefig(os.path.join(FIGS_SAVE_DIR, name + '.png'),
+    #             dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(FIGS_SAVE_DIR, name + '.pdf'),
+                bbox_inches='tight')
 
 
 def _xlabel_for_xmetric(x_metric):
@@ -39,7 +41,7 @@ def _xlabel_for_xmetric(x_metric):
             'nlookups': 'Number of Lookups',
             'ops': 'Number of Operations',
             'Latency': 'Latency (ms)',
-            'Speedup': 'Speedup Over Brute Force',
+            'Speedup': 'Speedup Over Exact Matrix Multiply',
             'NormalizedTime': 'Normalized Latency',
             'Throughput': 'Throughput (elements/s)'}[x_metric]
 
@@ -47,6 +49,8 @@ def _xlabel_for_xmetric(x_metric):
 def _ylabel_for_xmetric(y_metric):
     if y_metric == 'Relative Accuracy':
         return 'Normalized\nAccuracy'
+    if y_metric == 'Accuracy':
+        return 'Classification\nAccuracy'
     return y_metric
 
 
@@ -71,7 +75,9 @@ def scan_speed_fig(save=True):
     df = res.scan_timings()
 
     name_map = collections.OrderedDict()
-    name_map['mithral scan'] = 'Mithral'
+    # name_map['mithral scan'] = 'Mithral'
+    name_map['mithral scan'] = 'MADDNESS'
+    # name_map['mithral scan'] = 'Maddness'
     # name_map['bolt scan uint8'] = 'Bolt\nCheating'
     name_map['bolt scan safe uint16'] = 'Bolt'
     name_map['popcount scan'] = 'Popcount'
@@ -149,6 +155,11 @@ def encode_speed_fig(save=True):
     # ================================ data cleaning
     df = res.encode_timings()
 
+    df = df.loc[df['algo'] != 'mithral encode i16']
+
+    # print("df ours f32: ", df.loc[df['algo'].str.lower().str.strip() == 'mithral encode f32'])
+    # print("df ours f32: ", df.loc[df['algo'].str.lower().str.strip() == 'mithral encode i8'])
+
     # print(df)
     # # # print(df['B'])
     # # # print(df['C'])
@@ -157,9 +168,11 @@ def encode_speed_fig(save=True):
     name_map = collections.OrderedDict()
     # name_map['mithral encode i8'] = r'$\bf{Mithral}$ $\bf{i8}$')
     # name_map['mithral encode i8'] = r'$\bf{Mithral}$ $\bf{i8}$')
-    name_map['mithral encode i8'] = 'Mithral i8'
+    # name_map['mithral encode i8'] = 'Mithral i8'
+    name_map['mithral encode i8'] = 'MADDNESS i8'
     # name_map['mithral encode i16'] = 'Mithral i16'  # no i16 in plot
-    name_map['mithral encode f32'] = 'Mithral f32'
+    # name_map['mithral encode f32'] = 'Mithral f32'
+    name_map['mithral encode f32'] = 'MADDNESS f32'
     name_map['bolt encode'] = 'Bolt'
     name_map['pq encode'] = 'PQ'
     name_map['opq encode'] = 'OPQ'
@@ -167,7 +180,15 @@ def encode_speed_fig(save=True):
     df = res.melt_times(df, ntimes=5)
 
     # df['thruput'] = df['N'] * df['D'] / df['time']
-    df['thruput'] = df['N'] / (df['time'] * .001)  # rows/sec
+    # df['thruput'] = df['N'] / (df['time'] * .001)  # rows/sec
+
+    time_secs = (df['time'] * .001)
+    df['elemsz'] = 4
+    df['elemsz'].loc[df['algo'].str.endswith('i8')] = 1
+    df['elemsz'].loc[df['algo'].str.endswith('i16')] = 2
+    df['thruput'] = df['N'] * df['D'] * df['elemsz'] / time_secs  # GB/sec
+    df['thruput'] /= 1e9  # convert to GB
+
     # df['thruput'] /= 1e6  # just use units of billions; times are in ms
     # full_byte_per_codebook = df['algo'].isin(['PQ', 'OPQ'])
     # df['B'] = df['C'].values / 2
@@ -206,8 +227,11 @@ def encode_speed_fig(save=True):
                          mpl.rcParams['lines.dashed_pattern'])
                   for name in order}
         # sb.lineplot(data=data, x='D', y='thruput', hue='algo',
-        sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='timing_trial',
-                    ax=axes[i], ci='sd', estimator=None, hue_order=order,
+        # sb.lineplot(data=data, x='D', y='thruput', hue='algo', units='timing_trial',
+        sb.lineplot(data=data, x='D', y='thruput', hue='algo',
+                    # ax=axes[i], ci='sd', estimator=None, hue_order=order,
+                    ax=axes[i], ci='sd', estimator='mean', hue_order=order,
+                    # ax=axes[i], ci=None, estimator='mean', hue_order=order,
                     style='algo', style_order=order, dashes=dashes)
 
         # import sys; sys.exit()
@@ -230,7 +254,8 @@ def encode_speed_fig(save=True):
         # ax.set_ylabel('Scalars Encoded\nper Second (Billions)',
         # ax.set_ylabel('Scalars Encoded\nper Second',
         # ax.set_ylabel('Scalars Encoded/s',
-        ax.set_ylabel('Rows Encoded/s',
+        # ax.set_ylabel('Rows Encoded/s',
+        ax.set_ylabel('Encoding\nSpeed (GB/s)',
                       family=USE_FONT, fontsize=14)
     for ax in axes[:-1]:
         # remove x labels except for bottom axis
@@ -435,14 +460,17 @@ my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
 
 # import sys; sys.exit()
 
-DEFAULT_PLOT_METHODS = ('Mithral', 'MithralPQ', 'Brute Force', 'Bolt',
-                        'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
-                        'Rademacher', 'RandGauss', 'OrthoGauss')
+# DEFAULT_PLOT_METHODS = ('Mithral', 'MithralPQ', 'Brute Force', 'Bolt',
+# DEFAULT_PLOT_METHODS = ('MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
+#                         'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
+#                         'Rademacher', 'RandGauss', 'OrthoGauss')
+DEFAULT_PLOT_METHODS = ('MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
+                        'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
 
 
 def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
              # plot_methods=None):
-             plot_methods=DEFAULT_PLOT_METHODS):
+             plot_methods=DEFAULT_PLOT_METHODS, **kwargs):
     estimator = 'mean' if units is None else None
     if plot_methods is not None:
         data = data.loc[data['method'].isin(set(plot_methods))]
@@ -491,12 +519,13 @@ def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
         #     data=data, x=x_metric, y=y_metric, hue='method', hue_order=order,
         #     palette=my_colors_list, ax=ax)
         return
+    kwargs.setdefault('ci', 'sd')
     sb.lineplot(data=data, x=x_metric, y=y_metric, hue='method',
                 # style='method', style_order=order[::-1], hue_order=order[::-1],
                 style='method', style_order=order, hue_order=order,
-                ci='sd', markers=use_markers, estimator=estimator,
+                markers=use_markers, estimator=estimator,
                 # units=units, estimator=estimator, markers=use_markers,
-                dashes=False, palette=my_colors_list, ax=ax)
+                dashes=False, palette=my_colors_list, ax=ax, **kwargs)
     lines = ax.get_lines()
     for i, line in enumerate(lines):
         line.set_zorder(10 - i)
@@ -507,12 +536,15 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     df10 = res.cifar10_amm()
     df100 = res.cifar100_amm()
     sb.set_context('poster')
-    fig, axes = plt.subplots(2, 1, figsize=(11, 13.5), sharex=True)
+    # fig, axes = plt.subplots(2, 1, figsize=(11, 13.5), sharex=True)
+    # fig, axes = plt.subplots(2, 1, figsize=(11, 10), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(11, 8.5), sharex=True)
 
-    plot_methods = ['Mithral', 'MithralPQ', 'Brute Force', 'Bolt',
-                    'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
-                    'Rademacher', 'RandGauss', 'OrthoGauss']
-    # df10 = df10.loc[df10['method'].isin(set(plot_methods))]
+    # plot_methods = ['Mithral', 'MithralPQ', 'Brute Force', 'Bolt',
+    # plot_methods = ['MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
+    #                 'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
+    #                 'Rademacher', 'RandGauss', 'OrthoGauss']
+    # # df10 = df10.loc[df10['method'].isin(set(plot_methods))]
     # df100 = df100.loc[df100['method'].isin(set(plot_methods))]
 
     # df10 = df10.loc[df10['method'] != 'OrthoGauss']
@@ -527,7 +559,7 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     plt.suptitle('Approximating Softmax Classifiers')
     axes[0].set_title('CIFAR-10')
     for ax in axes:
-        ax.set_ylabel(y_metric)
+        ax.set_ylabel(_ylabel_for_xmetric(y_metric))
     axes[0].set_xlabel(None)
     axes[1].set_xlabel(xlbl)
     axes[1].set_title('CIFAR-100')
@@ -562,9 +594,91 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
             ax.set_xlim([ax.get_xlim()[0], 1.06])
 
     plt.tight_layout()
-    plt.subplots_adjust(top=.91, bottom=.24)
+    # plt.subplots_adjust(top=.91, bottom=.24)
+    plt.subplots_adjust(top=.89, bottom=.31)
     # plt.subplots_adjust(top=.95, bottom=.1)
     save_fig('cifar_{}_{}'.format(x_metric, y_metric))
+
+
+def fig1(save=False, x_metric='Speedup', y_metric='Accuracy'):
+    df10 = res.cifar10_amm()
+    df100 = res.cifar100_amm()
+    sb.set_context('poster')
+    fig, axes = plt.subplots(2, 1, figsize=(11, 10), sharex=True)
+
+    # df10['method'] = df10['method'].str.replace('Mithral', 'HashMul')
+    # replace_names_dict = {'Mithral': 'Ours',
+    replace_names_dict = {'MADDNESS': 'Ours',
+                          'SparsePCA': '2nd best',
+                          'HashJL': '3rd best',
+                          'Exact': 'Exact Matrix Multiply'
+                          }
+    # print("--- about to run the rename we care about")
+    df10 = res.rename_values_in_col(df10, 'method', replace_names_dict)
+    df100 = res.rename_values_in_col(df100, 'method', replace_names_dict)
+    # df10['method'] = df10['method'].str.replace(replace_names_dict)
+    # df100['method'] = df100['method'].str.replace(replace_names_dict)
+
+    # print('df10 methods: ', df10['method'].unique())
+    # import sys; sys.exit()
+
+    plot_methods = ['Ours', '2nd best', '3rd best', 'Exact Matrix Multiply']
+    # plot_methods = ['Ours', '3rd best', '2nd best', 'Exact Matrix Multiply']
+    # plot_methods = ['Mithral', 'SparsePCA', 'HashJL', 'Brute Force']
+    # df10 = df10.loc[df10['method'].isin(set(plot_methods))]
+    # df100 = df100.loc[df100['method'].isin(set(plot_methods))]
+
+    # df10 = df10.loc[df10['method'] != 'OrthoGauss']
+    # df100 = df100.loc[df100['method'] != 'OrthoGauss']
+
+    lineplot(df10, axes[0], x_metric=x_metric, y_metric=y_metric,
+             plot_methods=plot_methods, ci=None)
+    lineplot(df100, axes[1], x_metric=x_metric, y_metric=y_metric,
+             plot_methods=plot_methods, ci=None)
+
+    # plt.suptitle('Sketch size vs Classification Accuracy')
+    xlbl = _xlabel_for_xmetric(x_metric)
+    # plt.suptitle('{} vs {}'.format(xlbl, y_metric))
+    plt.suptitle('Approximating Softmax Classifiers')
+    axes[0].set_title('CIFAR-10')
+    for ax in axes:
+        ax.set_ylabel(_ylabel_for_xmetric(y_metric))
+    axes[0].set_xlabel(None)
+    axes[1].set_xlabel(xlbl)
+    axes[1].set_title('CIFAR-100')
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    handles, labels = handles[1:], labels[1:]  # rm 'Method' title
+    # axes[0].legend(handles, labels, fontsize='small')
+    # axes[1].legend(handles, labels, fontsize='small')
+    # plt.figlegend(handles, labels, loc='lower center', ncol=1)
+    # plt.figlegend(handles, labels, loc='center right', ncol=1)
+    for ax in axes.ravel():
+        ax.get_legend().remove()
+    if y_metric == 'Accuracy':
+        axes[0].set_ylim([.09, .96])
+        axes[1].set_ylim([.009, .73])
+    elif y_metric == '1 - NMSE':
+        axes[0].set_ylim([0, 1.02])
+        axes[1].set_ylim([0, 1.02])
+
+    # axes[1].get_legend().remove()
+    # axes[1].get_legend().remove()
+
+    plt.figlegend(handles, labels, loc='lower center', ncol=2)
+
+    # if x_metric in ('muls', 'ops', 'nlookups', 'Latency', 'Throughput'):
+    axes[0].semilogx()
+
+    for ax in axes:
+        if x_metric == 'Speedup':
+            ax.set_xlim([.94, ax.get_xlim()[1]])
+        elif x_metric == 'NormalizedTime':
+            ax.set_xlim([ax.get_xlim()[0], 1.06])
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=.89, bottom=.22)
+    save_fig('fig1')
 
 
 def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
@@ -592,7 +706,8 @@ def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
 
     # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA', 'OSNAP']
     # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA', 'HashJL', 'OSNAP', 'FastJL']
-    keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA']
+    # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA']
+    keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'SparsePCA', 'PCA']
     df0 = df0.loc[df0['method'].isin(keep_methods)]
     df1 = df1.loc[df1['method'].isin(keep_methods)]
 
@@ -703,7 +818,8 @@ def ucr_fig(x_metric='Speedup', y_metric='Relative Accuracy'):
     def clean_df(df):
         df['Change in Accuracy'] = df['Accuracy'] - df['acc-1nn-raw']
         # is_mithral = df['method'].str.startswith('Mithral')
-        is_mithral = df['method'] == 'Mithral'
+        # is_mithral = df['method'] == 'Mithral'
+        is_mithral = df['method'] == 'MADDNESS'
         # # is_exact = df['method'] == 'Brute Force'
         others_to_keep = df['method'].isin([
             'PCA', 'SparsePCA', 'Bolt', 'HashJL', 'OSNAP'])
@@ -753,7 +869,8 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy',
     # df2 = res.ucr_amm(k=256)
     df = res.ucr_amm(k=128, problem=problem)
     sb.set_context('poster')
-    fig, axes = plt.subplots(3, 1, figsize=(12, 13), sharex=True)
+    # fig, axes = plt.subplots(3, 1, figsize=(12, 13), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True)
 
     # df = res.ucr_amm(k=128, problem='rbf')
     # df_bolt = df.loc[df['method'] == 'Bolt']
@@ -830,12 +947,14 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy',
         ax.get_legend().remove()
         ax.semilogx()
         ax.set_xlim([.9, ax.get_xlim()[1]])
+        ax.set_ylim([0, 1.03])
 
     # ax.set_ylim([.2, 1.1])
     # plt.plot([1, 1], ax.get_ylim(), 'k--')
 
     plt.tight_layout()
-    plt.subplots_adjust(top=.94, bottom=.25)
+    # plt.subplots_adjust(top=.94, bottom=.25)
+    plt.subplots_adjust(top=.94, bottom=.22)
     # plt.subplots_adjust(top=.95, bottom=.1)
     save_fig('ucr2_{}_{}_{}'.format(x_metric, y_metric, problem))
 
@@ -844,12 +963,13 @@ def main():
     # scan_speed_fig()
     # encode_speed_fig()
     # lut_speed_fig()
-    # ucr_fig()
+    # fig1()
     # cifar_fig()
-    # cifar_fig(y_metric='1 - NMSE')
-    # caltech_fig(y_metric='1 - NMSE')
     # ucr_fig2()
-    ucr_fig2(y_metric='1 - NMSE')
+    caltech_fig()
+    # caltech_fig(y_metric='1 - NMSE')
+    # cifar_fig(y_metric='1 - NMSE')
+    # ucr_fig2(y_metric='1 - NMSE')
 
 
 if __name__ == '__main__':
