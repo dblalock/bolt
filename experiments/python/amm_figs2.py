@@ -60,7 +60,7 @@ def add_ylabels_on_right(axes, fmt, vals):
         ax2 = ax.twinx()
         ax2.get_xaxis().set_visible(False)
         ax2.yaxis.set_label_position('right')
-        ax2.set_ylabel(lbl, fontsize=14, family=USE_FONT)
+        ax2.set_ylabel(lbl, fontsize=14, family=USE_FONT, labelpad=5)
         sb.despine(ax=ax2, top=True, left=True, bottom=True, right=True)
         plt.setp(ax2.get_xticklabels(), visible=False)
         plt.setp(ax2.get_yticklabels(), visible=False)
@@ -99,7 +99,8 @@ def scan_speed_fig(save=True):
     # ================================ fig creation
 
     sb.set_context("talk")
-    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    # fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
     axes = [ax]
 
     sb.barplot(data=df, x='algo', y='thruput', units='timing_trial',
@@ -143,7 +144,8 @@ def scan_speed_fig(save=True):
     # ------------------------ save / show plot
 
     plt.tight_layout()
-    plt.subplots_adjust(bottom=.21)
+    # plt.subplots_adjust(bottom=.21)
+    plt.subplots_adjust(bottom=.23)
 
     if save:
         save_fig('scan_speed')
@@ -212,7 +214,9 @@ def encode_speed_fig(save=True):
     # use_nbytes = [8, 16, 32, 64]
     use_nbytes = [8, 16, 32]
 
-    fig, axes = plt.subplots(len(use_nbytes), 1, figsize=(6, 8), sharey=True)
+    # fig, axes = plt.subplots(len(use_nbytes), 1, figsize=(6, 8), sharey=True)
+    # fig, axes = plt.subplots(len(use_nbytes), 1, figsize=(6, 6.5), sharey=True)
+    fig, axes = plt.subplots(len(use_nbytes), 1, figsize=(6, 7), sharey=True)
     for i, nbytes in enumerate(use_nbytes):
         data = df.loc[df['B'] == nbytes]
 
@@ -271,7 +275,9 @@ def encode_speed_fig(save=True):
     add_ylabels_on_right(axes, "{}B Encodings", use_nbytes)
 
     plt.tight_layout()
-    plt.subplots_adjust(bottom=.18, hspace=.15)
+    # plt.subplots_adjust(bottom=.18, hspace=.15)
+    plt.subplots_adjust(bottom=.19, hspace=.15)
+    # plt.subplots_adjust(bottom=.21, hspace=.15)
 
     if save:
         save_fig('encode_speed')
@@ -961,12 +967,12 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy',
 
 def main():
     # scan_speed_fig()
-    # encode_speed_fig()
+    encode_speed_fig()
     # lut_speed_fig()
     # fig1()
     # cifar_fig()
     # ucr_fig2()
-    caltech_fig()
+    # caltech_fig()
     # caltech_fig(y_metric='1 - NMSE')
     # cifar_fig(y_metric='1 - NMSE')
     # ucr_fig2(y_metric='1 - NMSE')
