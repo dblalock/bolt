@@ -86,6 +86,113 @@ class ExactMatMul(ApproxMatmul):
         return {KEY_NMULTIPLIES: _nmultiplies_matmul(A, B)}
 
 
+def _scalar_quantize(A, axis=1, signed=False, nbits=8):
+    unsigned_maxval = float(1 << int(nbits)) - 1
+
+    # # TODO rm
+    # # return np.zeros((A.shape[0], 1)), np.ones((A.shape[0], 1)), A
+    # # offsets = np.zeros((A.shape[0], 1))
+    # offsets = A.min(axis=1, keepdims=True)
+    # # scales = maxval / np.ones((A.shape[0], 1))
+    # scales = maxval / A.max(axis=1, keepdims=True)
+    # Aq = (A - offsets) * scales
+    # return offsets, scales, Aq
+
+    # maxval = float(1 << int(nbits)) - 1
+    mins = A.min(axis=axis, keepdims=True)
+    # A_offset = A - offsets
+    ranges = (A - mins).max(axis=axis, keepdims=True) + 1e-20
+    scales = unsigned_maxval / ranges
+    # Aq = (A_offset * (maxval / scales)).astype(np.int)
+    # Aq = (A_offset * scales).astype(np.int)
+
+    if signed:
+        # sign_offset = 1 << (nbits - 1)  # 8 bits -> 128
+        # A_offset -= sign_offset
+        offsets = mins + (ranges * (128. / 255))
+        minval = -(1 << (nbits - 1))
+        maxval = -minval - 1
+    else:
+        offsets = mins
+        minval = 0
+        maxval = (1 << nbits) - 1
+
+    Aq = (A - offsets) * scales
+    # print("min, max A:", Aq.min(), Aq.max())  # looks good
+    Aq = np.clip(Aq, minval, maxval).astype(np.int)
+
+    return offsets, scales, Aq
+
+
+class QuantizedMatmul(ApproxMatmul):
+    __slots__ = 'nbits a_offsets a_scales b_offsets b_scales A B'.split()
+
+    def __init__(self, nbits=8):
+        self.nbits = nbits
+
+    def __call__(self, A, B):
+        assert A.shape[1] == B.shape[0]  # dims need to match
+        N, D = A.shape
+        D, M = B.shape
+        if self.A is None:
+            self.set_A(A)
+        if self.B is None:
+            self.set_B(B)
+
+        # print("QuantizedMatmul")
+        # print("min, max A:", self.A.min(), self.A.max())
+        # print("min, max A offsets:", self.a_offsets.min(), self.a_offsets.max())
+        # print("min, max A scales    :", self.a_scales.min(), self.a_scales.max())
+        # print("min, max B:", self.B.min(), self.B.max())
+        # print("min, max B offsets:", self.b_offsets.min(), self.b_offsets.max())
+        # print("min, max B scales    :", self.b_scales.min(), self.b_scales.max())
+
+        # ((A - a_offsets) / a_scales) @ ((B - b_offsets) / b_scales)  # noqa
+        # ignoring scales, we have:
+        # (A - a_off) @ (B - b_off)
+        # = A @ B - (a_off @ B) - (A @ b_off) + a_off @ b_off
+        # maxval = (1 << int(self.nbits)) - 1
+        ret = (self.A @ self.B).astype(np.float32)
+        ret *= 1. / self.a_scales
+        ret *= 1. / self.b_scales
+
+        A_off = np.tile(self.a_offsets, (1, D))
+        B_off = np.tile(self.b_offsets, (D, 1))
+
+        return ret + (A_off @ B) + (A @ B_off) - (A_off @ B_off)
+
+    def set_A(self, A):
+        # unsigned quantization; we *could* learn the offsets and scales
+        # on the training set, but since this is a baseline, we're giving it
+        # the advantage of using the "true" offsets/scales
+        self.a_offsets, self.a_scales, self.A = _scalar_quantize(
+            A, axis=1, signed=False, nbits=self.nbits)
+
+        # mins = A.min(axis=1, keepdims=True)
+        # A_offset = A - mins
+        # scales = A_offset.max(axis=1, keepdims=True) + 1e-20
+        # self.A = (A_offset * (255. / scales)).astype(np.int)
+
+    def set_B(self, B):
+        # signed quantization (for maddubs instruction)
+        self.b_offsets, self.b_scales, self.B = _scalar_quantize(
+            B, axis=0, signed=True, nbits=self.nbits)
+        # self.b_offsets, self.b_scales, self.B = _scalar_quantize(
+        #     B.T, nbits=self.nbits, signed=True)
+        # # quantize each col, not each row
+        # self.b_offsets = self.b_offsets.ravel()
+        # self.b_scales = self.b_scales.ravel()
+        # self.B = self.B.T
+
+    def reset_for_new_task(self):
+        self.A = None
+        self.B = None
+
+    def get_speed_metrics(self, A, B, **sink):
+        # neglect packing, postprocessing, etc
+        return {KEY_NMULTIPLIES: _nmultiplies_matmul(A, B)}
+
+
 class SketchedMatmul(ApproxMatmul, abc.ABC):
     __slots__ = 'd'
 

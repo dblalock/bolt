@@ -1,12 +1,10 @@
 #!/bin/env/python
 
-import blosc  # pip install blosc
 import functools
 import numpy as np
 import pprint
 import scipy
 import time
-import zstandard as zstd  # pip install zstandard
 
 from . import amm
 from . import matmul_datasets as md
@@ -88,7 +86,7 @@ def _hparams_for_method(method_id):
             return params
 
         return [{'ncodebooks': m} for m in mvals]
-    if method_id == methods.METHOD_EXACT:
+    if method_id in [methods.METHOD_EXACT, methods.METHOD_SCALAR_QUANTIZE]:
         return [{}]
 
     raise ValueError(f"Unrecognized method: '{method_id}'")
@@ -191,6 +189,9 @@ def _compute_metrics(task, Y_hat, compression_metrics=True, **sink):
             logits_orig = Y + b
             lbls_amm = np.argmax(logits_amm, axis=1).astype(np.int32)
             lbls_orig = np.argmax(logits_orig, axis=1).astype(np.int32)
+            # print("Y_hat shape : ", Y_hat.shape)
+            # print("lbls hat shape: ", lbls_amm.shape)
+            # print("lbls amm : ", lbls_amm[:20])
             metrics['acc_amm'] = np.mean(lbls_amm == lbls)
             metrics['acc_orig'] = np.mean(lbls_orig == lbls)
 
@@ -486,6 +487,12 @@ def main_all(methods=methods.USE_METHODS):
 
 
 def main():
+    # main_cifar10(methods='ScalarQuantize')
+    # main_cifar100(methods='ScalarQuantize')
+    # main_ucr(methods='ScalarQuantize')
+    main_caltech(methods='ScalarQuantize', filt='sobel')
+    main_caltech(methods='ScalarQuantize', filt='dog5x5')
+
     # main_cifar10(methods='MithralPQ')
     # main_cifar100(methods='Mithral')
     # main_caltech(methods='Hadamard')
@@ -497,7 +504,7 @@ def main():
     # rerun mithral stuff with fixed numerical issues
     # main_cifar10(methods=['Mithral', 'MithralPQ'])
     # main_cifar100(methods=['Mithral', 'MithralPQ'])
-    main_ucr(methods=['Mithral', 'MithralPQ'], k=128, problem='rbf')
+    # main_ucr(methods=['Mithral', 'MithralPQ'], k=128, problem='rbf')
     # main_caltech(methods=['Mithral', 'MithralPQ'], filt='sobel')
     # main_caltech(methods=['Mithral', 'MithralPQ'], filt='dog5x5')
 

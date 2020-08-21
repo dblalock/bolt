@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 
 
 def main():
-    M = 1000
+    UNDEFINED = 7
+
+    M = 40000
     # M = 500
     # M = 2
     # K = 16
@@ -14,7 +16,11 @@ def main():
     try_Cs = np.array([2, 4, 8, 16, 32, 64, 128])
     try_Us = np.array([2, 4, 8, 16, 32, 64, 128])
 
-    biases = np.zeros((try_Cs.size, try_Us.size)) + 7
+    biases = np.zeros((try_Cs.size, try_Us.size)) + UNDEFINED
+    # sses = np.zeros((try_Cs.size, try_Us.size)) + UNDEFINED
+    dists_true = np.zeros((try_Cs.size, try_Us.size, M))
+    dists_hat = np.zeros((try_Cs.size, try_Us.size, M))
+    all_errs = np.zeros((try_Cs.size, try_Us.size, M))
     for i, C in enumerate(try_Cs):
         for j, upcast_every in enumerate(try_Us):
             if upcast_every > C:
@@ -36,7 +42,17 @@ def main():
 
             true_dists = orig_dists.sum(axis=1)
 
-            biases[i, j] = (true_dists - dists).mean()
+            errs = dists - true_dists
+            # biases[i, j] = diffs.mean()
+            biases[i, j] = errs.mean()
+
+            # store true dists so we can compute variance of estimator
+            # dists_true[i, j] = true_dists
+            # dists_hat[i, j] = dists
+            all_errs[i, j] = errs
+
+            # debias =
+            # sses[i, j] = diffs
 
             # diffs = true_dists - dists
             # print(f"C = {C}, upcast_every={upcast_every}")
@@ -50,13 +66,33 @@ def main():
     # biases_hat = np.outer(col, row)
     # print("biases_hat:\n", biases_hat)
 
-    biases_hat2 = np.zeros((try_Cs.size, try_Us.size)) + 7
+    # biases_hat2 = np.zeros((try_Cs.size, try_Us.size)) - UNDEFINED
+    biases_hat2 = np.zeros((try_Cs.size, try_Us.size))
     for i, C in enumerate(try_Cs):
         for j, upcast_every in enumerate(try_Us):
             if upcast_every > C:
                 continue
             biases_hat2[i, j] = C / 4 * np.log2(upcast_every)
     print("biases_hat2:\n", biases_hat2)
+
+    print("corrected biases:\n", biases - biases_hat2)
+
+    all_errs -= biases_hat2[..., np.newaxis]
+    # print("mean corrected errs:\n", all_errs.mean(axis=-1))
+    print("mean corrected errs:\n", np.var(all_errs, axis=-1))
+    sq_errs = (all_errs * all_errs).mean(axis=-1)
+    print("empirical mean squared err for C, U", sq_errs)
+
+    sq_errs_hat = np.zeros((try_Cs.size, try_Us.size))
+    for i, C in enumerate(try_Cs):
+        for j, upcast_every in enumerate(try_Us):
+            if upcast_every > C:
+                continue
+            sq_errs_hat[i, j] = C / 8 * np.log2(upcast_every)
+    print("estimated mean squared err for C, U", sq_errs_hat)
+
+    print("takeaway: no idea what closed form for mse is...")
+
 
     # print("biases - biases_hat", biases - biases_hat)
 

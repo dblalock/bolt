@@ -3,6 +3,7 @@
 from . import amm, vq_amm
 
 METHOD_EXACT = 'Exact'
+METHOD_SCALAR_QUANTIZE = 'ScalarQuantize'
 METHOD_SKETCH_SQ_SAMPLE = 'SketchSqSample'
 METHOD_SVD = 'SVD'  # truncated SVD run on the matrix at test time
 METHOD_FD_AMM = 'FD-AMM'
@@ -43,6 +44,7 @@ METHOD_BOLT_GEHT_COR_SAMP = 'Bolt_CorSamp'
 
 METHOD_TO_ESTIMATOR = {
     METHOD_EXACT: amm.ExactMatMul,
+    METHOD_SCALAR_QUANTIZE: amm.QuantizedMatmul,
     METHOD_SKETCH_SQ_SAMPLE: amm.SketchSqSample,
     METHOD_SVD: amm.SvdSketch,
     METHOD_FD_AMM: amm.FdAmm,

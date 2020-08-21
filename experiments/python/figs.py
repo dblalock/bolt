@@ -246,6 +246,9 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
     # algos: Bolt; PQ; OPQ; PairQ; Matmul, batch={1, 16, 64, 256}
 
     sb.set_context("talk")
+    # sb.set_style("white")  # adds border (spines) we have to remove
+    sb.set_style("darkgrid")
+
     # if camera_ready:  # white style overwrites our fonts
     #     matplotlib.rcParams['font.family'] = CAMERA_READY_FONT
     set_palette(ncolors=8)
@@ -279,8 +282,9 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
         #          'Matmul 64', 'Matmul 256', 'Matmul 1024']
 
         if with_matmuls:
-            ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ',
-                     'Matmul 1', 'Matmul 256', 'Matmul 1024']
+            # ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ',
+            ALGOS = ['Bolt', 'PQ', 'OPQ',
+                     'Matmul 1024', 'Matmul 256', 'Matmul 1']
         else:
             ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ']
         df = results.query_speed_results()
@@ -319,7 +323,7 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
         if camera_ready:
             # ax.set_ylabel('Billions of\nDistances/s', y=.4,
             # ax.set_ylabel('Billions of\nDistances/s', y=.5,
-            ax.set_ylabel('Billion Distances/s', y=.49,  # .5 = centered ?
+            ax.set_ylabel('Billion\nDistances/s', y=.49,  # .5 = centered ?
                           family=CAMERA_READY_FONT)
         else:
             ax.set_ylabel('Billions of Distances/s')
@@ -329,7 +333,6 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
 
     # add byte counts on the right
     fmt_str = "{}B Encodings"
-    sb.set_style("white")  # adds border (spines) we have to remove
     for i, ax in enumerate(axes):
         ax2 = ax.twinx()
         sb.despine(ax=ax2, top=True, left=True, bottom=True, right=True)
@@ -398,7 +401,7 @@ def query_speed_fig(fake_data=False, fname='query_speed', with_matmuls=True,
     # plt.show()
 
 
-def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
+def query_speed_poster_fig(fname='query_speed', with_matmuls=True, defense=True):
     # experiment params: fixed N = 100k, D = 256, Q = 1024;
     # layout: rows = 8B, 16B, 32B; bar graph in each row
     #   alternative: plot in each row vs batch size
@@ -413,7 +416,10 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
     # fig, axes = plt.subplots(3, 1, figsize=(6, 8))
     # fig, axes = plt.subplots(3, 1, figsize=(6, 8), dpi=300)
     # fig, axes = plt.subplots(2, 1, figsize=(6, 6), dpi=300)
-    fig, axes = plt.subplots(2, 1, figsize=(4, 6), dpi=300)
+    if defense:
+        fig, axes = plt.subplots(2, 1, figsize=(6, 8), dpi=300)
+    else:
+        fig, axes = plt.subplots(2, 1, figsize=(4, 6), dpi=300)
 
     # ALGOS = ['Bolt', 'PQ', 'OPQ', 'PairQ', 'Matmul 1', # 'Matmul 16',
     #          'Matmul 64', 'Matmul 256', 'Matmul 1024']
@@ -421,7 +427,11 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
     if with_matmuls:
         # ALGOS = ['Ours', 'Binary Embedding', 'PQ', 'OPQ',
         #          'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
-        ALGOS = ['Ours', 'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
+        # ALGOS = ['Ours', 'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
+        if defense:
+            ALGOS = ['Ours', 'PQ', 'OPQ', 'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
+        else:
+            ALGOS = ['Ours', 'Matmul Batch=1024', 'Matmul Batch=256', 'Matmul Batch=1']
     else:
         ALGOS = ['Bolt', 'Binary Embedding', 'PQ', 'OPQ']
     df = results.query_speed_results()
@@ -438,9 +448,9 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
         data = df[df['nbytes'] == nbytes]
         # ax = sb.barplot(x='nbytes', y='y', hue=' ', hue_order=ALGOS, ci=95,
         ax = sb.barplot(x='nbytes', y='y', hue=' ', hue_order=ALGOS, ci='sd',
+                        data=data, ax=axes[i], capsize=.0004)
                         # data=data, ax=axes[i])
                         # data=data, ax=axes[i], errwidth=10)
-                        data=data, ax=axes[i], capsize=.0004)
                         # data=data, ax=axes[i], capsize=.0004, errwidth=6)
 
     # ------------------------ clean up / format axes
@@ -460,8 +470,12 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
 
     for ax in axes:
         ax.set_xlim([start - .02, end + .02])
-        ax.set_ylabel('Billion Activations/s', y=.49,  # .5 = centered ?
-                      family=CAMERA_READY_FONT)
+        if defense:
+            ax.set_ylabel('Billion Products/s', y=.49,  # .5 = centered ?
+                          family=CAMERA_READY_FONT)
+        else:
+            ax.set_ylabel('Billion Activations/s', y=.49,  # .5 = centered ?
+                          family=CAMERA_READY_FONT)
         ax.legend_.remove()
         ax.set_ylim(0, 2.5)
 
@@ -473,11 +487,12 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
         sb.despine(ax=ax2, top=True, left=True, bottom=True, right=True)
         ax2.get_xaxis().set_visible(False)
         # ax2.get_yaxis().set_visible(False)  # nope, removes ylabel
+        ax2.yaxis.set_label_position('right')
         plt.setp(ax2.get_xticklabels(), visible=False)
         plt.setp(ax2.get_yticklabels(), visible=False)
-        ax2.yaxis.set_label_position('right')
         # lbl = fmt_str.format((2 ** i) * 8)
-        lbl = {0: 'Fastest Setting', 1: 'Higher Accuracy', 2: 'Highest Accuracy'}[i]
+        # lbl = {0: 'Fastest Setting', 1: 'Higher Accuracy', 2: 'Highest Accuracy'}[i]
+        lbl = {0: '8B Encodings', 1: '16B Encodings', 2: '32B Encodings'}[i]
         ax2.set_ylabel(lbl,
                        labelpad=10, fontsize=14, family=CAMERA_READY_FONT)
 
@@ -522,7 +537,7 @@ def query_speed_poster_fig(fname='query_speed', with_matmuls=True):
     # of show() at all. Just export as high-density png as a workaround
     # plt.savefig(os.path.join(SAVE_DIR, fname + '.png'),
     #             dpi=300, bbox_inches='tight')
-    save_fig_png(fname)
+    save_fig_png(fname + ('_defense' if defense else ''))
     # plt.show()
 
 
@@ -724,7 +739,8 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall',
     else:  # real data
         DATASETS = ['Sift1M', 'Convnet1M', 'LabelMe', 'MNIST']
         # ALGOS = ['PQ', 'OPQ']
-        ALGOS = ['Bolt', 'Bolt No Quantize', 'PQ', 'OPQ']
+        # ALGOS = ['Bolt', 'Bolt No Quantize', 'PQ', 'OPQ']
+        ALGOS = ['Bolt', 'PQ', 'OPQ']  # for thesis defense
         for d, dset in enumerate(DATASETS):
             if l2:
                 path = os.path.join('../results/recall_at_r/', dset, 'summary.csv')
@@ -836,7 +852,8 @@ def recall_r_fig(fake_data=False, suptitle=None, l2=True, fname='l2_recall',
     # else:
     #     plt.suptitle(suptitle, fontsize=16)
     plt.suptitle(suptitle, fontsize=16)
-    plt.subplots_adjust(top=.91, bottom=.11)
+    # plt.subplots_adjust(top=.91, bottom=.11)
+    plt.subplots_adjust(top=.91, bottom=.15)  # defense
     if camera_ready:
         save_fig_png(fname)  # mpl saving as pdf stupid; just bypass it
     else:
@@ -1090,13 +1107,13 @@ def main():
 
     # # # query_speed_fig(fname='query_speed_with_matmuls', camera_ready=False)
     # query_speed_fig(fname='query_speed_with_matmuls', camera_ready=True)
-    query_speed_poster_fig(fname='query_speed_poster')
+    # query_speed_poster_fig(fname='query_speed_poster')
 
     # matmul_fig(camera_ready=True)
 
     # # # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall')
-    # recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall',
-    #              camera_ready=True)
+    recall_r_fig(suptitle='Nearest Neighbor Recall', fname='l2_recall',
+                 camera_ready=True)
 
     # # distortion_fig(fake_data=False, fname='l2_distortion')
     # # distortion_fig(fake_data=False, fname='dotprod_distortion',

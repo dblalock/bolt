@@ -479,8 +479,13 @@ my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
 # DEFAULT_PLOT_METHODS = ('MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
 #                         'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
 #                         'Rademacher', 'RandGauss', 'OrthoGauss')
-DEFAULT_PLOT_METHODS = ('MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
-                        'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
+DEFAULT_PLOT_METHODS = (
+    # 'MADDNESS', 'MADDNESS-PQ', 'Exact', 'ScalarQuantize', 'Bolt',
+    'MADDNESS', 'Exact', 'ScalarQuantize', 'Bolt',
+    'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
+    # 'FastJL', 'HashJL', 'PCA', 'SparsePCA')
+    # 'MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
+    # 'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
 
 
 def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
@@ -614,7 +619,8 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # plt.subplots_adjust(top=.91, bottom=.24)
     plt.subplots_adjust(top=.89, bottom=.31)
     # plt.subplots_adjust(top=.95, bottom=.1)
-    save_fig('cifar_{}_{}'.format(x_metric, y_metric))
+    # save_fig('cifar_{}_{}'.format(x_metric, y_metric))
+    save_fig('cifar_{}_{}_no_maddnesspq'.format(x_metric, y_metric))
 
 
 def fig1(save=False, x_metric='Speedup', y_metric='Accuracy'):
@@ -721,16 +727,27 @@ def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
     # df = df.loc[~(df['method'].isin(['Mithral, L = 2', 'Mithral, L = 4']))]
     # df['method'].loc[df['method'] == 'Mithral, L = ∞'] = 'Mithral'
 
-    # print("df uniq methods: ", df['method'].unique())
+    # print("df0 uniq methods: ", df0['method'].unique())
+    # print("df1 uniq methods: ", df1['method'].unique())
     # import sys; sys.exit()
 
     # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA', 'OSNAP']
     # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA', 'HashJL', 'OSNAP', 'FastJL']
     # keep_methods = ['Mithral', 'MithralPQ', 'SparsePCA', 'PCA']
     # keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'SparsePCA', 'PCA']
-    keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'SparsePCA']
+
+    # even scalar quantize is slower than custom exact matmul; note that
+    # in the 5x5 plot, it's occluded by maddness (near perfect mse, but
+    # slightly to the left of 1x speedup)
+    keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'ScalarQuantize', 'SparsePCA']
+    # keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'SparsePCA']
     df0 = df0.loc[df0['method'].isin(keep_methods)]
     df1 = df1.loc[df1['method'].isin(keep_methods)]
+
+    # print("df0 kept methods: ", df0['method'].unique())
+    # print("df1 kept methods: ", df1['method'].unique())
+    # print("df1 scalar quantize numbers: ", df1.loc[df1['method'] == 'ScalarQuantize'])
+    # import sys; sys.exit()
 
     # print("df1:\n", df1.loc[(df1['method'] == 'MithralPQ') & df1['task_id'].str.contains('509')])
     # import sys; sys.exit()
@@ -987,13 +1004,15 @@ def main():
     # lut_speed_fig()
     # fig1()
     # ucr_fig2()
-    # caltech_fig()
-    # caltech_fig(y_metric='1 - NMSE')
+    caltech_fig()
+    caltech_fig(y_metric='1 - NMSE')
+    # cifar_fig()
     # cifar_fig(y_metric='1 - NMSE')
-    cifar_fig(x_metric='ops')
+    # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='ops', y_metric='1 - NMSE')
     # ucr_fig2(x_metric='ops', y_metric='1 - NMSE')
     # cifar_fig(y_metric='1 - NMSE')
+    # ucr_fig2()
     # ucr_fig2(y_metric='1 - NMSE')
 
 

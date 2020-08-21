@@ -250,6 +250,47 @@ def sparse_amm_timings():
     return df
 
 
+def scalar_quantized_amm_timings():
+    timings = []
+    timings.append(['Cifar10', 10000, 512, 10, 2.013])
+    timings.append(['Cifar100', 10000, 512, 100, 6.472])
+    timings.append(['Ucr128', 1000, 320, 128, .4808])
+    timings.append(['Caltech3x3', 49284, 27, 2, .894])
+    timings.append(['Caltech5x5', 48400, 75, 2, 1.409])
+
+    dicts = [{'dset': l[0], 'N': l[1], 'D': l[2],
+              'M': l[3], 'time': l[4]} for l in timings]
+
+    # df = pd.DataFrame.from_records(dicts)
+    # print("scalar_quantized_amm_timings: ")
+    # print(df)
+    return pd.DataFrame.from_records(dicts)
+    # import sys; sys.exit()
+
+    # df = pd.DataFrame.from_records(timings)
+
+
+# output from ./GEMMsBenchmark after defining FBGEMM_MEASURE_TIME_BREAKDOWN
+# in include/fbgemm/Fbgemm.h; recorded here since not in a results file
+'''
+     M,      N,      K,             Type,     Packing (us),      Kernel (us),    Postproc (us),       Total (us),  GOPs
+ 10000,     10,    512,  FBGEMM_i8_acc32,          438.069,          1465.04,          43.5959,          2013.31,  50.6
+ 10000,     10,    512,  FBGEMM_i8_acc16,            512.8,           1338.1,             69.9,           2115.1,  48.3
+
+ 10000,    100,    512,  FBGEMM_i8_acc32,            473.7,           9203.9,             85.9,           9923.9, 103.1
+ 10000,    100,    512,  FBGEMM_i8_acc16,            569.8,           5558.7,            108.5,           6472.2, 158.1
+
+  1000,    128,    320,  FBGEMM_i8_acc32,             39.5,            724.6,              5.8,            795.2, 101.8
+  1000,    128,    320,  FBGEMM_i8_acc16,             43.5,            404.1,              3.1,            480.8, 168.4
+
+ 49284,      2,     27,  FBGEMM_i8_acc32,            298.5,            226.2,            139.6,            894.0,   5.9
+ 49284,      2,     27,  FBGEMM_i8_acc16,            333.6,            650.1,            162.5,           1608.7,   3.3
+
+ 48400,      2,     75,  FBGEMM_i8_acc32,            482.0,            546.0,            141.5,           1409.3,  10.2
+ 48400,      2,     75,  FBGEMM_i8_acc16,            438.3,           1228.7,            159.2,           2278.4,   6.4
+'''
+
+
 # def _extract_cols_into_list_of_tuples(df, cols):
 def _extract_cols_into_list_of_tuples(df, cols):
     # return [tuple(row) for row in df[cols].iterrows()]
@@ -405,6 +446,22 @@ def _join_with_dense_sketch_times(df):
                          time_df, 'N D M d'.split())
 
 
+def _join_with_scalar_quantize_times(df):
+    time_df = scalar_quantized_amm_timings()
+    df = df.loc[df['method'] == methods.METHOD_SCALAR_QUANTIZE]
+
+    # print("scalar quantize time df:\n", time_df)
+    # print("scalar quantize acc df:\n", df.columns)
+    # print(df['N D M'.split()])
+
+    # df_joint = _join_on_cols(df, 'N D M'.split(), time_df, 'N D M'.split())
+    # print("joined df: ")
+    # print(df_joint['N D M time'.split()])
+    # import sys; sys.exit()
+
+    return _join_on_cols(df, 'N D M'.split(), time_df, 'N D M'.split())
+
+
 def extract_pareto_frontier_idxs(xvals, yvals):
     """assumes lower x is better and higher y is better"""
     assert len(xvals) == len(yvals)
@@ -520,7 +577,12 @@ def _clean_method_names_amm(df):
 
 def _clean_metrics_amm(df):
     df = df.rename({'acc_amm': 'Accuracy'}, axis=1)
-    df['time'] = (df['t0'] + df['t1'] + df['t2'] + df['t3'] + df['t4']) / 5.
+
+    # if 'time' not in df.columns:
+    mask = df['time'].isna()
+    # df.loc['time', mask] = ((df['t0'] + df['t1'] + df['t2'] + df['t3'] + df['t4']).values / 5.)[mask]
+    times = (df['t0'] + df['t1'] + df['t2'] + df['t3'] + df['t4']) / 5.
+    df.loc[mask, 'time'] = times.values[mask]
     df['Throughput'] = 1e3 * df['N'] * df['M'] / df['time']
 
     # create ops column that sums number of multiplies + lookups
@@ -571,6 +633,12 @@ def _clean_metrics_amm(df):
 
 def _join_with_times(df, timing_dtype='f32', sparse_pareto=True):
 
+    df_quant = _join_with_scalar_quantize_times(df)
+    # print("scalar quantize time df:\n", time_df)
+    # print("scalar quantize acc df:\n", df)
+    # print("df scalar quant:\n", df_quant['dset N D M time'.split()])
+    # import sys; sys.exit()
+
     df_bolt = _join_with_bolt_times(df)
 
     # # print("df bolt:\n", df_bolt)
@@ -617,7 +685,9 @@ def _join_with_times(df, timing_dtype='f32', sparse_pareto=True):
     df_brute = _join_with_brute_force_times(df)
     df_sketch = _join_with_dense_sketch_times(df)
     df_sparse = _join_with_sparse_sketch_times(df, sparse_pareto=sparse_pareto)
-    dfs = [df_mithral, df_bolt, df_osnap, df_brute, df_sketch, df_sparse]
+    # dfs = [df_mithral, df_bolt, df_osnap, df_brute, df_sketch, df_sparse]
+    dfs = [df_quant, df_mithral, df_bolt, df_osnap, df_brute,
+           df_sketch, df_sparse]
 
     return pd.concat(dfs, axis=0, join='outer', sort=False)
 
@@ -629,8 +699,15 @@ def _clean_amm_results_df(df, timing_dtype='f32', sparse_pareto=True):
     # df['time'] = df['t_avg']
     # df = melt_times(df)
 
+    # print("uniq methods after joining with times:\n", sorted(df['method'].unique()))
+    # import sys; sys.exit()
+
     df = _clean_metrics_amm(df)
     df = df.loc[~df['time'].isna()]
+
+    # print("uniq methods after rming nan times:\n", sorted(df['method'].unique()))
+    # import sys; sys.exit()
+
     df = _clean_method_names_amm(df)
     return df
 
@@ -646,6 +723,7 @@ def cifar10_amm():
     # df = pd.read_csv(os.path.join(RESULTS_DIR, 'cifar10.csv'))
     # drop_cols_inplace(df, AMM_DROP_COLS)
     df = _read_amm_csv('cifar10.csv')
+    # print("initial uniq methods:\n", sorted(df['method'].unique()))
     return _clean_amm_results_df(df)
 
 
@@ -660,7 +738,6 @@ def cifar100_amm():
 def caltech_amm(filt='sobel'):
     """filt must be one of {'sobel','dog5x5'}"""
     df = _read_amm_csv('caltech_{}.csv'.format(filt))
-
     return _clean_amm_results_df(df, timing_dtype='i8')
 
 
@@ -705,11 +782,15 @@ def main():
     # print("number of uniq speedups:")
     # print(df['Speedup'].unique().size)
 
-    df = cifar10_amm()
+    # df = cifar10_amm()
     # df = cifar100_amm()
-    df = df.loc[df['method'].isin(['Brute Force', 'Mithral', 'SparsePCA'])]
-    df = df.sort_values(['method', 'Speedup'], axis=0)
-    print(df['method Speedup Accuracy'.split()])
+    df = caltech_amm(filt='dog5x5')
+    # df = caltech_amm(filt='sobel')
+    print(sorted(df['method'].unique()))
+    # # df = df.loc[df['method'].isin(['Brute Force', 'Mithral', 'SparsePCA'])]
+    # df = df.loc[df['method'].isin(['Exact', 'ScalarQuantize', 'MADDNESS', 'SparsePCA'])]
+    # df = df.sort_values(['method', 'Speedup'], axis=0)
+    # print(df['method Speedup Accuracy'.split()])
 
 
 if __name__ == '__main__':
