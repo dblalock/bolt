@@ -10,6 +10,9 @@ If you have a large collection of mostly-dense vectors and can tolerate lossy co
 
 Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/master/assets/bolt-theory.pdf?raw=true) bounding the errors in its approximations.
 
+EDIT: this repo now also features the source code for [MADDNESS](https://arxiv.org/abs/2106.10860), our shiny new algorithm for approximate matrix multiplication. MADDNESS has no Python wrapper yet, and is referred to as "mithral" in the source code. Name changed because apparently I'm the only who gets Lord of the Rings references. MADDNESS runs ridiculously fast and, under reasonable assumptions, requires zero multiply-adds. Realistically, it'll be most useful for speeding up neural net inference on CPUs, but it'll take another couple papers to get it there; we need to generalize it to convolution and write the CUDA kernels to allow GPU training. <!-- (it's lightweight, but still full strength! Get it? Guys...?). -->
+
+
 <!-- NOTE: All the code, documentation, and results associated with Bolt's KDD paper can be found in the `experiments/` directory. See the README therein for details. A cleaned-up version of the paper is available [here](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true). -->
 
 ## Installing
