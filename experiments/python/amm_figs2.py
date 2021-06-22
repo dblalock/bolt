@@ -22,9 +22,24 @@ USE_FONT = 'DejaVu Sans'
 mpl.rcParams['font.family'] = 'sans-serif'
 mpl.rcParams['font.sans-serif'] = [USE_FONT]
 
+# to avoid type3 fonts; 42 = truetype, which is more flexible than type1
+mpl.rcParams['pdf.fonttype'] = 42
+mpl.rcParams['ps.fonttype'] = 42
+
+
+def fix_ticks():
+    # recover from seaborn white style messing this up
+    plt.rcParams['xtick.bottom'] = True
+    plt.rcParams['ytick.left'] = True
+
 
 if not os.path.exists(FIGS_SAVE_DIR):
     FIGS_SAVE_DIR.mkdir(parents=True)
+
+
+def set_seaborn_style(stylename):
+    sb.set_style(stylename)
+    fix_ticks()
 
 
 def save_fig(name):
@@ -211,7 +226,8 @@ def encode_speed_fig(save=True):
 
     sb.set_context('talk')
     # sb.set_style('darkgrid')
-    sb.set_style('white')
+    # sb.set_style('white')
+    set_seaborn_style('white')
 
     # use_nbytes = [8, 16, 32, 64]
     use_nbytes = [8, 16, 32]
@@ -301,8 +317,8 @@ def lut_speed_fig(save=True):
     name_map = collections.OrderedDict()
     # name_map['mithral lut dense'] = '$\bf{Mithral}$'
     # name_map['mithral lut sparse'] = '$\bf{Mithral}$'
-    name_map['mithral lut dense'] = 'Mithral'
-    name_map['mithral lut sparse'] = 'Mithral'
+    name_map['mithral lut dense'] = 'MADDNESS'
+    name_map['mithral lut sparse'] = 'MADDNESS'
     name_map['bolt lut'] = 'Bolt'
     name_map['pq lut'] = 'PQ'
     name_map['opq lut'] = 'OPQ'
@@ -319,9 +335,9 @@ def lut_speed_fig(save=True):
     # print("len(consts)", len(consts))
 
     mithral_const_to_name = collections.OrderedDict()
-    mithral_const_to_name[-1] = 'Mithral, L = ∞'
-    mithral_const_to_name[4] = 'Mithral, L = 4'
-    mithral_const_to_name[2] = 'Mithral, L = 2'
+    mithral_const_to_name[-1] = 'MADDNESS, L = ∞'
+    mithral_const_to_name[4] = 'MADDNESS, L = 4'
+    mithral_const_to_name[2] = 'MADDNESS, L = 2'
     mithral_names = list(mithral_const_to_name.values())
 
     # add lut constant into the name for mithral variations
@@ -358,7 +374,8 @@ def lut_speed_fig(save=True):
 
     sb.set_context('talk')
     # sb.set_style('darkgrid')
-    sb.set_style('white')
+    # sb.set_style('white')
+    set_seaborn_style('white')
 
     # use_nbytes = [8, 16, 32, 64]
     use_nbytes = [8, 16, 32]
@@ -480,9 +497,10 @@ my_colors_list = my_colors_list[:5] + (new_yellow,) + my_colors_list[6:]
 #                         'FastJL', 'HashJL', 'OSNAP', 'PCA', 'SparsePCA',
 #                         'Rademacher', 'RandGauss', 'OrthoGauss')
 DEFAULT_PLOT_METHODS = (
-    # 'MADDNESS', 'MADDNESS-PQ', 'Exact', 'ScalarQuantize', 'Bolt',
-    'MADDNESS', 'Exact', 'ScalarQuantize', 'Bolt',
-    'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
+    'MADDNESS', 'MADDNESS-PQ', 'Exact', 'ScalarQuantize', 'Bolt',
+    # 'MADDNESS', 'Exact', 'ScalarQuantize', 'Bolt',
+    # 'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
+    'FastJL', 'HashJL', 'PCA', 'SparsePCA')
     # 'FastJL', 'HashJL', 'PCA', 'SparsePCA')
     # 'MADDNESS', 'MADDNESS-PQ', 'Exact', 'Bolt',
     # 'FastJL', 'HashJL', 'PCA', 'RandGauss', 'SparsePCA')
@@ -490,7 +508,8 @@ DEFAULT_PLOT_METHODS = (
 
 def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
              # plot_methods=None):
-             plot_methods=DEFAULT_PLOT_METHODS, **kwargs):
+             plot_methods=DEFAULT_PLOT_METHODS, first_two_same_marker=True,
+             **kwargs):
     estimator = 'mean' if units is None else None
     if plot_methods is not None:
         data = data.loc[data['method'].isin(set(plot_methods))]
@@ -525,7 +544,8 @@ def lineplot(data, ax, x_metric, y_metric, units=None, scatter=False,
     # filled_markers = ('o', 'v', '^', '<', '>', '8', 's', 'p', '*', 'h',
     #                   'H', 'D', 'd', 'P', 'X')
     # use_markers = ('*', '*', 's') + (
-    use_markers = ('D', 'D', 's') + (
+    initial_markers = ('D', 'D', 's') if first_two_same_marker else ('D', 's')
+    use_markers = initial_markers + (
         'o', 'v', '^', '<', '>', '8', 'p', 'h', 'd', 'P', 'X', '*', 'D')
     if scatter:
         # sb.violinplot(cut=0, saturation=1, linewidth=.001, scale='width', inner='box',
@@ -578,13 +598,13 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # plt.suptitle('Sketch size vs Classification Accuracy')
     xlbl = _xlabel_for_xmetric(x_metric)
     # plt.suptitle('{} vs {}'.format(xlbl, y_metric))
-    plt.suptitle('Approximating Softmax Classifiers')
-    axes[0].set_title('CIFAR-10')
+    plt.suptitle('Approximating Softmax Classifiers', family=USE_FONT)
+    axes[0].set_title('CIFAR-10', family=USE_FONT)
     for ax in axes:
-        ax.set_ylabel(_ylabel_for_xmetric(y_metric))
+        ax.set_ylabel(_ylabel_for_xmetric(y_metric), family=USE_FONT)
     axes[0].set_xlabel(None)
-    axes[1].set_xlabel(xlbl)
-    axes[1].set_title('CIFAR-100')
+    axes[1].set_xlabel(xlbl, family=USE_FONT)
+    axes[1].set_title('CIFAR-100', family=USE_FONT)
 
     handles, labels = axes[0].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
@@ -617,10 +637,10 @@ def cifar_fig(save=False, x_metric='Speedup', y_metric='Accuracy'):
 
     plt.tight_layout()
     # plt.subplots_adjust(top=.91, bottom=.24)
-    plt.subplots_adjust(top=.89, bottom=.31)
+    plt.subplots_adjust(top=.89, bottom=.32)
     # plt.subplots_adjust(top=.95, bottom=.1)
-    # save_fig('cifar_{}_{}'.format(x_metric, y_metric))
-    save_fig('cifar_{}_{}_no_maddnesspq'.format(x_metric, y_metric))
+    save_fig('cifar_{}_{}'.format(x_metric, y_metric))
+    # save_fig('cifar_{}_{}_no_maddnesspq'.format(x_metric, y_metric))
 
 
 def fig1(save=False, x_metric='Speedup', y_metric='Accuracy'):
@@ -648,7 +668,8 @@ def fig1(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # import sys; sys.exit()
 
     # plot_methods = ['Ours', '2nd best', '3rd best', 'Exact Matrix Multiply']
-    plot_methods = ['Ours', 'Mairal et al.', 'Dasgupta et al.', 'Exact Matrix Multiply']
+    # plot_methods = ['Ours', 'Mairal et al.', 'Dasgupta et al.', 'Exact Matrix Multiply']
+    plot_methods = ['Ours', 'Exact Matrix Multiply', 'Mairal et al.', 'Dasgupta et al.']
     # plot_methods = ['Ours', '3rd best', '2nd best', 'Exact Matrix Multiply']
     # plot_methods = ['Mithral', 'SparsePCA', 'HashJL', 'Brute Force']
     # df10 = df10.loc[df10['method'].isin(set(plot_methods))]
@@ -658,20 +679,20 @@ def fig1(save=False, x_metric='Speedup', y_metric='Accuracy'):
     # df100 = df100.loc[df100['method'] != 'OrthoGauss']
 
     lineplot(df10, axes[0], x_metric=x_metric, y_metric=y_metric,
-             plot_methods=plot_methods, ci=None)
+             plot_methods=plot_methods, ci=None, first_two_same_marker=False)
     lineplot(df100, axes[1], x_metric=x_metric, y_metric=y_metric,
-             plot_methods=plot_methods, ci=None)
+             plot_methods=plot_methods, ci=None, first_two_same_marker=False)
 
     # plt.suptitle('Sketch size vs Classification Accuracy')
     xlbl = _xlabel_for_xmetric(x_metric)
     # plt.suptitle('{} vs {}'.format(xlbl, y_metric))
-    plt.suptitle('Approximating Softmax Classifiers')
-    axes[0].set_title('CIFAR-10')
+    plt.suptitle('Approximating Softmax Classifiers', family=USE_FONT)
+    axes[0].set_title('CIFAR-10', family=USE_FONT)
     for ax in axes:
-        ax.set_ylabel(_ylabel_for_xmetric(y_metric))
+        ax.set_ylabel(_ylabel_for_xmetric(y_metric), family=USE_FONT)
     axes[0].set_xlabel(None)
-    axes[1].set_xlabel(xlbl)
-    axes[1].set_title('CIFAR-100')
+    axes[1].set_xlabel(xlbl, family=USE_FONT)
+    axes[1].set_title('CIFAR-100', family=USE_FONT)
 
     handles, labels = axes[0].get_legend_handles_labels()
     handles, labels = handles[1:], labels[1:]  # rm 'Method' title
@@ -703,7 +724,7 @@ def fig1(save=False, x_metric='Speedup', y_metric='Accuracy'):
             ax.set_xlim([ax.get_xlim()[0], 1.06])
 
     plt.tight_layout()
-    plt.subplots_adjust(top=.89, bottom=.22)
+    plt.subplots_adjust(top=.89, bottom=.23)
     save_fig('fig1')
 
 
@@ -739,8 +760,8 @@ def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
     # even scalar quantize is slower than custom exact matmul; note that
     # in the 5x5 plot, it's occluded by maddness (near perfect mse, but
     # slightly to the left of 1x speedup)
-    keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'ScalarQuantize', 'SparsePCA']
-    # keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'SparsePCA']
+    # keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'ScalarQuantize', 'SparsePCA']
+    keep_methods = ['MADDNESS', 'MADDNESS-PQ', 'SparsePCA']
     df0 = df0.loc[df0['method'].isin(keep_methods)]
     df1 = df1.loc[df1['method'].isin(keep_methods)]
 
@@ -775,8 +796,8 @@ def caltech_fig(x_metric='Speedup', y_metric='1 - NMSE'):
     #     # remove x labels except for bottom axis
     #     plt.setp(ax.get_xticklabels(), visible=False)
     #     ax.get_xaxis().set_visible(False)
-    axes[0].set_title('Approximating a Sobel Filter', y=1.02)
-    axes[1].set_title('Approximating a Gaussian Filter', y=1.02)
+    axes[0].set_title('Approximating a Sobel Filter', y=1.02, fontsize=28)
+    axes[1].set_title('Approximating a Gaussian Filter', y=1.02, fontsize=28)
 
     # plt.subplots_adjust(top=.91, bottom=.37)
     plt.tight_layout()
@@ -999,18 +1020,20 @@ def ucr_fig2(x_metric='Speedup', y_metric='Relative Accuracy',
 
 
 def main():
-    # scan_speed_fig()
-    # encode_speed_fig()
-    # lut_speed_fig()
-    # fig1()
-    # ucr_fig2()
+    scan_speed_fig()
+    encode_speed_fig()
+    lut_speed_fig()
+    fig1()
+    ucr_fig2()
     caltech_fig()
-    caltech_fig(y_metric='1 - NMSE')
-    # cifar_fig()
+    # caltech_fig(y_metric='1 - NMSE')
+    # caltech_fig(x_metric='ops', y_metric='1 - NMSE')
+    cifar_fig()
     # cifar_fig(y_metric='1 - NMSE')
     # cifar_fig(x_metric='ops')
     # cifar_fig(x_metric='ops', y_metric='1 - NMSE')
     # ucr_fig2(x_metric='ops', y_metric='1 - NMSE')
+    # ucr_fig2(x_metric='ops')
     # cifar_fig(y_metric='1 - NMSE')
     # ucr_fig2()
     # ucr_fig2(y_metric='1 - NMSE')
