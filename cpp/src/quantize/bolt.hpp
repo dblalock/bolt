@@ -15,8 +15,6 @@
 #include <type_traits>
 #include "immintrin.h" // this is what defines all the simd funcs + _MM_SHUFFLE
 
-#include "debug_utils.hpp" // TODO rm
-
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
 #else

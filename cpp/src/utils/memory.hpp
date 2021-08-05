@@ -10,7 +10,7 @@
 #define __DIG_MEMORY_HPP
 
 #ifdef BLAZE
-    #include "src/external/eigen/Core"
+    #include "src/external/eigen/Eigen/Core"
 #else
     #include "Core"  // minimal subset of EIGEN that will compile
 #endif

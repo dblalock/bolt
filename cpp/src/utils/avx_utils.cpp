@@ -1,5 +1,10 @@
 
-#include "avx_utils.hpp"
+#ifdef BLAZE
+	//#include "src/utils/avx_utils.hpp"
+	#include "avx_utils.hpp"
+#else
+	#include "avx_utils.hpp"
+#endif
 
 // N has to be a multiple of 8; better if D a multiple of 3 or 4, M a multiple
 // of 2 or 3

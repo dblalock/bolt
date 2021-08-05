@@ -15,8 +15,6 @@
 #include <limits>
 #include "immintrin.h"
 
-#include "debug_utils.hpp" // TODO rm
-
 // #define MITHRAL_USE_BOLT_SAFE_SCAN // way slower, but exact sum of uint8s
 
 #ifdef BLAZE
