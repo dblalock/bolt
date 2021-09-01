@@ -3,7 +3,7 @@
 #ifdef BLAZE
     #include "test/external/catch.hpp"
     #include "src/quantize/multi_codebook.hpp"
-    #include "src/external/eigen/Dense"
+    #include "src/external/eigen/Eigen/Dense"
     #include "src/utils/eigen_utils.hpp"
     #include "src/utils/debug_utils.hpp"
     #include "src/utils/bit_ops.hpp"

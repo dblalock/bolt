@@ -25,7 +25,7 @@
 #include <utility>
 #endif
 
-#include <Eigen/src/Core/util/DisableStupidWarnings.h>
+#include "../../../Eigen/src/Core/util/DisableStupidWarnings.h"
 
 #include "../SpecialFunctions"
 #include "src/util/CXX11Meta.h"
@@ -149,6 +149,6 @@ typedef unsigned __int64 uint64_t;
 
 #include "src/Tensor/TensorIO.h"
 
-#include <Eigen/src/Core/util/ReenableStupidWarnings.h>
+#include "../../../Eigen/src/Core/util/ReenableStupidWarnings.h"
 
 //#endif // EIGEN_CXX11_TENSOR_MODULE

@@ -13,7 +13,7 @@
 #include <vector>
 
 #ifdef BLAZE
-    #include "src/external/eigen/Core"
+    #include "src/external/eigen/Eigen/Core"
     #include "src/utils/eigen_utils.hpp"
 #else
     #include "Core"

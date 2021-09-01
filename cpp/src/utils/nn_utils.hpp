@@ -13,7 +13,7 @@
 
 // #include "Dense"
 #ifdef BLAZE
-    #include "src/external/eigen/Dense"
+    #include "src/external/eigen/Eigen/Dense"
     #include "src/include/public.hpp"  // for Neighbor
 #else
     #include "Dense"

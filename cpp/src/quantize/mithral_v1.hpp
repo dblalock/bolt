@@ -15,8 +15,6 @@
 #include <limits>
 #include "immintrin.h"
 
-#include "debug_utils.hpp" // TODO rm
-
 #ifdef BLAZE
     #include "src/utils/avx_utils.hpp"
 #else

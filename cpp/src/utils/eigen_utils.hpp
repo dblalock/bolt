@@ -11,8 +11,8 @@
 #define EIGEN_DONT_PARALLELIZE // ensure no multithreading
 
 #ifdef BLAZE  // bazel can't deal with pretending stuff is in same dir
-    #include "src/external/eigen/Dense"
-   #include <src/external/eigen/unsupported/Eigen/CXX11/Tensor>
+    #include "src/external/eigen/Eigen/Dense"
+   #include "src/external/eigen/unsupported/Eigen/CXX11/Tensor"
 #else
     #include "Dense"
     #include "unsupported/Eigen/CXX11/Tensor"

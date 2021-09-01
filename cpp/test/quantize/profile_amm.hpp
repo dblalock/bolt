@@ -11,7 +11,7 @@
 
 #ifdef BLAZE
     #include "test/quantize/amm_common.hpp"
-    #include "src/external/eigen/SparseCore"
+    #include "src/external/eigen/Eigen/SparseCore"
 #else
     #include "amm_common.hpp"
     #include "SparseCore"
