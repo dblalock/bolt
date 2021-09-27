@@ -1,4 +1,37 @@
 
+# MADDNESS
+
+## Python
+
+There's a Python implementation of the algorithm [here](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/vq_amm.py#L273), but no Python wrappers, sadly. Contributions welcome. Since SWIG is [constantly breaking](https://github.com/dblalock/bolt/issues/4), I'd suggest just creating PyTorch custom ops.
+
+Unless you need timing measurements, I would definitely recommend using this Python implementation for reproducing our accuracy numbers or building on / comparing to our work.
+
+The file that runs everything is [amm_main.py](https://github.com/dblalock/bolt/blob/master/experiments/python/amm_main.py). It's not pretty, but it is easy to hook in new approximate matrix multiplication algorithms and configure hparam values to sweep over. Run it with `python -m python.amm_main` from the `experiments` directory. See [amm.py](https://github.com/dblalock/bolt/blob/e4fe7b6dc08e9370644c3227f8199ca3c271af13/experiments/python/amm.py#L47) for many example method implementations.
+
+The file with the top-level MADDNESS implementation is [vq_amm.py](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/vq_amm.py#L273), though the guts are mostly in [vquantizers.py](https://github.com/dblalock/bolt/blob/master/experiments/python/vquantizers.py) and [clusterize.py](https://github.com/dblalock/bolt/blob/master/experiments/python/clusterize.py).
+
+
+### Datasets
+
+- [Caltech-101](http://www.vision.caltech.edu/Image_Datasets/Caltech101/) - The dataset we extracted image patches from.
+- [UCR Time Series Archive](https://www.cs.ucr.edu/~eamonn/time_series_data/) - The corpus we used to compare AMM methods across many datasets in a unified manner.
+- [CIFAR-10 and CIFAR-100](https://www.cs.toronto.edu/~kriz/cifar.html).
+
+You'll need to modify `experiments/python/matmul_datasets.py` to point to the paths where you store them all.
+
+## C++
+
+To run any of the MADDNESS C++ code, use [cpp/test/main.cpp](https://github.com/dblalock/bolt/blob/master/cpp/test/main.cpp). I used Catch tests for everything because it gives you a nice CLI and makes debugging easy.
+
+You can run it with no arguments, but you probably want to pass some tags for which tests to run--the full suite takes a while. You probably want something like `[amm] ~[old]` to just run the MADDNESS tests and exclude legacy / debugging tests.
+
+You'll need to use the same steps as for the Bolt C++ code, described below, to get it all to build.
+
+
+# Bolt
+
+
 This page describes how to reproduce the experimental results reported in Bolt's KDD paper.
 
 ## Install Dependencies
@@ -8,6 +41,8 @@ To run the experiments, you will first need to obtain the following tools / libr
 ### C++ Code
 
 - [Bazel](http://bazel.build), Google's open-source build system
+
+Alternative: Xcode. This is the way I developed everything, and should "just work" if you open `cpp/xcode/Bolt/Bolt/Bolt.xcodeproj`.
 
 ### Python Code:
 - [Joblib](https://github.com/joblib/joblib) - for caching function output
@@ -20,7 +55,7 @@ To run the experiments, you will first need to obtain the following tools / libr
 - [Sift1M](http://corpus-texmex.irisa.fr) - 1 million SIFT descriptors. This page also hosts the Sift10M, Sift100M, Sift1B, and Gist1M datasets (not used in the paper)
 - [Convnet1M](https://github.com/una-dinosauria/stacked-quantizers) - 1 million convnet image descriptors
 - [MNIST](http://yann.lecun.com/exdb/mnist/) - 60,000 images of handwritten digits; perhaps the most widely used dataset in machine learning
-- [LabelMe](http://www.cs.toronto.edu/~norouzi/research/mlh/) - 22,000 GIST desciptors of images
+- [LabelMe](http://www.cs.toronto.edu/~norouzi/research/mlh/) - 22,000 GIST descriptors of images
 
 Additional datasets not used in the paper:
 - [Glove](https://github.com/erikbern/ann-benchmarks) - 1 million word embeddings generated using [Glove](https://nlp.stanford.edu/projects/glove/)
