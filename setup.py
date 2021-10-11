@@ -14,6 +14,7 @@ from os.path import splitext
 from setuptools import find_packages
 from setuptools import setup
 from setuptools import Extension
+from setuptools.command.install import install
 
 
 # ================================ C++ extension
@@ -40,8 +41,10 @@ for path in paths:
     for root, dirNames, fileNames in os.walk(srcDir):
         for dirName in dirNames:
             absPath = os.path.join(root, dirName)
+            if absPath.startswith("cpp/src/external"):
+                continue
             print('adding dir to path: %s' % absPath)
-            globStr = "%s/*.c*" % absPath
+            globStr = "%s/*.cpp" % absPath
             files = glob(globStr)
             if 'eigen/src' not in absPath:  # just include top level
                 includeDirs.append(absPath)
@@ -59,17 +62,33 @@ if sys.platform == 'darwin':
     os.environ['LDFLAGS'] = '-mmacosx-version-min=10.9 -stdlib=libc++ -framework Accelerate'
     os.environ["CC"] = "g++"  # force compiling c as c++
 else:  # based on Issue #4
-    extra_args += ['-stdlib=libc++']
-    os.environ['CC'] = "clang"
-    os.environ['CXX'] = "clang++"
-    os.environ['LDFLAGS'] = '-lc++'
+    if "CC" not in os.environ:
+        os.environ['CC'] = "clang"
+    if "CXX" not in os.environ:
+        os.environ['CXX'] = "clang++"
+    # extra_args += ['-stdlib=libc++']
+    # os.environ['CC'] = "clang"
+    # os.environ['CXX'] = "clang++"
+    # os.environ['LDFLAGS'] = '-lc++'
 # else:
     # os.environ["CC"] = "clang++"  # force compiling c as c++
 
 
 # inplace extension module
-includeDirs += [join(PROJ_DIR, 'python', 'bolt')]  # for swig
-nativeExt = Extension("_bolt",  # must match cpp header name with leading _
+includeDirs += [join(PROJ_DIR, 'python', 'bolt')]
+
+if 'EIGEN_INCLUDE_DIR' in os.environ:
+    includeDirs += [
+        os.environ['EIGEN_INCLUDE_DIR'],
+        os.environ['EIGEN_INCLUDE_DIR'] + '/Eigen'
+    ] 
+else:
+    includeDirs += [
+        join(PROJ_DIR, 'cpp', 'src', 'external', 'eigen'),
+        join(PROJ_DIR, 'cpp', 'src', 'external', 'eigen', 'Eigen')
+    ]
+
+nativeExt = Extension("bolt._bolt",  # must match cpp header name with leading _
                       srcFiles,
                       define_macros=[('NDEBUG', '1')],
                       include_dirs=includeDirs,
@@ -81,12 +100,21 @@ nativeExt = Extension("_bolt",  # must match cpp header name with leading _
 
 # ================================ Python modules
 
-glob_str = join('python', 'bolt') + '*.py'
-modules = [splitext(basename(path))[0] for path in glob(glob_str)]
+# glob_str = join('python', 'bolt') + '*.py'
+# modules = [splitext(basename(path))[0] for path in glob(glob_str)]
 
 # ================================ Call to setup()
 
+# This ensures that the extension (which generates bolt.py) is built
+# before py_modules are copied.
+
+class CustomInstall(install):
+    def run(self):
+        self.run_command('build_ext')
+        self.do_egg_install()
+
 setup(
+    cmdclass={'install': CustomInstall},
     name='pybolt',
     version='0.1.4',
     license='MPL',
@@ -97,7 +125,7 @@ setup(
     download_url='https://github.com/dblalock/bolt/archive/0.1.tar.gz',
     packages=['bolt'],
     package_dir={'bolt': 'python/bolt'},
-    py_modules=modules,
+    py_modules=['python/bolt/bolt'],
     include_package_data=True,
     zip_safe=False,
     classifiers=[
@@ -123,7 +151,7 @@ setup(
     install_requires=[
         'numpy',
         'scikit-learn',
-        'kmc2'
+        #'kmc2'
         # 'sphinx_rtd_theme'  # for docs
     ],
     extras_require={
