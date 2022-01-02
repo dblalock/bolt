@@ -1,0 +1,1 @@
+experiments/assets/cifar10-100-softmax+convnet1m.zip filter=lfs diff=lfs merge=lfs -text

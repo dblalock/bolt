@@ -1,6 +1,19 @@
 
 # MADDNESS
 
+
+## Building on our work and possible research projects
+
+If you're interested in building on our work, the subsequent sections should help you with the details. If you think this kind of work is cool but aren't sure what concretely to pursue, here are some ideas I think are really promising:
+
+- **Generalizing our approach to convolutions**. There's a lot of opportunity to reuse encodings here, which could allow the use of a more expensive encoding function (e.g., Bolt encoding, possibly augmented with OPQ-style rotations, learned permutations, or some block-diagonal rotations with intelligent block size).
+- **Exploiting prior knowledge about one of the weight matrices (e.g., neural network weights)**. Instead of optimizing the centroids, you should just optimize the lookup tables directly. This is guaranteed to do no worse on the training set and is still such a simple model that it probably won't overfit. Basically a free win in exchange for stronger assumptions. You could probably change like 30 lines of code, rerun our experiments + recreate our figures, and have a paper.
+- **Applying this approach to deep learning inference**. This will take a lot of CUDA kernel writing, but should be pretty straightforward. The unknowns here basically match those of more traditional quantization---i.e., how much you can get away with in each layer, how much fine-tuning to do, etc. You might even be able to get a training-time speedup if you swap in the ops early, although you'll hit some engineering difficulties here (e.g., torch DDP can't deal with param tensor types or shapes changing).
+- **Throwing more compute at learning the encoding function**. We have a simple greedy algorithm for constructing the tree that runs in seconds or minutes on a laptop. But people are often willing to wait hours or days. You could probably exploit this extra time to explore more trees, more split dimensions, etc. Especially if you use a slightly more expensive encoding function.
+- **Better theoretical guarantees**. Our current generalization guarantee gets *looser* as the training matrix has more low-dimensional structure. It should actually be the opposite, at least for a fixed Frobenius norm. The challenge is showing that the tree learning procedure manages to exploit this structure, rather than just assuming worst-case behavior.
+- **More general theoretical guarantees**. This one is the most speculative. People talk about the constant of *exact* matrix multiplication. But what about approximate matrix multiplication? What's the limit here, as a function of amount of approximation error, characteristics of the matrices being multiplied, etc?
+
+
 ## Python
 
 There's a Python implementation of the algorithm [here](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/vq_amm.py#L273), but no Python wrappers, sadly. Contributions welcome. Since SWIG is [constantly breaking](https://github.com/dblalock/bolt/issues/4), I'd suggest just creating PyTorch custom ops.
@@ -27,6 +40,13 @@ To run any of the MADDNESS C++ code, use [cpp/test/main.cpp](https://github.com/
 You can run it with no arguments, but you probably want to pass some tags for which tests to run--the full suite takes a while. You probably want something like `[amm] ~[old]` to just run the MADDNESS tests and exclude legacy / debugging tests.
 
 You'll need to use the same steps as for the Bolt C++ code, described below, to get it all to build.
+
+
+### Running experiments and making plots
+
+So the bad news is that the data collection pipeline is kind of an abomination. To get timing numbers, I ran the appropriate C++ tests in Catch, which dump results to stdout. I then pasted these into various results files (see `experiments/results/amm`). The file `experiments/python/amm_results2.py` then parses these and joins them with the accuracy numbers from `experiments/python/amm_main.py` to get dataframes of time, acc, std deviation, etc. The file `experiments/python/amm_figs2.py` pulls these results to make figures. If you just want to rerun the existing results and not add your own, you should be able to just use `amm_figs2.py` and not touch `amm_results2.py`. NOTE: `amm_results2.py` uses joblib to cache the results for each method, since they take a while to process; make sure you wipe the cache whenever you want to read in newer numbers.
+
+It of course would have been way nicer to have Pybind11 wrappers for everything instead of catch > stdout > parsing, but...deadlines.
 
 
 # Bolt
