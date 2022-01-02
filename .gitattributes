@@ -1,2 +1,9 @@
 experiments/assets/cifar10-100-softmax+convnet1m.zip filter=lfs diff=lfs merge=lfs -text
 experiments/assets/convnet1m filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/truth_train.npy filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/convnet_queries.npy filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/convnet_test.npy filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/convnet_test_100k.npy filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/convnet_train.npy filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/ground_truth.npy filter=lfs diff=lfs merge=lfs -text
+experiments/assets/convnet1m/truth_test.npy filter=lfs diff=lfs merge=lfs -text
