@@ -12,7 +12,7 @@ Bolt also has [theoretical guarantees](https://github.com/dblalock/bolt/blob/mas
 
 EDIT: this repo now also features the source code for [MADDNESS](https://arxiv.org/abs/2106.10860), our shiny new algorithm for approximate matrix multiplication. MADDNESS has no Python wrapper yet, and is referred to as "mithral" in the source code. Name changed because apparently I'm the only who gets Lord of the Rings references. MADDNESS runs ridiculously fast and, under reasonable assumptions, requires zero multiply-adds. Realistically, it'll be most useful for speeding up neural net inference on CPUs, but it'll take another couple papers to get it there; we need to generalize it to convolution and write the CUDA kernels to allow GPU training. <!-- (it's lightweight, but still full strength! Get it? Guys...?). -->
 
-EDIT2: Looking for a research project?
+EDIT2: Looking for a research project? See our [list of ideas](https://github.com/dblalock/bolt/tree/master/experiments).
 
 **NOTE: All below code refers to the Python wrapper for Bolt and has nothing to do with MADDNESS.** It also seems to be [no longer building](https://github.com/dblalock/bolt/issues/4) for many people. If you want to use MADDNESS, see the [Python Implementation](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/vq_amm.py#L273) driven by [amm_main.py](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/amm_main.py) or [C++ implementation](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/cpp/src/quantize/mithral.cpp). All code is ugly, but Python code should be pretty easy to add new AMM methods/variations to.**
 
