@@ -3,6 +3,8 @@
 MYNAME=${0##*/}
 MYPATH=$(pwd -P)
 
+(cd docker && docker build -t bolt .)
+
 # Create virtual environment
 
 if [ ! -e venv ]; then
@@ -14,8 +16,10 @@ fi
 # Build python package
 
 git submodule update --init
-pip install --use-feature=in-tree-build -r requirements.txt
-pip install --use-feature=in-tree-build ./third_party/kmc2
+pip install -r requirements.txt
+pip install ./third_party/kmc2
+# pip install --use-feature=in-tree-build -r requirements.txt
+# pip install --use-feature=in-tree-build ./third_party/kmc2
 # pip install . # doesn't work due to custom install command
 python setup.py install
 # python tests/test_encoder.py

@@ -7,8 +7,20 @@ also tested with cmake 3.21.0, swig 4.02 and python 3.9.7 (installed
 from Brew) on Mac OS X 10.14.6. Optionally, you can also use the
 system Eigen3 if you have it installed.
 
+### Using Docker
+```
+(cd docker && docker build -t bolt .)
+docker run -v $PWD:$PWD -w $PWD -it bolt /bin/bash
+./build.sh
+source venv/bin/activate
+python tests/test_encoder.py
+./cpp/build-bolt/bolt amm*
+```
+
 ### The Easy Way
 
+This assumes you have appropriate versions of tools, libraries,
+etc. already available on your system.
 ```
 ./build.sh
 source venv/bin/activate
