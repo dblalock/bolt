@@ -44,7 +44,7 @@
 
 %{
   #define SWIG_FILE_WITH_INIT
-  #include "eigen/Core"
+  #include "Eigen/Core"
 %}
 
 %include "numpy.i"
