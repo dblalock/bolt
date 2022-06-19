@@ -54,7 +54,7 @@ struct mithral_amm_task {
         centroids(ncentroids * ncodebooks, D),
         nsplits(ncodebooks * nsplits_per_codebook),
         splitdims(nsplits),
-        splitvals(max_splitvals, nsplits),
+        splitvals(1 << 4, nsplits),
         encode_scales(nsplits),
         encode_offsets(nsplits),
         nnz_per_centroid(lut_work_const > 0 ?

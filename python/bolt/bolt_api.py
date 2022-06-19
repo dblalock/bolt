@@ -3,7 +3,7 @@
 # TODO maybe have sklearn transforms for dot prod and Lp dists
 # TODO add L1 distance
 
-import bolt  # inner bolt because of SWIG
+from . import bolt  # inner bolt because of SWIG
 
 import kmc2  # state-of-the-art kmeans initialization (as of NIPS 2016)
 import numpy as np
@@ -209,8 +209,8 @@ def _learn_quantization_params(X, centroids, elemwise_dist_func, Q=None,
     """learn distros of entries in each lut"""
 
     if Q is None:
-        num_rows = min(10*1000, len(X) / 2)
-        how_many = min(1000, num_rows // 2)
+        num_rows = int(min(10*1000, len(X) / 2))
+        how_many = int(min(1000, num_rows // 2))
         _, Q = _extract_random_rows(
             X[num_rows:], how_many=how_many, remove_from_X=False)
         X = X[:num_rows]  # limit to first 10k rows of X

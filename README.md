@@ -14,7 +14,9 @@ EDIT: this repo now also features the source code for [MADDNESS](https://arxiv.o
 
 EDIT2: Looking for a research project? See our [list of ideas](https://github.com/dblalock/bolt/tree/master/experiments).
 
-**NOTE: All below code refers to the Python wrapper for Bolt and has nothing to do with MADDNESS.** It also seems to be [no longer building](https://github.com/dblalock/bolt/issues/4) for many people. If you want to use MADDNESS, see the [Python Implementation](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/vq_amm.py#L273) driven by [amm_main.py](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/amm_main.py) or [C++ implementation](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/cpp/src/quantize/mithral.cpp). All code is ugly, but Python code should be pretty easy to add new AMM methods/variations to.**
+EDIT3: See [Build.md](https://github.com/dblalock/bolt/blob/master/BUILD.md) for a working dockerfile that builds and runs Bolt, contributed by @mneilly.
+
+**NOTE: All below code refers to the Python wrapper for Bolt and has nothing to do with MADDNESS.** It also seems to be [no longer building](https://github.com/dblalock/bolt/issues/4) for many people. If you want to use MADDNESS, see the [Python Implementation](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/vq_amm.py#L273) driven by [amm_main.py](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/experiments/python/amm_main.py) or [C++ implementation](https://github.com/dblalock/bolt/blob/45454e6cfbc9300a43da6770abf9715674b47a0f/cpp/src/quantize/mithral.cpp). All code is ugly, but Python code should be pretty easy to add new AMM methods/variations to.
 
 <!-- NOTE: All the code, documentation, and results associated with Bolt's KDD paper can be found in the `experiments/` directory. See the README therein for details. A cleaned-up version of the paper is available [here](https://github.com/dblalock/bolt/blob/master/assets/bolt.pdf?raw=true). -->
 
