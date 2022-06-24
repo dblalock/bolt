@@ -102,8 +102,8 @@ for i, q in enumerate(Q):
     dot_corrs[i] = corr(dots_true, dots_bolt)[0]
 
 # dot products closely preserved despite compression
-print "dot product correlation: {} +/- {}".format(
-    np.mean(dot_corrs), np.std(dot_corrs))  # > .97
+print("dot product correlation: {} +/- {}".format(
+    np.mean(dot_corrs), np.std(dot_corrs)))  # > .97
 
 # massive space savings
 print(X.nbytes)  # 1777 rows * 64 cols * 8B = 909KB
