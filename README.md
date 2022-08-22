@@ -26,9 +26,14 @@ EDIT3: See [Build.md](https://github.com/dblalock/bolt/blob/master/BUILD.md) for
 
 ```bash
   $ brew install swig  # for wrapping C++; use apt-get, yum, etc, if not OS X
-  $ pip install numpy  # bolt installation needs numpy already present
   $ git clone https://github.com/dblalock/bolt.git
-  $ cd bolt && python setup.py install
+  $ cd bolt && git submodule update --init # for kmc2
+  $ $(which python3) -m venv venv
+  $ source venv/bin/activate
+  # Install dependencies
+  $ pip install -r requirements.txt # numpy, pytest etc
+  $ pip install ./third_party/kmc2
+  $ python setup.py install
   $ pytest tests/  # optionally, run the tests
 ```
 
