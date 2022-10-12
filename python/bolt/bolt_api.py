@@ -137,6 +137,9 @@ def _learn_centroids(X, ncentroids, ncodebooks):
         start_col = i * subvect_len
         end_col = start_col + subvect_len
         X_in = X[:, start_col:end_col]
+        if np.unique(X_in).size == 1 and X_in.size > 1:
+					#kmc2 has a bug if all rows of matrix are duplicates
+          X_in[0,0] += 0.001
         centroids, labels = kmeans(X_in, ncentroids)
         ret[:, i, :] = centroids
 
